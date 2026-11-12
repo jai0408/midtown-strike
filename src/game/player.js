@@ -39,6 +39,7 @@ export class Player extends Actor {
     this.slideCd = 0;
     this.slideX = 0; this.slideZ = 0;
     this.throwT = -1;
+    this.autoReloadT = 0;
     this.lungeT = 0;
     this.lungeX = 0; this.lungeZ = 0;
     this.meleeHit = false;
@@ -92,6 +93,7 @@ export class Player extends Actor {
     this.meleeT = -1;
     this.burstLeft = 0;
     this.fireCd = 0;
+    this.autoReloadT = 0;
     this.adsWanted = false;
     this.game.input.ads = false;
     this.game.audio.reload(1);
@@ -287,6 +289,10 @@ export class Player extends Actor {
         }
       }
       if (input.pressed.reload) this.startReload();
+      if (this.autoReloadT > 0) {
+        this.autoReloadT -= dt;
+        if (this.autoReloadT <= 0 && w.mag === 0) this.startReload();
+      }
       if (this.reloadT >= 0) {
         this.reloadT += dt;
         const k = this.reloadT / def.reload;
@@ -415,7 +421,7 @@ export class Player extends Actor {
     g.audio.shot(def.sound, 0, 0);
     g.noise(b.x, b.z, this.team, 70);
     if (def.mode === 'bolt') g.audio.bolt();
-    if (w.mag === 0 && w.reserve > 0) this.fireBuffer = 0;
+    if (w.mag === 0 && w.reserve > 0) { this.fireBuffer = 0; this.autoReloadT = 0.28; }
   }
 
   _startMelee() {

@@ -165,8 +165,8 @@ export class FX {
     t.dur = Math.max(0.06, Math.min(0.45, len / 420));
     t.t = t.dur;
     t.len = len;
-    t.w = heavy ? 0.085 : 0.05;
-    if (friendly) { t.r = 1.0; t.g = 0.82; t.b = 0.45; } else { t.r = 1.0; t.g = 0.35; t.b = 0.25; }
+    t.w = heavy ? 0.05 : 0.03;
+    if (friendly) { t.r = 1.0; t.g = 0.85; t.b = 0.5; } else { t.r = 1.0; t.g = 0.3; t.b = 0.18; }
   }
 
   muzzle(x, y, z, big = false) {
@@ -279,7 +279,7 @@ export class FX {
       _b.set(t.ax + (t.bx - t.ax) * f1, t.ay + (t.by - t.ay) * f1, t.az + (t.bz - t.az) * f1);
       _view.copy(_a).add(_b).multiplyScalar(0.5).sub(camera.position);
       const dist = _view.length();
-      _side.subVectors(_b, _a).cross(_view).normalize().multiplyScalar(t.w * (1 + dist * 0.012));
+      _side.subVectors(_b, _a).cross(_view).normalize().multiplyScalar(t.w * (0.6 + dist * 0.016));
       p[k] = _a.x - _side.x; p[k + 1] = _a.y - _side.y; p[k + 2] = _a.z - _side.z;
       p[k + 3] = _a.x + _side.x; p[k + 4] = _a.y + _side.y; p[k + 5] = _a.z + _side.z;
       p[k + 6] = _b.x + _side.x; p[k + 7] = _b.y + _side.y; p[k + 8] = _b.z + _side.z;

@@ -15,7 +15,8 @@ from Maven Central plus a few hundred lines of Python:
 Usage:  python3 build_apk.py [--out ../dist/MidtownStrike.apk]
 
 If you have the Android SDK, the Gradle project in this directory builds the
-same sources the conventional way (./gradlew assembleDebug).
+same sources the conventional way (./gradlew assembleDebug). Package name,
+version and SDK levels are read from app/build.gradle for both paths.
 """
 import argparse
 import os
@@ -169,7 +170,9 @@ class XmlCompiler:
         raise ValueError(kind)
 
     def compile(self, path):
-        root = ET.parse(path).getroot()
+        return self.compile_root(ET.parse(path).getroot())
+
+    def compile_root(self, root):
         nodes = []
         self._walk(root, nodes)
         ns_prefix, ns_uri = self._str('android'), self._str(ANDROID_NS)
@@ -417,6 +420,32 @@ def dump_axml(data):
     return '\n'.join(lines)
 
 
+def gradle_config():
+    """applicationId, SDK levels and version from app/build.gradle (single source of truth)."""
+    with open(os.path.join(HERE, 'app', 'build.gradle'), encoding='utf-8') as fh:
+        text = fh.read()
+    cfg = {}
+    for key in ('applicationId', 'minSdk', 'targetSdk', 'versionCode', 'versionName'):
+        m = re.search(r'^\s*' + key + r'''\s+['"]?([^'"\s]+)['"]?\s*$''', text, re.M)
+        if not m:
+            raise SystemExit('app/build.gradle: cannot find ' + key)
+        cfg[key] = m.group(1)
+    return cfg
+
+
+def manifest_tree(path, cfg):
+    """The source manifest plus what Gradle would merge in."""
+    ET.register_namespace('android', ANDROID_NS)
+    root = ET.parse(path).getroot()
+    a = '{' + ANDROID_NS + '}'
+    root.set('package', cfg['applicationId'])
+    root.set(a + 'versionCode', cfg['versionCode'])
+    root.set(a + 'versionName', cfg['versionName'])
+    sdk = ET.Element('uses-sdk', {a + 'minSdkVersion': cfg['minSdk'], a + 'targetSdkVersion': cfg['targetSdk']})
+    root.insert(0, sdk)
+    return root
+
+
 # ---------------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser()
@@ -444,8 +473,11 @@ def main():
     verify_framework_ids(jars['android'])
 
     # 1. resources
-    manifest_src = os.path.join(MAIN, 'AndroidManifest.xml')
-    package = ET.parse(manifest_src).getroot().attrib['package']
+    cfg = gradle_config()
+    package = cfg['applicationId']
+    if int(cfg['minSdk']) < 24:
+        raise SystemExit('this pipeline signs with scheme v2 only, which needs minSdk >= 24')
+    log('%s %s (code %s), minSdk %s, targetSdk %s' % (package, cfg['versionName'], cfg['versionCode'], cfg['minSdk'], cfg['targetSdk']))
     table = collect_resources(os.path.join(MAIN, 'res'))
     arsc, res_ids = build_arsc(package, table)
 
@@ -456,7 +488,7 @@ def main():
             return res_ids[ref]
         raise SystemExit('unresolved resource reference: ' + ref)
 
-    manifest = XmlCompiler(resolve_ref).compile(manifest_src)
+    manifest = XmlCompiler(resolve_ref).compile_root(manifest_tree(os.path.join(MAIN, 'AndroidManifest.xml'), cfg))
     entries = [('AndroidManifest.xml', manifest)]
     log('manifest: %d bytes, resources.arsc: %d bytes, %d resource ids' % (len(manifest), len(arsc), len(res_ids)))
     if args.verbose:
@@ -520,7 +552,7 @@ def main():
     opens = ['--add-exports=java.base/sun.security.x509=ALL-UNNAMED',
              '--add-exports=java.base/sun.security.pkcs=ALL-UNNAMED']  # apksig 2.3.0 predates JPMS
     print(run(['java'] + opens + ['-cp', jars['apksig'] + os.pathsep + signer_out, 'SignApk',
-               args.keystore, 'android', 'midtownstrike', unsigned, out, '24']).strip())
+               args.keystore, 'android', 'midtownstrike', unsigned, out, cfg['minSdk']]).strip())
 
     misaligned = check_alignment(out)
     if misaligned:

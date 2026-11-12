@@ -94,12 +94,14 @@ function boot() {
 // ---------------------------------------------------------------------------
 // frame loop with dynamic resolution
 // ---------------------------------------------------------------------------
-let last = 0, menuT = 0, ema = 16.7, slowT = 0, fastT = 0, fpsT = 0, frames = 0;
+let last = 0, menuT = 0, ema = 16.7, slowT = 0, fastT = 0, fpsT = 0, frames = 0, pendingScale = 0;
 function frame(now) {
   requestAnimationFrame(frame);
   const raw = Math.min(250, now - last || 16.7);
   last = now;
   const dt = Math.min(0.05, raw / 1000);
+  // resizing clears the canvas, so it must happen before this frame is drawn
+  if (pendingScale) { view.setScale(pendingScale); pendingScale = 0; }
   view.resize();
   if (state === 'playing') {
     game.update(dt);
@@ -124,8 +126,8 @@ function frame(now) {
   if (state === 'playing') {
     ema += (raw - ema) * 0.06;
     if (ema > 27) { slowT += dt; fastT = 0; } else if (ema < 18.5) { fastT += dt; slowT = 0; } else { slowT = 0; fastT = 0; }
-    if (slowT > 1.5) { view.setScale(view.getScale() * 0.87); slowT = 0; }
-    if (fastT > 6) { view.setScale(view.getScale() * 1.07); fastT = 0; }
+    if (slowT > 1.5) { pendingScale = view.getScale() * 0.87; slowT = 0; }
+    if (fastT > 6) { pendingScale = Math.min(1, view.getScale() * 1.07); fastT = 0; }
     frames++; fpsT += raw;
     if (fpsT > 500) {
       if (settings.showFps) hud.el.fps.textContent = Math.round((frames * 1000) / fpsT) + ' fps · ' + Math.round(view.getScale() * 100) + '%';

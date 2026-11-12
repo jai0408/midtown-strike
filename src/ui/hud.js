@@ -35,6 +35,7 @@ const HTML = `
 <div id="feed"></div>
 <div id="crosshair"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i><i class="dot"></i></div>
 <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
+<div id="target"><b></b><i><u></u></i></div>
 <div id="dmg"></div>
 <div id="marker"><i></i><span></span></div>
 <div id="toast"></div>
@@ -73,7 +74,7 @@ export class Hud {
       prompt: $('#prompt'), hp: $('#health-bar'), mag: $('#ammo-mag'), res: $('#ammo-res'), wname: $('#wname'),
       slots: [...root.querySelectorAll('.slot')], stick: $('#stick'), knob: $('#knob'), gren: $('#gren-n'),
       dead: $('#dead'), deadBy: $('#dead-by'), deadT: $('#dead-t'), fire2: root.querySelector('.b-fire2'), fps: $('#fps'),
-      ads: root.querySelector('.b-ads'),
+      ads: root.querySelector('.b-ads'), target: $('#target'),
     };
     this.cache = {};
     this.mapCtx = this.el.minimap.getContext('2d');
@@ -239,6 +240,10 @@ export class Hud {
       this._set('aimOn', p.aimOn, (v) => el.cross.classList.toggle('on', v));
     }
     this._set('scope', p.scoped, (v) => el.scope.classList.toggle('show', v));
+    // name and health of the hostile under the crosshair
+    const ta = p.alive && p.aimOn && p.aimActor && p.aimActor.alive ? p.aimActor : null;
+    this._set('tname', ta ? ta.name : '', (v) => { el.target.style.display = v ? '' : 'none'; el.target.firstElementChild.textContent = v; });
+    if (ta) this._set('thp', Math.round((ta.hp / ta.maxHp) * 20), (v) => { el.target.lastElementChild.firstElementChild.style.width = v * 5 + '%'; });
     if (this.hitT > 0) { this.hitT -= dt; if (this.hitT <= 0) el.hit.className = ''; }
 
     // health + damage

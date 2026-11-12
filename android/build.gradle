@@ -1,0 +1,5 @@
+// Conventional Android build (needs the Android SDK): ./gradlew assembleDebug
+// The SDK-less alternative is build_apk.py in this directory.
+plugins {
+    id 'com.android.application' version '8.5.2' apply false
+}

@@ -75,6 +75,10 @@ button { font: inherit; color: inherit; }
 #hitmarker i:nth-child(4) { transform: rotate(315deg) translateY(-14px); }
 #hitmarker.head i { background: var(--amber); }
 #hitmarker.kill i { background: #ff4040; height: 15px; }
+#target { position: absolute; left: 50%; top: calc(50% - 9.5vh); transform: translateX(-50%); text-align: center; display: none; }
+#target b { display: block; font-size: 2.2vh; letter-spacing: .08em; color: #ff6b6b; }
+#target i { display: block; width: 12vh; height: .7vh; margin: .4vh auto 0; background: rgba(0, 0, 0, .55); }
+#target u { display: block; height: 100%; width: 100%; background: #ff4646; }
 #dmg i { position: absolute; left: 50%; top: 50%; width: 17vh; height: 4vh; border-top: 1vh solid rgba(255, 60, 60, .9); border-radius: 50%; }
 #marker { position: absolute; left: 0; top: 0; }
 #marker i { position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; background: var(--amber); transform: rotate(45deg); box-shadow: 0 0 8px rgba(0, 0, 0, .8); }

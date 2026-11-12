@@ -1,0 +1,48 @@
+plugins {
+    id 'com.android.application'
+}
+
+// build_apk.py reads applicationId, minSdk, targetSdk, versionCode and
+// versionName from this file, so both build paths stay in step.
+android {
+    namespace 'com.midtownstrike.game'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.midtownstrike.game'
+        minSdk 24
+        targetSdk 34
+        versionCode 2
+        versionName '1.0.0'
+    }
+
+    signingConfigs {
+        // Sideload key committed with the project so that every build can
+        // update an installed copy. Use your own key for a store release.
+        sideload {
+            storeFile file('../debug.keystore')
+            storePassword 'android'
+            keyAlias 'midtownstrike'
+            keyPassword 'android'
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.sideload
+        }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.sideload
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    lint {
+        abortOnError false
+    }
+}

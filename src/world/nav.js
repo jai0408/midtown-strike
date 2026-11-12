@@ -56,18 +56,27 @@ export function buildNav(world) {
   const came = new Int16Array(N);
   const state = new Uint8Array(N); // 0 new, 1 open, 2 closed
 
+  const order = new Int16Array(N);
+  const dist2 = new Float32Array(N);
+  /** Closest connected node; with needLos only the handful of nearest candidates are ray-tested. */
   function nearest(x, z, needLos = true) {
-    let best = -1, bd = Infinity;
+    let m = 0;
     for (let i = 0; i < N; i++) {
       const n = nodes[i];
       if (!n.links.length) continue;
-      const d = (n.x - x) * (n.x - x) + (n.z - z) * (n.z - z);
-      if (d >= bd) continue;
-      if (needLos && d > 9 && !world.clear(x, 1.2, z, n.x, 1.2, n.z, F_BUILDING)) continue;
-      bd = d;
-      best = i;
+      dist2[i] = (n.x - x) * (n.x - x) + (n.z - z) * (n.z - z);
+      order[m++] = i;
     }
-    return best;
+    // partial selection sort: the 8 nearest are enough
+    const want = Math.min(needLos ? 8 : 1, m);
+    for (let k = 0; k < want; k++) {
+      let b = k;
+      for (let j = k + 1; j < m; j++) if (dist2[order[j]] < dist2[order[b]]) b = j;
+      const t = order[k]; order[k] = order[b]; order[b] = t;
+      const n = nodes[order[k]];
+      if (!needLos || dist2[order[k]] <= 9 || world.clear(x, 1.2, z, n.x, 1.2, n.z, F_BUILDING)) return order[k];
+    }
+    return -1;
   }
 
   /**
