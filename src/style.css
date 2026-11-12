@@ -94,6 +94,8 @@ button { font: inherit; color: inherit; }
 #banner b { display: block; font-size: 5.4vh; letter-spacing: .16em; font-weight: 900; padding-bottom: .5vh; border-bottom: .5vh solid var(--amber); }
 #banner span { display: block; margin-top: .9vh; font-size: 2.6vh; letter-spacing: .06em; }
 #warn { position: absolute; left: 50%; top: 31vh; transform: translateX(-50%); padding: 1vh 2.4vw; font-size: 3vh; font-weight: 800; letter-spacing: .08em; background: rgba(190, 20, 20, .8); white-space: nowrap; }
+#hint { position: absolute; left: 43%; bottom: 27vh; transform: translateX(-50%); padding: 1vh 2.2vw; font-size: 2.3vh; letter-spacing: .04em; white-space: nowrap; background: rgba(8, 12, 28, .62); border-radius: 99px; }
+#hint b { color: var(--amber); letter-spacing: .1em; }
 #prompt { position: absolute; left: 50%; bottom: 29vh; transform: translateX(-50%); padding: 1.4vh 3vw; font-size: 2.7vh; font-weight: 800; letter-spacing: .06em; white-space: nowrap; color: #06301c; text-shadow: none; background: #7dffb0; border-radius: 99px; box-shadow: 0 4px 16px rgba(0, 0, 0, .5); }
 
 #status { position: absolute; left: 50%; bottom: 13.2vh; transform: translateX(-50%); display: flex; align-items: center; gap: 2vw; }

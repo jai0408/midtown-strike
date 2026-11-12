@@ -41,6 +41,7 @@ const HTML = `
 <div id="toast"></div>
 <div id="banner"><b></b><span></span></div>
 <div id="warn"></div>
+<div id="hint"></div>
 <div id="prompt" data-act="interact"></div>
 <div id="status">
   <div id="health"><div id="health-bar"></div></div>
@@ -74,7 +75,7 @@ export class Hud {
       prompt: $('#prompt'), hp: $('#health-bar'), mag: $('#ammo-mag'), res: $('#ammo-res'), wname: $('#wname'),
       slots: [...root.querySelectorAll('.slot')], stick: $('#stick'), knob: $('#knob'), gren: $('#gren-n'),
       dead: $('#dead'), deadBy: $('#dead-by'), deadT: $('#dead-t'), fire2: root.querySelector('.b-fire2'), fps: $('#fps'),
-      ads: root.querySelector('.b-ads'), target: $('#target'),
+      ads: root.querySelector('.b-ads'), target: $('#target'), hint: $('#hint'),
     };
     this.cache = {};
     this.mapCtx = this.el.minimap.getContext('2d');
@@ -86,7 +87,7 @@ export class Hud {
     this.mapT = 0;
     this.locT = 0;
     this.deadT = 0;
-    this.onTravel = null;
+    this.hintT = 0;
     // compass labels: three turns so that it can scroll seamlessly
     const names = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
     let strip = '';
@@ -158,7 +159,17 @@ export class Hud {
     this.setPrompt(null);
     this.cache = {};
     this.toasts.length = 0;
-    this.root.classList.toggle('touch', game.input.isTouch || 'ontouchstart' in window);
+    const touch = game.input.isTouch || 'ontouchstart' in window;
+    this.root.classList.toggle('touch', touch);
+    // a short reminder of the controls for the first few matches
+    let seen = 0;
+    try { seen = +(localStorage.getItem('midtown-strike-hints') || 0); localStorage.setItem('midtown-strike-hints', seen + 1); } catch (e) { /* storage unavailable */ }
+    this.hintT = seen < 3 ? 9 : 0;
+    this.el.hint.innerHTML = touch
+      ? '<b>LEFT THUMB</b> move · push far to sprint &nbsp; <b>RIGHT THUMB</b> aim &nbsp; <b>RED BUTTON</b> fire'
+      : '<b>WASD</b> move · <b>SHIFT</b> sprint · <b>MOUSE</b> aim and fire · <b>RIGHT CLICK</b> sights · <b>1–4</b> weapons';
+    this.el.hint.style.display = this.hintT > 0 ? '' : 'none';
+    this.el.hint.style.opacity = 1;
   }
 
   hide() {
@@ -314,6 +325,11 @@ export class Hud {
       }
     }
     if (this.bannerT > 0) { this.bannerT -= dt; if (this.bannerT <= 0) el.banner.classList.remove('show'); }
+    if (this.hintT > 0) {
+      this.hintT -= dt;
+      if (this.hintT <= 0) el.hint.style.display = 'none';
+      else if (this.hintT < 1) el.hint.style.opacity = this.hintT;
+    }
     if (!p.alive && !game.over) {
       this.deadT = Math.max(0, this.deadT - dt);
       this._set('deadT', Math.ceil(this.deadT), (v) => { el.deadT.textContent = 'Redeploying in ' + v; });
