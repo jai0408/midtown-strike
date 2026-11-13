@@ -5,10 +5,11 @@ import { Game, MODES } from './game/game.js';
 import { Input } from './game/input.js';
 import { AudioSys } from './game/audio.js';
 import { Hud } from './ui/hud.js';
+import { loadSoldierAssets } from './chars/soldier.js';
 import { WEAPONS, CATEGORIES, DEFAULT_LOADOUT, weaponsIn } from './game/weapons.js';
 import { fmtTime } from './core/util.js';
 
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 const STORE = 'midtown-strike-v1';
 // a laptop or desktop: no touch screen, keyboard and mouse / trackpad instead
 const DESKTOP = !('ontouchstart' in window) && !(navigator.maxTouchPoints > 0);
@@ -63,7 +64,8 @@ function boot() {
     return;
   }
   progress(0.08);
-  setTimeout(() => {
+  setTimeout(async () => {
+    await loadSoldierAssets();   // Blender-built soldier; falls back to the procedural one
     city = buildCity({ onProgress: progress });
     view.scene.add(city.group);
     audio = new AudioSys();

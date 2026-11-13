@@ -5,3 +5,4 @@ android/.gradle/
 android/local.properties
 android/tools/lib/
 *.log
+tools/blender/preview/

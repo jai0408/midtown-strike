@@ -16,8 +16,8 @@ map and code are its own.
 3. Play Protect may warn that it does not recognise the developer, because the APK is signed
    with this project's own key rather than a Play Store one. Choose **Install anyway**.
 
-Requirements: Android 7.0 or newer, OpenGL ES 3.0. The game is 250 KB, needs no permissions
-and no network: every texture, model and sound is generated on the device at start-up.
+Requirements: Android 7.0 or newer, OpenGL ES 3.0. The game is under 1 MB, needs no permissions
+and no network: the city, its textures and all sound are generated on the device at start-up.
 
 ## Install on a Mac
 
@@ -60,10 +60,15 @@ G grenade, F interact, M map. On a trackpad, *Fire mode: Auto* in Settings is ea
 - About 2,600 buildings, 1,700 vehicles and 9,400 collision volumes, generated from a
   fixed seed so the city is identical on every device.
 
-**The Marine** — woodland MARPAT utilities, coyote plate carrier and boots, helmet with
-camouflage cover, flag patch and "U.S. MARINES" tape. One skinned mesh, animated in code:
-run and strafe cycles, crouch, prone, slide, jump, two-handed weapon handling with arm IK,
-reloads, melee swings, hit reactions and falls.
+**The Marine** — woodland MARPAT utilities, coyote plate carrier with magazine pouches and
+radio, hydration pack, helmet with headset and eyewear, knee and elbow pads, flag patch and
+"U.S. MARINES" tape. The model is built in Blender: smooth-skinned limbs and torso, bevelled
+kit, one UV atlas, and baked ambient occlusion so creases and the undersides of the gear read
+properly. It is animated in code: run and strafe cycles, crouch, prone, slide, jump, two-handed
+weapon handling with arm IK, reloads, melee swings, hit reactions and falls. Hostiles share the
+mesh with a dark urban kit and red arm bands.
+
+![The Marine model](docs/marine.jpg)
 
 **Weapons** — one from each class in every loadout, chosen in the menu:
 
@@ -134,6 +139,11 @@ converts it with AOSP `dx`, aligns the archive and signs it with Google's `apksi
 **With the Android SDK**: `android/` is also a standard Gradle project
 (`cd android && ./gradlew assembleDebug`, or open it in Android Studio).
 
+**The soldier model** comes from `tools/blender/build_soldier.py`, which drives Blender through
+its Python module (`pip install bpy numpy pillow`, then run the script with that Python). It
+models, unwraps and bakes the soldier and rewrites `src/chars/soldier_asset.js`; run it only
+when the model changes.
+
 **The Mac app** is the same HTML file in an app bundle with a small launcher script, so it is
 assembled with Python on any operating system: `npm run mac` writes `dist/MidtownStrike-mac.zip`.
 
@@ -153,7 +163,8 @@ assembled with Python on any operating system: `npm run mac` writes `dist/Midtow
 
 ```
 src/world      street plan, city generator, textures, navigation graph
-src/chars      the soldier model and its animation
+src/chars      the soldier: Blender-built mesh and maps, rig and animation
+tools/blender  the Blender script that builds the soldier
 src/game       player, bots, weapons, effects, audio, modes
 src/ui         HUD and touch controls
 android/       host activity, Gradle project, SDK-less APK builder

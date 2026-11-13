@@ -9,6 +9,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { KIT, soldierTexture, glowTexture } from '../world/textures.js';
 import { clamp, damp, lerp, smooth, RNG } from '../core/util.js';
 import { makeWeaponModel } from '../game/weapons.js';
+import { SOLDIER_META, SOLDIER_MESH, SOLDIER_ID, SOLDIER_AO } from './soldier_asset.js';
 
 // name, parent index, rest position in model space
 const RIG = [
@@ -153,11 +154,134 @@ function buildGeometry() {
   return g;
 }
 
+// ---------------------------------------------------------------------------
+// Blender-built model (tools/blender/build_soldier.py): a smooth-skinned mesh
+// plus two baked maps. `baked` stays null if decoding fails, and the game then
+// falls back to the procedural model above.
+// ---------------------------------------------------------------------------
+let baked = null;
+
+function decodeMesh() {
+  const bin = atob(SOLDIER_MESH), n = SOLDIER_META.verts, bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  let off = 0;
+  const take = (len) => { const b = bytes.buffer.slice(off, off + len); off += len; return b; };
+  const p16 = new Int16Array(take(n * 6)), n8 = new Int8Array(take(n * 3));
+  const uv16 = new Uint16Array(take(n * 4)), sk = new Uint8Array(take(n * 3));
+  const index = new Uint16Array(take(SOLDIER_META.tris * 6));
+  const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), uv = new Float32Array(n * 2);
+  const si = new Uint16Array(n * 4), sw = new Float32Array(n * 4);
+  for (let i = 0; i < n * 3; i++) { pos[i] = p16[i] / SOLDIER_META.scale; nor[i] = n8[i] / 127; }
+  for (let i = 0; i < n * 2; i++) uv[i] = uv16[i] / 65535;
+  for (let i = 0; i < n; i++) {
+    si[i * 4] = sk[i * 3]; si[i * 4 + 1] = sk[i * 3 + 1];
+    sw[i * 4] = sk[i * 3 + 2] / 255; sw[i * 4 + 1] = 1 - sk[i * 3 + 2] / 255;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.setAttribute('skinIndex', new THREE.BufferAttribute(si, 4));
+  g.setAttribute('skinWeight', new THREE.BufferAttribute(sw, 4));
+  g.setIndex(new THREE.BufferAttribute(index, 1));
+  g.computeBoundingSphere();
+  return g;
+}
+
+function imageData(src, size) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = c.height = size;
+      const g = c.getContext('2d', { willReadFrequently: true });
+      g.drawImage(img, 0, 0, size, size);
+      resolve(g.getImageData(0, 0, size, size).data);
+    };
+    img.onerror = () => reject(new Error('soldier map failed to decode'));
+    img.src = src;
+  });
+}
+
+/** Decodes the Blender asset. Call once before the first Soldier is created. */
+export async function loadSoldierAssets() {
+  try {
+    const size = SOLDIER_META.tex;
+    const [id, ao] = await Promise.all([imageData(SOLDIER_ID, size), imageData(SOLDIER_AO, size)]);
+    baked = { geometry: decodeMesh(), id, ao, size };
+  } catch (e) {
+    baked = null;
+  }
+  return !!baked;
+}
+
+// colours per team, indexed by the material ids of the baked ID map
+const hex = (h) => [(h >> 16) & 255, (h >> 8) & 255, h & 255];
+const PALETTE = {
+  marine: {
+    camo: [0x4d5e37, 0x71603f, 0xa69a76, 0x23241d].map(hex),       // woodland MARPAT
+    flat: [0, 0, 0x8c7552, 0x6d5a3d, 0x94794f, 0xc99c76, 0x16171a, 0x5e5138, 0x56653a, 0xb22234, 0x5c6a45, 0x3b3d42].map((h) => hex(h)),
+  },
+  enemy: {
+    camo: [0x2f3136, 0x3b3d43, 0x55575c, 0x17181a].map(hex),       // dark urban
+    flat: [0, 0, 0x2b2d31, 0x1c1d20, 0x19191b, 0x2a2a2c, 0x121214, 0x121214, 0xc22530, 0xb3202a, 0x1c1d20, 0x3b3d42].map((h) => hex(h)),
+  },
+};
+
+function bakedTexture(kind) {
+  const { id, ao, size } = baked, pal = PALETTE[kind] || PALETTE.marine;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d');
+  const img = g.createImageData(size, size), d = img.data;
+  const base = pal.flat[2];
+  for (let i = 0, n = size * size; i < n; i++) {
+    const v = id[i * 4], m = v >> 4;
+    let col = base, shade = 1;
+    if (m) {
+      col = m === 1 ? pal.camo[v & 3] : pal.flat[m];
+      // baked ambient occlusion: creases and the undersides of the kit go dark
+      shade = 0.46 + 0.54 * (ao[i * 4] / 255);
+    }
+    d[i * 4] = col[0] * shade; d[i * 4 + 1] = col[1] * shade; d[i * 4 + 2] = col[2] * shade; d[i * 4 + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  // flag patch and name tape live in a reserved strip of the atlas
+  const rect = (r) => [r[0] * size, (1 - r[3]) * size, (r[2] - r[0]) * size, (r[3] - r[1]) * size];
+  const [fx, fy, fw, fh] = rect(SOLDIER_META.patch.flag);
+  const [tx, ty, tw, th] = rect(SOLDIER_META.patch.tape);
+  const marine = kind !== 'enemy';
+  g.fillStyle = marine ? '#b22234' : '#b3202a';
+  g.fillRect(fx - 2, fy - 2, fw + 4, fh + 4);
+  if (marine) {
+    g.fillStyle = '#f1f1f1';
+    for (let k = 1; k < 13; k += 2) g.fillRect(fx - 2, fy + (fh * k) / 13, fw + 4, fh / 13);
+    g.fillStyle = '#3c3b6e';
+    g.fillRect(fx - 2, fy - 2, fw * 0.42 + 2, (fh * 7) / 13 + 2);
+    g.fillStyle = '#fff';
+    for (let r = 0; r < 4; r++) for (let k = 0; k < 5; k++) g.fillRect(fx + 4 + k * 9, fy + 5 + r * 10, 3, 3);
+  } else {
+    g.fillStyle = '#111';
+    g.fillRect(fx + fw * 0.42, fy - 2, fw * 0.16, fh + 4);
+  }
+  g.fillStyle = marine ? '#5c6a45' : '#1c1d20';
+  g.fillRect(tx - 2, ty - 2, tw + 4, th + 4);
+  g.fillStyle = marine ? '#14170e' : '#c22530';
+  g.font = `800 ${Math.round(th * 0.72)}px sans-serif`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(marine ? 'U.S. MARINES' : 'HOSTILE', tx + tw / 2, ty + th / 2 + 1, tw - 6);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
 const textures = {};
 const materials = {};
 function kitMaterial(kind) {
   if (!materials[kind]) {
-    textures[kind] = soldierTexture(kind);
+    textures[kind] = baked ? bakedTexture(kind) : soldierTexture(kind);
     materials[kind] = new THREE.MeshLambertMaterial({ map: textures[kind] });
   }
   return materials[kind];
@@ -188,7 +312,7 @@ const _m = new THREE.Matrix4();
 
 export class Soldier {
   constructor(kind = 'marine') {
-    if (!sharedGeometry) sharedGeometry = buildGeometry();
+    if (!sharedGeometry) sharedGeometry = baked ? baked.geometry : buildGeometry();
     this.kind = kind;
     this.root = new THREE.Group();
     this.bones = [];
