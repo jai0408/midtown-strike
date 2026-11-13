@@ -161,13 +161,15 @@ export class Hud {
     this.toasts.length = 0;
     const touch = game.input.isTouch || 'ontouchstart' in window;
     this.root.classList.toggle('touch', touch);
+    // with a keyboard the slots show their number keys
+    this.el.slots.forEach((s, i) => { s.firstElementChild.textContent = touch ? CATEGORIES[i].short : `${i + 1} · ${CATEGORIES[i].short}`; });
     // a short reminder of the controls for the first few matches
     let seen = 0;
     try { seen = +(localStorage.getItem('midtown-strike-hints') || 0); localStorage.setItem('midtown-strike-hints', seen + 1); } catch (e) { /* storage unavailable */ }
     this.hintT = seen < 3 ? 9 : 0;
     this.el.hint.innerHTML = touch
       ? '<b>LEFT THUMB</b> move · push far to sprint &nbsp; <b>RIGHT THUMB</b> aim &nbsp; <b>RED BUTTON</b> fire'
-      : '<b>WASD</b> move · <b>SHIFT</b> sprint · <b>MOUSE</b> aim and fire · <b>RIGHT CLICK</b> sights · <b>1–4</b> weapons';
+      : '<b>WASD</b> move · <b>SHIFT</b> sprint · <b>MOUSE</b> aim, click to fire · <b>RIGHT CLICK</b> or <b>X</b> sights · <b>1–4</b> weapons · <b>ESC</b> pause';
     this.el.hint.style.display = this.hintT > 0 ? '' : 'none';
     this.el.hint.style.opacity = 1;
   }

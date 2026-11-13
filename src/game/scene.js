@@ -7,6 +7,7 @@ export const QUALITY = {
   low: { height: 540, draw: 0.7, far: 900, aa: false },
   medium: { height: 720, draw: 1.0, far: 1300, aa: false },
   high: { height: 1080, draw: 1.25, far: 1700, aa: true },
+  ultra: { height: 1600, draw: 1.6, far: 2100, aa: true },   // Retina laptops and desktops
 };
 
 export function createScene(canvas, qualityName = 'medium') {

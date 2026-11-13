@@ -28,7 +28,19 @@ export class Input {
     this.isTouch = false;
     this.fireTouches = 0;
     this.onPause = null;
+    this.onLockLost = null;
+    this.locked = false;
+    this._wheelAt = 0;
     this._bind();
+  }
+
+  /** Capture the mouse for looking around. Must be called from a click or key press. */
+  lockPointer() {
+    if (this.isTouch || !this.canvas.requestPointerLock || document.pointerLockElement === this.canvas) return;
+    try {
+      const p = this.canvas.requestPointerLock();
+      if (p && p.catch) p.catch(() => {});
+    } catch (e) { /* not available: dragging with a button held still looks around */ }
   }
 
   setStickElements(base, knob) {
@@ -161,9 +173,17 @@ export class Input {
     const KEY = { Space: 'jump', KeyC: 'crouch', ControlLeft: 'crouch', KeyZ: 'prone', KeyR: 'reload', KeyG: 'grenade', KeyF: 'interact', KeyE: 'interact', KeyM: 'map', KeyQ: 'last', Tab: 'map' };
     window.addEventListener('keydown', (e) => {
       if (!this.enabled) return;
+      if (e.metaKey) {
+        // macOS never sends keyup for keys released while Cmd is down: drop
+        // everything rather than leave the player running into a wall
+        this.keys.clear();
+        this._keys();
+        return;
+      }
       if (e.code === 'Tab' || e.code === 'Space') e.preventDefault();
       if (e.repeat) return;
       this.keys.add(e.code);
+      if (e.code === 'KeyX') { this.ads = !this.ads; this.pressed.ads = true; }   // trackpad-friendly ADS toggle
       if (KEY[e.code]) this.pressed[KEY[e.code]] = true;
       if (e.code >= 'Digit1' && e.code <= 'Digit4') this.pressed.slot = +e.code.slice(5) - 1;
       if (e.code === 'Escape' || e.code === 'KeyP') { if (this.onPause) this.onPause(); }
@@ -189,12 +209,30 @@ export class Input {
     window.addEventListener('mousemove', (e) => {
       if (!this.enabled || this.isTouch) return;
       if (document.pointerLockElement === this.canvas || e.buttons) {
-        this.lookX += e.movementX * 0.0023;
-        this.lookY += e.movementY * 0.0023;
+        // browsers occasionally report one huge jump when the capture starts
+        this.lookX += clamp(e.movementX, -220, 220) * 0.0023;
+        this.lookY += clamp(e.movementY, -220, 220) * 0.0023;
         this.touchLook = false;
       }
     });
-    this.canvas.addEventListener('wheel', (e) => { if (this.enabled) this.pressed.next = true; }, { passive: true });
+    // A trackpad swipe is a long stream of wheel events with inertia, a mouse
+    // wheel is separate notches: switch weapon once at the start of each
+    // gesture, and keep the browser from scrolling, zooming (pinch arrives as
+    // ctrl+wheel) or navigating back.
+    window.addEventListener('wheel', (e) => {
+      if (!this.enabled) return;
+      e.preventDefault();
+      const now = performance.now();
+      const fresh = now - this._wheelAt > 180;
+      this._wheelAt = now;
+      if (fresh && !e.ctrlKey && Math.abs(e.deltaY) >= 1) this.pressed.next = true;
+    }, { passive: false });
+    // losing the mouse capture (Esc, Cmd-Tab) pauses the game
+    document.addEventListener('pointerlockchange', () => {
+      const locked = document.pointerLockElement === this.canvas;
+      if (!locked && this.locked && this.enabled && this.onLockLost) this.onLockLost();
+      this.locked = locked;
+    });
     window.addEventListener('contextmenu', (e) => { if (this.enabled) e.preventDefault(); });
     window.addEventListener('blur', () => { this.keys.clear(); this._keys(); this.fire = false; });
   }

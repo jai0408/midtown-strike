@@ -1,6 +1,6 @@
 # Midtown Strike
 
-A third-person mobile shooter for Android. You play a US Marine fighting through a
+A third-person shooter for Android phones and for Mac. You play a US Marine fighting through a
 2-square-mile recreation of Midtown Manhattan built around Times Square.
 
 It is an original game with the feel of a modern mobile military shooter: the movement,
@@ -18,6 +18,25 @@ map and code are its own.
 
 Requirements: Android 7.0 or newer, OpenGL ES 3.0. The game is 250 KB, needs no permissions
 and no network: every texture, model and sound is generated on the device at start-up.
+
+## Install on a Mac
+
+1. Download **[`dist/MidtownStrike-mac.zip`](dist/MidtownStrike-mac.zip)** and double-click it. You get **Midtown Strike.app**.
+2. Drag it into **Applications** (optional) and open it.
+3. The first time, macOS says it cannot verify the app, because it is not signed with an Apple
+   developer certificate. Click **Done**, open **System Settings → Privacy & Security**, scroll down
+   and click **Open Anyway**. On macOS 14 or older, right-click the app and choose **Open** instead.
+
+The app opens the game in its own window when Chrome, Edge or Brave is installed, and in your
+default browser (Safari) otherwise. Click **PLAY**; the mouse is captured for aiming and **Esc**
+releases it and pauses. Use the **FULL SCREEN** button in the menu for the best view.
+
+If macOS will not open the app at all, right-click it, choose **Show Package Contents**, and open
+`Contents/Resources/game/index.html` in Chrome or Safari: that single file is the whole game.
+
+Keys: WASD move, Shift sprint, Space jump, C crouch, Z prone, mouse or trackpad to aim, click to
+fire, right click (two-finger click) or X for sights, R reload, 1–4 or scroll to change weapon,
+G grenade, F interact, M map. On a trackpad, *Fire mode: Auto* in Settings is easier.
 
 ## What is in the game
 
@@ -115,14 +134,20 @@ converts it with AOSP `dx`, aligns the archive and signs it with Google's `apksi
 **With the Android SDK**: `android/` is also a standard Gradle project
 (`cd android && ./gradlew assembleDebug`, or open it in Android Studio).
 
+**The Mac app** is the same HTML file in an app bundle with a small launcher script, so it is
+assembled with Python on any operating system: `npm run mac` writes `dist/MidtownStrike-mac.zip`.
+
 ### How this build was checked
 
 - The game was driven in headless Chromium: scripted tests of every mechanic, real
   multi-touch input, simulated full matches in both modes, and the menu / pause / results flow.
 - The APK passes `apksig` verification, and an independent parser reads the package name,
   activity, SDK levels and icon resources back correctly.
-- It has **not** been run on a physical phone or emulator from this build environment, and
-  the Gradle path has not been executed here (the Android SDK was not available).
+- The Mac app was unpacked and its launcher run against a stand-in for macOS's `open` command,
+  and the game was played with keyboard and mouse in desktop Chromium from inside the bundle.
+- It has **not** been run on a physical phone, an emulator or a real Mac from this build
+  environment (so Safari and Gatekeeper behaviour are untested), and the Gradle path has not
+  been executed here (the Android SDK was not available).
 
 ## Layout
 
@@ -132,5 +157,6 @@ src/chars      the soldier model and its animation
 src/game       player, bots, weapons, effects, audio, modes
 src/ui         HUD and touch controls
 android/       host activity, Gradle project, SDK-less APK builder
-dist/          the installable APK
+mac/           Mac app bundle: launcher, plist, icon, packer
+dist/          the installable APK and the Mac app
 ```

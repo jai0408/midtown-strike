@@ -8,10 +8,12 @@ import { Hud } from './ui/hud.js';
 import { WEAPONS, CATEGORIES, DEFAULT_LOADOUT, weaponsIn } from './game/weapons.js';
 import { fmtTime } from './core/util.js';
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const STORE = 'midtown-strike-v1';
+// a laptop or desktop: no touch screen, keyboard and mouse / trackpad instead
+const DESKTOP = !('ontouchstart' in window) && !(navigator.maxTouchPoints > 0);
 const DEFAULTS = {
-  difficulty: 'regular', quality: 'medium', sensitivity: 1, autoFire: false, aimAssist: true,
+  difficulty: 'regular', quality: DESKTOP ? 'high' : 'medium', sensitivity: 1, autoFire: false, aimAssist: true,
   holdAds: false, leftFire: false, invertY: false, volume: 0.8, showFps: false,
   loadout: { ...DEFAULT_LOADOUT },
 };
@@ -70,7 +72,16 @@ function boot() {
     input = new Input($('#hud'), canvas);
     input.setStickElements(hud.el.stick, hud.el.knob);
     input.holdAds = settings.holdAds;
-    input.onPause = () => { if (state === 'playing') pause(); else if (state === 'paused') resume(); };
+    // Esc both releases the mouse and (in some browsers) reaches the page as a
+    // key press: make sure the two never cancel each other out
+    let toggledAt = 0;
+    input.onPause = () => {
+      const now = performance.now();
+      if (now - toggledAt < 400) return;
+      toggledAt = now;
+      if (state === 'playing') pause(); else if (state === 'paused') resume();
+    };
+    input.onLockLost = () => { toggledAt = performance.now(); if (state === 'playing') pause(); };
     game = new Game({ view, city, hud, input, audio, settings });
     hud.openTravel = () => openTravel(true);
     hud.results = showResults;
@@ -153,12 +164,12 @@ const seg = (key, options) => `<div class="seg" data-key="${key}">${options.map(
 const settingsHtml = (full) => `
   <div class="settings">
     ${full ? `<div class="set"><label>Difficulty<small>Enemy accuracy and reactions</small></label>${seg('difficulty', [['recruit', 'Recruit'], ['regular', 'Regular'], ['hardened', 'Hardened'], ['veteran', 'Veteran']])}</div>` : ''}
-    <div class="set"><label>Graphics<small>Resolution and draw distance</small></label>${seg('quality', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']])}</div>
+    <div class="set"><label>Graphics<small>Resolution and draw distance</small></label>${seg('quality', DESKTOP ? [['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra']] : [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']])}</div>
     <div class="set"><label>Look sensitivity</label><input type="range" min="0.4" max="2.2" step="0.05" value="${settings.sensitivity}" data-key="sensitivity"></div>
     <div class="set"><label>Fire mode<small>Auto fires when the crosshair is on a hostile</small></label>${seg('autoFire', [[false, 'Manual'], [true, 'Auto']])}</div>
     <div class="set"><label>Aim assist</label>${seg('aimAssist', [[true, 'On'], [false, 'Off']])}</div>
-    <div class="set"><label>Aim down sights</label>${seg('holdAds', [[false, 'Tap'], [true, 'Hold']])}</div>
-    <div class="set"><label>Left fire button</label>${seg('leftFire', [[false, 'Off'], [true, 'On']])}</div>
+    ${DESKTOP ? '' : `<div class="set"><label>Aim down sights</label>${seg('holdAds', [[false, 'Tap'], [true, 'Hold']])}</div>
+    <div class="set"><label>Left fire button</label>${seg('leftFire', [[false, 'Off'], [true, 'On']])}</div>`}
     <div class="set"><label>Invert vertical look</label>${seg('invertY', [[false, 'Off'], [true, 'On']])}</div>
     <div class="set"><label>Volume</label><input type="range" min="0" max="1" step="0.05" value="${settings.volume}" data-key="volume"></div>
     <div class="set"><label>Show frame rate</label>${seg('showFps', [[false, 'Off'], [true, 'On']])}</div>
@@ -215,7 +226,7 @@ function renderMenu() {
       <h3>WEAPONS</h3><p>You carry one weapon from each class: assault rifle, sniper rifle, handgun and a melee weapon. Tap a slot to switch. Sniper rifles use a scope when you aim. The knife lunges at close targets and makes you run faster.</p>
       <h3>HEALTH AND AMMO</h3><p>Health comes back when you stay out of fire for a few seconds. Every elimination tops up your reserve ammunition; every fifth one earns a grenade.</p>
       <h3>CITY SWEEP</h3><p>Follow the amber marker to the nearest hostile strongpoint and eliminate its garrison. Green subway entrances let you fast travel across the map and restock.</p>
-      <h3>KEYBOARD (BROWSER)</h3><p>WASD move · Shift sprint · Space jump · C crouch · Z prone · Mouse aim and fire · Right mouse ADS · R reload · 1–4 weapons · G grenade · F interact · M map · Esc pause</p>
+      <h3>MAC AND PC</h3><p>WASD move · Shift sprint · Space jump · C crouch · Z prone · Mouse or trackpad to aim, click to fire · Right click (two-finger click) or X for sights · R reload · 1–4 or scroll for weapons · G grenade · F interact · M map · Esc pause. On a trackpad, try Fire mode: Auto in Settings.</p>
     </div>`;
   }
   menuEl.innerHTML = `
@@ -224,7 +235,9 @@ function renderMenu() {
       <div class="tabs">${tabs.map(([id, label]) => `<button class="tab ${tab === id ? 'active' : ''}" data-tab="${id}">${label}</button>`).join('')}</div>
     </div>
     <div class="body">${body}</div>
-    <div class="foot"><span>v${VERSION}</span><span>${isAndroid() ? '' : 'Best in landscape on a phone · runs fully offline'}</span></div>`;
+    <div class="foot"><span>v${VERSION}</span><span>${isAndroid() ? '' : DESKTOP ? '<button class="link" data-a="fs">FULL SCREEN</button> · Esc pauses and frees the mouse · runs fully offline' : 'Best in landscape on a phone · runs fully offline'}</span></div>`;
+  const fs = menuEl.querySelector('[data-a=fs]');
+  if (fs) fs.addEventListener('click', toggleFullscreen);
   menuEl.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => { tab = b.dataset.tab; audio.unlock(); audio.ui(); renderMenu(); }));
   menuEl.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => startMatch(b.dataset.mode)));
   menuEl.querySelectorAll('[data-cat]').forEach((b) => b.addEventListener('click', () => {
@@ -239,6 +252,14 @@ function renderMenu() {
 }
 
 const isAndroid = () => typeof window.AndroidHost !== 'undefined';
+
+function toggleFullscreen() {
+  const d = document, el = d.documentElement;
+  try {
+    if (d.fullscreenElement || d.webkitFullscreenElement) (d.exitFullscreen || d.webkitExitFullscreen).call(d);
+    else (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+  } catch (e) { /* not supported here */ }
+}
 
 // ---------------------------------------------------------------------------
 // match flow
@@ -265,6 +286,7 @@ function startMatch(modeId) {
   ema = 16.7;
   input.enabled = true;
   state = 'playing';
+  if (DESKTOP) input.lockPointer();   // this runs inside the PLAY click, so the capture is allowed
 }
 
 function pause() {
@@ -281,8 +303,10 @@ function renderPause() {
   overlayEl.classList.remove('hidden');
   overlayEl.innerHTML = `<div class="panel"><h1>PAUSED</h1><div class="sub">${game.mode.name}</div>
     ${settingsHtml(false)}
-    <div class="row" style="margin-top:3vh"><button class="cta" data-a="resume">RESUME</button><button class="cta ghost" data-a="restart">RESTART</button><button class="cta ghost" data-a="quit">QUIT TO MENU</button></div></div>`;
+    <div class="row" style="margin-top:3vh"><button class="cta" data-a="resume">RESUME</button><button class="cta ghost" data-a="restart">RESTART</button>${DESKTOP ? '<button class="cta ghost" data-a="fs">FULL SCREEN</button>' : ''}<button class="cta ghost" data-a="quit">QUIT TO MENU</button></div></div>`;
   bindSettings(overlayEl, renderPause);
+  const fs = overlayEl.querySelector('[data-a=fs]');
+  if (fs) fs.addEventListener('click', toggleFullscreen);
   overlayEl.querySelector('[data-a=resume]').addEventListener('click', resume);
   overlayEl.querySelector('[data-a=restart]').addEventListener('click', () => startMatch(lastMode));
   overlayEl.querySelector('[data-a=quit]').addEventListener('click', quit);
@@ -297,6 +321,7 @@ function resume() {
   audio.resume();
   state = 'playing';
   last = performance.now();
+  if (DESKTOP) input.lockPointer();
 }
 
 function quit() {
