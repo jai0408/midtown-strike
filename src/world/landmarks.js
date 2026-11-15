@@ -10,6 +10,7 @@ import { F_DEFAULT, F_SOLID, F_BULLET, F_CAMERA, F_SEE, F_BUILDING, F_ALL, S_CON
 import { AD_LAND, AD_PORT } from './textures.js';
 import { addBuilding } from './city.js';
 import * as P from './props.js';
+import { emit, shrubMesh, hash2 } from './plants.js';
 
 const A = (id) => avenueById(id);
 const LAWN = C('#2c5a2e'), LAWN2 = C('#356b35'), PATH = C('#8a7f68'), STONE = C('#8c8678'), WATER = C('#0d2238');
@@ -18,7 +19,8 @@ const WHITE_TINT = [1.25, 1.25, 1.22];
 
 const noop = () => {};
 const lawn = (ctx, x0, z0, x1, z1, col = LAWN) => {
-  ctx.B('flat', (x0 + x1) / 2, (z0 + z1) / 2).floor(x0, z0, x1, z1, CURB + 0.03, col);
+  const t = col === LAWN ? 1 : 1.14;
+  ctx.B('grass', (x0 + x1) / 2, (z0 + z1) / 2).floor(x0, z0, x1, z1, CURB + 0.06, [t, t, t], [x0 / 4, z0 / 4, x1 / 4, z1 / 4]);
   ctx.parks.push({ x0, z0, x1, z1 });
 };
 const paved = (ctx, x0, z0, x1, z1, col = PATH) => ctx.B('flat', (x0 + x1) / 2, (z0 + z1) / 2).floor(x0, z0, x1, z1, CURB + 0.045, col);
@@ -335,8 +337,9 @@ function timesSquare(ctx) {
 
   // --- the red steps -------------------------------------------------------
   const sx0 = -34, sx1 = -18, sz = -118, run = 1.2, rise = 0.36, steps = 12;
-  const red = C('#e0121f'), redHot = C('#ff3b3b');
+  const red = C('#b3101c'), redHot = C('#d63232');
   const Gs = E(-26, -128);
+  Gs.setRM(0.14, 0.05); // glossy red glass treads
   for (let i = 0; i < steps; i++) {
     const zf = sz - i * run, zb = sz - (i + 1) * run, yt = CURB + (i + 1) * rise;
     Gs.floor(sx0, zb, sx1, zf, yt, red);
@@ -350,6 +353,7 @@ function timesSquare(ctx) {
   Gs.quad([sx0, CURB, sz], [sx0, CURB, zBack], [sx0, topY, zBack], [sx0, topY, zTop], mulC(red, 0.75));
   Gs.quad([sx1, CURB, zBack], [sx1, CURB, sz], [sx1, topY, zTop], [sx1, topY, zBack], mulC(red, 0.75));
   Gs.wall(sx0, zBack, sx1, zBack, CURB, topY, mulC(red, 0.6));
+  Gs.setRM(0.85, 0);
   const tk = ctx.signCells.TKTS;
   ctx.B('signs', -26, zBack).wall(sx0 + 3, zBack - 0.05, sx1 - 3, zBack - 0.05, CURB + 1.3, CURB + 3.6, null, [tk.u0, tk.v0, tk.u1, tk.v1]);
   // railing at the top so that it reads as a platform
@@ -485,6 +489,7 @@ function marquee(ctx, x, z, dir, w, rng) {
   const y0 = CURB + 4.7, col = rng.pick(NEON);
   const z0 = dir > 0 ? z : z - 3.2, z1 = dir > 0 ? z + 3.2 : z;
   const G = ctx.B('flat', x, z), E = ctx.B('glow', x, z);
+  G.setRM(0.4, 0.75); // painted metal canopy
   G.box(x - w / 2, y0, z0, x + w / 2, y0 + 1.5, z1, C('#17181c'), 31);
   E.quad([x - w / 2 + 0.2, y0 - 0.02, z0 + 0.2], [x + w / 2 - 0.2, y0 - 0.02, z0 + 0.2], [x + w / 2 - 0.2, y0 - 0.02, z1 - 0.2], [x - w / 2 + 0.2, y0 - 0.02, z1 - 0.2], C('#ffe2a0', 0.95));
   const zf = dir > 0 ? z1 + 0.03 : z0 - 0.03;
@@ -497,6 +502,7 @@ function marquee(ctx, x, z, dir, w, rng) {
   const bz0 = dir > 0 ? z + 0.1 : z - 1.5, bz1 = dir > 0 ? z + 1.5 : z - 0.1;
   E.box(bx - 0.18, y0 + 2, bz0, bx + 0.18, y0 + 12, bz1, C(col, 0.95), 3);
   G.box(bx - 0.14, y0 + 1.8, bz0 - 0.1, bx + 0.14, y0 + 12.2, bz1 + 0.1, C('#101114'), 12 | 16);
+  G.setRM(0.85, 0);
   ctx.pool(x, z + dir * 3, 9, '#ffe2a0', 0.5);
   ctx.glow(bx, y0 + 7, (bz0 + bz1) / 2, col, 2);
 }
@@ -525,7 +531,7 @@ export function buildLandmarks(ctx) {
   // --- Central Park's southern edge ----------------------------------------
   {
     const z0 = -HALF - 320, z1 = STREETS[0].z - STREETS[0].hw - 1.2;
-    ctx.B('flat', 0, z1 - 40, 1).floor(-HALF - 200, z0, HALF + 200, z1, CURB + 0.03, LAWN);
+    ctx.B('grass', 0, z1 - 40, 1).floor(-HALF - 200, z0, HALF + 200, z1, CURB + 0.03, [1, 1, 1], [(-HALF - 200) / 4, z0 / 4, (HALF + 200) / 4, z1 / 4]);
     ctx.parks.push({ x0: -HALF, z0: -HALF, x1: HALF, z1 });
     // the stone wall marks the edge of the playable area
     const wz = -HALF + 1.5;
@@ -577,7 +583,7 @@ export function buildLandmarks(ctx) {
       G.box(a.x - 2.2, 0, z0, a.x + 2.2, 0.42, z1, C('#6f6e6a'), 31);
       G.floor(a.x - 1.9, z0 + 0.3, a.x + 1.9, z1 - 0.3, 0.44, LAWN2);
       world.addBox(a.x - 2.2, 0, z0, a.x + 2.2, 0.42, z1, F_SOLID | F_BULLET, S_CONCRETE);
-      for (let z = z0 + 5; z < z1 - 3; z += 12) G.blob(a.x, 1.15, z, 1.3, 0.8, 1.3, C('#1e4a2b'), C('#2f6b3c'));
+      for (let z = z0 + 5; z < z1 - 3; z += 12) { const q = hash2(a.x, z, 9); emit(ctx.B('foliage', a.x, z), shrubMesh(1 + Math.floor(q * 3)).leaf, a.x, 0.44, z, q * 6.28, 1.5, 1.0 + 0.4 * q, 1.5, [0.9, 1, 0.9]); }
     }
   }
 

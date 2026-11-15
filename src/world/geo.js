@@ -11,7 +11,7 @@ export function C(hex, mul = 1) {
 export const mulC = (c, k) => [c[0] * k, c[1] * k, c[2] * k];
 
 export class Geo {
-  constructor({ uv = false, normal = true, color = true } = {}) {
+  constructor({ uv = false, normal = true, color = true, rm = false } = {}) {
     this.hasUV = uv;
     this.hasN = normal;
     this.hasC = color;
@@ -23,6 +23,9 @@ export class Geo {
     this.nor = normal ? new Float32Array(this._vcap * 3) : null;
     this.uv = uv ? new Float32Array(this._vcap * 2) : null;
     this.col = color ? new Float32Array(this._vcap * 3) : null;
+    // per-vertex roughness / metalness for core/pbr.js; set the current pair with setRM()
+    this.rm = rm ? new Float32Array(this._vcap * 2) : null;
+    this.rough = 0.85; this.metal = 0;
     this.idx = new Uint32Array(this._icap);
     // optional local transform (yaw about Y + translation)
     this.cos = 1; this.sin = 0; this.tx = 0; this.ty = 0; this.tz = 0;
@@ -31,6 +34,11 @@ export class Geo {
   setXform(x = 0, y = 0, z = 0, yaw = 0) {
     this.tx = x; this.ty = y; this.tz = z;
     this.cos = Math.cos(yaw); this.sin = Math.sin(yaw);
+    return this;
+  }
+  /** Roughness / metalness given to the vertices added from now on. */
+  setRM(rough = 0.85, metal = 0) {
+    this.rough = rough; this.metal = metal;
     return this;
   }
   resetXform() {
@@ -45,6 +53,7 @@ export class Geo {
       if (this.nor) this.nor = grow(this.nor, 3);
       if (this.uv) this.uv = grow(this.uv, 2);
       if (this.col) this.col = grow(this.col, 3);
+      if (this.rm) this.rm = grow(this.rm, 2);
     }
     if (this.ni + ni > this._icap) {
       while (this.ni + ni > this._icap) this._icap *= 2;
@@ -74,6 +83,10 @@ export class Geo {
       this.col[i * 3] = c[0];
       this.col[i * 3 + 1] = c[1];
       this.col[i * 3 + 2] = c[2];
+    }
+    if (this.rm) {
+      this.rm[i * 2] = this.rough;
+      this.rm[i * 2 + 1] = this.metal;
     }
     return i;
   }
@@ -179,12 +192,31 @@ export class Geo {
     }
   }
 
+  /**
+   * Appends a decoded Blender mesh (core/meshasset.js) under the current
+   * transform. Vertices with paint mask 1 / 2 are multiplied by tint / tint2.
+   */
+  mesh(m, tint, tint2) {
+    this._reserve(m.nv, m.ni);
+    const base = this.nv, white = [1, 1, 1], c = [0, 0, 0], r0 = this.rough, m0 = this.metal;
+    for (let i = 0; i < m.nv; i++) {
+      const k = i * 3, mk = m.mask[i];
+      const t = mk === 1 ? tint || white : mk === 2 ? tint2 || tint || white : white;
+      this.rough = m.rm[i * 2]; this.metal = m.rm[i * 2 + 1];
+      c[0] = m.col[k] * t[0]; c[1] = m.col[k + 1] * t[1]; c[2] = m.col[k + 2] * t[2];
+      this.vert(m.pos[k], m.pos[k + 1], m.pos[k + 2], m.nor[k], m.nor[k + 1], m.nor[k + 2], 0, 0, c);
+    }
+    this.rough = r0; this.metal = m0;
+    for (let i = 0; i < m.ni; i++) this.idx[this.ni++] = base + m.idx[i];
+  }
+
   build() {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.pos.slice(0, this.nv * 3), 3));
     if (this.nor) g.setAttribute('normal', new THREE.BufferAttribute(this.nor.slice(0, this.nv * 3), 3));
     if (this.uv) g.setAttribute('uv', new THREE.BufferAttribute(this.uv.slice(0, this.nv * 2), 2));
     if (this.col) g.setAttribute('color', new THREE.BufferAttribute(this.col.slice(0, this.nv * 3), 3));
+    if (this.rm) g.setAttribute('rm', new THREE.BufferAttribute(this.rm.slice(0, this.nv * 2), 2));
     const idx = this.nv > 65535 ? this.idx.slice(0, this.ni) : Uint16Array.from(this.idx.subarray(0, this.ni));
     g.setIndex(new THREE.BufferAttribute(idx, 1));
     g.computeBoundingSphere();

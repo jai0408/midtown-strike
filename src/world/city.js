@@ -8,6 +8,8 @@ import {
   groundAt, makeBlocks,
 } from './layout.js';
 import { Geo, C, mulC } from './geo.js';
+import { pbrMaterial } from '../core/pbr.js';
+import { vehicleMaterial } from './vehicle_material.js';
 import * as T from './textures.js';
 import { waterTower } from './props.js';
 import { specialBlock, buildLandmarks, populateStreets } from './landmarks.js';
@@ -18,47 +20,135 @@ export const SHOP_H = 4.6;
 
 // which vertex attributes each material family needs
 const LAYOUT = {
-  walk: { uv: true }, flat: {}, glow: { normal: false }, marks: { uv: true, color: false },
+  walk: { uv: true }, flat: { rm: true }, veh: { uv: true, rm: true }, glow: { normal: false }, marks: { uv: true, color: false },
   shop: { uv: true, normal: false, color: false }, ads: { uv: true, normal: false, color: false },
   adsA: { uv: true, normal: false, color: false }, adsB: { uv: true, normal: false, color: false },
   ticker: { uv: true, normal: false, color: false }, signs: { uv: true, normal: false, color: false },
   pool: { uv: true, normal: false },
+  foliage: { uv: true }, bark: { uv: true }, grass: { uv: true }, soil: { uv: true },
 };
 for (let i = 0; i < T.FACADES.length; i++) LAYOUT['facade' + i] = { uv: true };
 
 // draw distance per family (metres); Infinity = fog decides
-const RANGE = { flat: 520, glow: 700, marks: 380, shop: 560, signs: 160, pool: 420 };
+const RANGE = { flat: 520, veh: 300, glow: 700, marks: 380, shop: 560, signs: 160, pool: 420, foliage: 280, bark: 280 };
+// Cars and trees are small and numerous: finer chunks so the draw distance
+// above can actually drop the far ones (the default grid's chunks are ~360 m wide).
+const FINE_GRID = { veh: 12, foliage: 12, bark: 12 };
+
+// World-space low-frequency variation that breaks up texture tiling on the
+// big ground surfaces: tonal drift, plus damp patches that turn glossy.
+function breakTiling(mat, key, { damp = 0.8, drift = 0.3 } = {}) {
+  mat.onBeforeCompile = (s) => {
+    s.vertexShader = s.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWp;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWp = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    s.fragmentShader = s.fragmentShader
+      .replace('#include <common>', `#include <common>
+        varying vec3 vWp;
+        float tbH(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float tbN(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+          return mix(mix(tbH(i), tbH(i + vec2(1.0, 0.0)), f.x), mix(tbH(i + vec2(0.0, 1.0)), tbH(i + vec2(1.0, 1.0)), f.x), f.y); }
+        float tbDamp;`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        float tbA = tbN(vWp.xz * 0.043) * 0.6 + tbN(vWp.xz * 0.19) * 0.4;
+        tbDamp = smoothstep(0.62, 0.8, tbN(vWp.xz * 0.027 + 11.0) * 0.7 + tbN(vWp.xz * 0.11) * 0.3);
+        diffuseColor.rgb *= (1.0 - ${drift.toFixed(2)} * 0.5) + ${drift.toFixed(2)} * tbA;
+        diffuseColor.rgb *= 1.0 - 0.38 * tbDamp * ${damp.toFixed(2)};`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        roughnessFactor = mix(roughnessFactor, 0.3, tbDamp * ${damp.toFixed(2)});`);
+  };
+  mat.customProgramCacheKey = () => 'tb' + key;
+  return mat;
+}
+
+// LED board look: dot-matrix pixel grid that fades out with distance (no moire),
+// slightly desaturated so the boards read as lit screens rather than paint.
+function ledScreen(mat, tex, pitch = 3) {
+  mat.onBeforeCompile = (s) => {
+    s.uniforms.uLedSize = { value: new THREE.Vector2(tex.image.width / pitch, tex.image.height / pitch) };
+    s.fragmentShader = s.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec2 uLedSize;')
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        {
+          vec2 pg = vMapUv * uLedSize;
+          vec2 f = abs(fract(pg) - 0.5) * 2.0;
+          float led = 1.0 - 0.34 * smoothstep(0.5, 0.95, max(f.x, f.y));
+          float fw = max(fwidth(pg.x), fwidth(pg.y));
+          led = mix(led, 0.84, clamp(fw * 1.2 - 0.25, 0.0, 1.0));
+          float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+          diffuseColor.rgb = mix(vec3(lum), diffuseColor.rgb, 0.88) * led * 0.92;
+        }`);
+  };
+  mat.customProgramCacheKey = () => 'led' + pitch;
+  return mat;
+}
 
 function makeMaterials() {
   const M = {};
-  M.ground = new THREE.MeshLambertMaterial({ map: T.asphaltTexture() });
-  M.walk = new THREE.MeshLambertMaterial({ map: T.pavingTexture(), vertexColors: true });
-  M.flat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const road = T.asphaltTexture();
+  M.ground = breakTiling(new THREE.MeshStandardMaterial({
+    map: road.map, normalMap: road.normalMap, normalScale: new THREE.Vector2(0.9, 0.9),
+    roughnessMap: road.orm, metalnessMap: road.orm, roughness: 1, metalness: 1, envMapIntensity: 0.7,
+  }), 'road');
+  const pave = T.pavingTexture();
+  M.walk = breakTiling(new THREE.MeshStandardMaterial({
+    map: pave.map, normalMap: pave.normalMap, normalScale: new THREE.Vector2(0.8, 0.8),
+    roughnessMap: pave.orm, metalnessMap: pave.orm, roughness: 1, metalness: 1, vertexColors: true,
+  }), 'walk', { damp: 0.45, drift: 0.22 });
+  M.flat = pbrMaterial({ grain: 9, grainAmount: 0.14 });
+  M.veh = vehicleMaterial();
   M.glow = new THREE.MeshBasicMaterial({ vertexColors: true });
-  M.marks = new THREE.MeshLambertMaterial({
-    map: T.markingsTexture(), transparent: true, depthWrite: false,
+  M.marks = new THREE.MeshStandardMaterial({
+    map: T.markingsTexture(), transparent: true, depthWrite: false, roughness: 0.72, metalness: 0,
     polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
   });
   T.FACADES.forEach((def, i) => {
     const tex = T.facadeTextures(def, 100 + i * 17);
-    M['facade' + i] = new THREE.MeshLambertMaterial({
-      map: tex.map, emissiveMap: tex.emissive, emissive: 0xffffff, emissiveIntensity: 1.0, vertexColors: true,
+    M['facade' + i] = new THREE.MeshStandardMaterial({
+      map: tex.map, emissiveMap: tex.emissive, emissive: 0xffffff, emissiveIntensity: 0.85, vertexColors: true,
+      normalMap: tex.normalMap, normalScale: new THREE.Vector2(1, 1),
+      roughnessMap: tex.roughnessMap, metalnessMap: tex.metalnessMap, roughness: 1, metalness: 1,
     });
   });
+  // vegetation
+  {
+    const leaf = T.foliageTextures();
+    M.foliage = new THREE.MeshStandardMaterial({
+      map: leaf.map, alphaMap: leaf.alphaMap, alphaTest: 0.45, side: THREE.DoubleSide, vertexColors: true,
+      roughness: 0.78, metalness: 0, envMapIntensity: 0.8,
+    });
+    // leaf cards carry smooth crown normals: keep them lit the same on both faces
+    M.foliage.onBeforeCompile = (s) => {
+      s.fragmentShader = s.fragmentShader.replace('#include <normal_fragment_begin>',
+        THREE.ShaderChunk.normal_fragment_begin.replace('float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;', 'float faceDirection = 1.0;'));
+    };
+    M.foliage.customProgramCacheKey = () => 'leafcards';
+    const bark = T.barkTextures();
+    M.bark = new THREE.MeshStandardMaterial({
+      map: bark.map, normalMap: bark.normalMap, normalScale: new THREE.Vector2(1.2, 1.2), vertexColors: true, roughness: 0.95, metalness: 0,
+    });
+    const grass = T.grassTextures();
+    M.grass = breakTiling(new THREE.MeshStandardMaterial({
+      map: grass.map, normalMap: grass.normalMap, normalScale: new THREE.Vector2(0.7, 0.7), vertexColors: true, roughness: 0.92, metalness: 0,
+    }), 'grass', { damp: 0, drift: 0.28 });
+    M.soil = new THREE.MeshStandardMaterial({ map: T.soilTexture(), vertexColors: true, roughness: 1, metalness: 0 });
+  }
   M.shop = new THREE.MeshBasicMaterial({ map: T.shopTexture(), color: 0xd8d8d8 });
-  M.ads = new THREE.MeshBasicMaterial({ map: T.adsTexture() });
+  const adsTex = T.adsTexture();
+  M.ads = ledScreen(new THREE.MeshBasicMaterial({ map: adsTex }), adsTex);
   const anim = T.adsAnimTexture();
-  M.adsA = new THREE.MeshBasicMaterial({ map: anim });
+  M.adsA = ledScreen(new THREE.MeshBasicMaterial({ map: anim }), anim);
   const anim2 = anim.clone();
   anim2.needsUpdate = true;
-  M.adsB = new THREE.MeshBasicMaterial({ map: anim2 });
-  M.ticker = new THREE.MeshBasicMaterial({ map: T.tickerTexture() });
+  M.adsB = ledScreen(new THREE.MeshBasicMaterial({ map: anim2 }), anim2);
+  const tickTex = T.tickerTexture();
+  M.ticker = ledScreen(new THREE.MeshBasicMaterial({ map: tickTex }), tickTex, 2);
   const signs = T.signsTexture();
   M.signs = new THREE.MeshBasicMaterial({ map: signs.texture, color: 0xb8b8b8 });
   M.signCells = signs.cells;
   const glow = T.glowTexture();
   M.pool = new THREE.MeshBasicMaterial({
-    map: glow, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending,
+    map: glow, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, opacity: 0.4,
     depthWrite: false, fog: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
   });
   M.points = new THREE.PointsMaterial({
@@ -91,7 +181,11 @@ function district(cx, cz) {
 const TINTS = [
   [1, 1, 1], [0.9, 0.92, 1], [1, 0.95, 0.88], [0.82, 0.84, 0.9], [1.08, 1.0, 0.94], [0.9, 0.86, 0.84], [0.75, 0.8, 0.9], [1.1, 1.05, 1.0],
 ];
-const ROOF = C('#26282c'), ROOF2 = C('#33363b');
+const ROOF = C('#26282c'), ROOF2 = C('#33363b'); // tar / gravel roofs
+// cornice / trim colour per facade style: glass, slab, stone, brick, loft, deco
+const STYLE_CORNICE = ['#2f3238', '#8e8c88', '#a59d8c', '#9b8f7d', '#7b6858', '#b3a98f'].map((h) => C(h));
+const AWNING = ['#1f4a3a', '#6a1f26', '#1d2f55', '#3a3a3d', '#7a5a22', '#20262c'].map((h) => C(h));
+const hash2 = (x, z, k = 0) => { const v = Math.sin(x * 12.9898 + z * 78.233 + k * 37.719) * 43758.5453; return v - Math.floor(v); };
 
 export function buildCity({ onProgress } = {}) {
   const rng = new RNG(20260411);
@@ -103,7 +197,7 @@ export function buildCity({ onProgress } = {}) {
 
   // -- chunked geometry builders -------------------------------------------
   const builders = new Map();
-  const B = (mat, x, z, grid = CHUNKS) => {
+  const B = (mat, x, z, grid = FINE_GRID[mat] || CHUNKS) => {
     const size = (HALF * 2) / grid;
     const cx = clamp(Math.floor((x + HALF) / size), 0, grid - 1);
     const cz = clamp(Math.floor((z + HALF) / size), 0, grid - 1);
@@ -151,6 +245,7 @@ export function buildCity({ onProgress } = {}) {
     const uv = g.attributes.uv;
     for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (size / 7), uv.getY(i) * (size / 7));
     const mesh = new THREE.Mesh(g, M.ground);
+    mesh.receiveShadow = true;
     mesh.matrixAutoUpdate = false;
     group.add(mesh);
   }
@@ -317,6 +412,10 @@ export function buildCity({ onProgress } = {}) {
   for (const [key, b] of builders) {
     if (!b.ni) continue;
     const mesh = new THREE.Mesh(b.build(), M[b.mat]);
+    mesh.receiveShadow = b.mat === 'flat' || b.mat === 'walk' || b.mat === 'marks' || b.mat === 'foliage' || b.mat === 'bark' || b.mat === 'grass' || b.mat === 'soil' || b.mat.startsWith('facade');
+    mesh.castShadow = b.mat === 'flat' || b.mat.startsWith('facade');
+    if (b.mat === 'veh') { mesh.receiveShadow = true; mesh.castShadow = false; mesh.userData.shadowHigh = true; }
+    if (b.mat === 'foliage' || b.mat === 'bark') mesh.userData.shadowHigh = true; // main.js shadowCasters(): High/Ultra only
     mesh.matrixAutoUpdate = false;
     mesh.name = key;
     if (b.mat === 'marks') mesh.renderOrder = 1;
@@ -417,8 +516,93 @@ export function addBuilding(ctx, b) {
       G.wall(ax, az, bx, bz, yLow, y1, tint, [run, yLow / def.tileH + vOff, u1, y1 / def.tileH + vOff]);
       run = u1;
     }
+    R.setRM(0.95, 0);
     R.floor(x0, z0, x1, z1, y1, ti === tiers.length - 1 ? ROOF : ROOF2);
+    R.setRM(0.85, 0);
   });
+
+  // --- architectural depth: cornices, parapets, fins, storefront bands, rooftop plant.
+  // All variation comes from a position hash so the city rng sequence is untouched.
+  if (!b.simple) {
+    const hh = (k) => hash2(cx, cz, k);
+    const CORN = STYLE_CORNICE[b.style], metal = b.style === 0;
+    const dark = mulC(CORN, 0.78), light = mulC(CORN, 1.15);
+    R.setRM(metal ? 0.45 : 0.9, metal ? 0.6 : 0);
+    tiers.forEach((t, ti) => {
+      const [x0, z0, x1, z1, y0, y1] = t;
+      if (Math.min(x1 - x0, z1 - z0) < 6) return;
+      const ov = metal ? 0.1 : 0.3, ch = metal ? 0.4 : 0.75;
+      // projecting cornice ring under the roof line
+      R.box(x0 - ov, y1 - ch, z0 - ov, x1 + ov, y1, z0, CORN, 56, light);
+      R.box(x0 - ov, y1 - ch, z1, x1 + ov, y1, z1 + ov, CORN, 52, light);
+      R.box(x0 - ov, y1 - ch, z0, x0, y1, z1, CORN, 50, light);
+      R.box(x1, y1 - ch, z0, x1 + ov, y1, z1, CORN, 49, light);
+      if (!metal && ti === tiers.length - 1) {
+        // parapet wall with a stone cap
+        const ph = 0.9 + hh(3) * 0.5, th = 0.3;
+        R.box(x0, y1, z0, x1, y1 + ph, z0 + th, dark, 28, light);
+        R.box(x0, y1, z1 - th, x1, y1 + ph, z1, dark, 28, light);
+        R.box(x0, y1, z0 + th, x0 + th, y1 + ph, z1 - th, dark, 19, light);
+        R.box(x1 - th, y1, z0 + th, x1, y1 + ph, z1 - th, dark, 19, light);
+      }
+      // vertical fins on glass / slab towers
+      if (b.style <= 1 && b.h > 90) {
+        const span = 8, fy0 = ti === 0 ? y0 + SHOP_H : y0;
+        const fc = b.style === 0 ? mulC(CORN, 1.1) : mulC(CORN, 0.9);
+        for (let x = x0 + span / 2; x < x1 - 1; x += span) {
+          R.box(x - 0.1, fy0, z0 - 0.38, x + 0.1, y1 - ch, z0, fc, 11);
+          R.box(x - 0.1, fy0, z1, x + 0.1, y1 - ch, z1 + 0.38, fc, 7);
+        }
+        for (let z = z0 + span / 2; z < z1 - 1; z += span) {
+          R.box(x0 - 0.38, fy0, z - 0.1, x0, y1 - ch, z + 0.1, fc, 14);
+          R.box(x1, fy0, z - 0.1, x1 + 0.38, y1 - ch, z + 0.1, fc, 13);
+        }
+      }
+    });
+    // storefront band above the shop windows + awnings
+    const t0 = tiers[0];
+    const wl = [[t0[0], t0[1], t0[2], t0[1], 1], [t0[2], t0[1], t0[2], t0[3], 2], [t0[2], t0[3], t0[0], t0[3], 4], [t0[0], t0[3], t0[0], t0[1], 8]];
+    for (const [ax, az, bx, bz, bit] of wl) {
+      if (!(b.shops & bit)) continue;
+      const len = Math.hypot(bx - ax, bz - az), nx = (bz - az) / len, nz = -(bx - ax) / len;
+      const rect = (proj, a0, a1) => { // wall-aligned rectangle projecting outward; a0..a1 along the wall (0..1)
+        const px = ax + (bx - ax) * a0, pz = az + (bz - az) * a0, qx = ax + (bx - ax) * a1, qz = az + (bz - az) * a1;
+        let xa = Math.min(px, qx), xb = Math.max(px, qx), za = Math.min(pz, qz), zb = Math.max(pz, qz);
+        if (nx > 0.5) xb += proj; else if (nx < -0.5) xa -= proj; else if (nz > 0.5) zb += proj; else za -= proj;
+        return [xa, za, xb, zb];
+      };
+      const out = nx > 0.5 ? 1 : nx < -0.5 ? 2 : nz > 0.5 ? 4 : 8;
+      const [ba, bz0, bb, bz1] = rect(0.45, 0, 1);
+      R.setRM(0.9, 0);
+      R.box(ba, t0[4] + SHOP_H - 0.05, bz0, bb, t0[4] + SHOP_H + 0.4, bz1, STYLE_CORNICE[2], out | 16 | 32, light);
+      const n = Math.max(1, Math.round(len / 8));
+      for (let k = 0; k < n; k++) {
+        if (hash2(cx + k * 3.1, cz + bit, 11) > 0.26) continue;
+        const [aa, az0, ab, az1] = rect(1.7, (k + 0.06) / n, (k + 0.94) / n);
+        const ac = AWNING[Math.floor(hash2(cx + k, cz, 12) * AWNING.length)];
+        R.setRM(0.95, 0);
+        R.box(aa, t0[4] + 3.15, az0, ab, t0[4] + 3.3, az1, ac, 31 & ~out, mulC(ac, 1.2));
+      }
+    }
+    // rooftop plant
+    const ln = tiers[tiers.length - 1];
+    const lw = ln[2] - ln[0], ld = ln[3] - ln[1];
+    if (lw > 8 && ld > 8 && b.h < 150) {
+      R.setRM(0.7, 0.3);
+      const nUnits = 1 + Math.floor(hh(20) * 2);
+      for (let k = 0; k < nUnits; k++) {
+        const ux = ln[0] + 1.8 + hh(21 + k) * (lw - 5), uz = ln[1] + 1.8 + hh(31 + k) * (ld - 5);
+        const uw = 1.2 + hh(41 + k) * 1.4, ud = 0.9 + hh(51 + k) * 0.8, uh = 0.9 + hh(61 + k) * 1.0;
+        const uc = mulC(C(hh(71 + k) < 0.5 ? '#6f7378' : '#8a8d8f'), 0.8 + 0.3 * hh(81 + k));
+        R.box(ux, top, uz, ux + uw, top + uh, uz + ud, uc, 31, mulC(uc, 1.2));
+      }
+      if (hh(91) < 0.4) {
+        const px = ln[0] + 2 + hh(92) * (lw - 4), pz = ln[1] + 2 + hh(93) * (ld - 4);
+        R.cyl(px, pz, top, top + 1.6 + hh(94) * 2.2, 0.2, 0.2, 5, C('#4a4d52'), true);
+      }
+    }
+    R.setRM(0.85, 0);
+  }
 
   // roof furniture
   const last = tiers[tiers.length - 1];

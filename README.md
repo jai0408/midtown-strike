@@ -107,7 +107,12 @@ to look, hold the red button to fire (keep dragging on it to track). Buttons for
 crouch, prone, reload and grenade; tap a weapon slot to switch; tap the minimap for the full map.
 
 In a desktop browser: WASD, Shift sprint, Space jump, C crouch, Z prone, mouse to aim and fire,
-right mouse ADS, R reload, 1–4 weapons, G grenade, F interact, M map, Esc pause.
+right mouse ADS, R reload, 1–4 weapons, G grenade, F interact, M map, V first / third person,
+L photo mode, Esc pause (the pause menu also lists every control).
+
+Photo mode (L, or the camera button on touch) freezes the match and turns the camera into a
+drone: WASD fly, mouse look, Space/E up, C/Q down, Shift fast, Alt slow, scroll to zoom,
+click or Enter saves a PNG, L or Esc leaves.
 
 ## Building
 

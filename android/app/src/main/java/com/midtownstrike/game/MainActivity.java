@@ -1,8 +1,12 @@
 package com.midtownstrike.game;
 
 import android.app.Activity;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.provider.MediaStore;
+import android.util.Base64;
 import android.util.Log;
 import android.view.View;
 import android.view.Window;
@@ -172,6 +176,24 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String platform() {
             return "android";
+        }
+
+        /** Saves a PNG (base64, no data: prefix) to the gallery. Returns "ok" or the error. */
+        @JavascriptInterface
+        public String savePhoto(String base64, String name) {
+            try {
+                byte[] raw = Base64.decode(base64, Base64.DEFAULT);
+                Bitmap bmp = BitmapFactory.decodeByteArray(raw, 0, raw.length);
+                if (bmp == null) {
+                    return "could not decode image";
+                }
+                String url = MediaStore.Images.Media.insertImage(
+                        getContentResolver(), bmp, name, "Midtown Strike photo");
+                bmp.recycle();
+                return url != null ? "ok" : "gallery refused the image";
+            } catch (Throwable t) {
+                return String.valueOf(t.getMessage());
+            }
         }
     }
 }

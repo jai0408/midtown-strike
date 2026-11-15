@@ -50,7 +50,11 @@ button { font: inherit; color: inherit; }
 #objective { position: absolute; left: 50%; top: 8.2vh; transform: translateX(-50%); padding: .8vh 2vw; font-size: 2.5vh; font-weight: 700; letter-spacing: .06em; white-space: nowrap; background: rgba(8, 12, 28, .6); border-bottom: .5vh solid var(--amber); }
 
 #btn-pause { right: calc(1.6vw + var(--sr)); top: 2.4vh; width: 9.5vh; height: 9.5vh; }
-#fps { position: absolute; right: calc(1.6vw + var(--sr) + 11vh); top: 3vh; font-size: 2.2vh; opacity: .7; font-variant-numeric: tabular-nums; }
+.b-view { right: calc(1.6vw + var(--sr) + 11.5vh); top: 2.4vh; width: 9.5vh; height: 9.5vh; }
+.b-view b { font-size: 2.3vh; letter-spacing: .06em; }
+#fps { position: absolute; right: calc(1.6vw + var(--sr) + 34.5vh); top: 3vh; font-size: 2.2vh; opacity: .7; font-variant-numeric: tabular-nums; }
+.b-photo { right: calc(1.6vw + var(--sr) + 23vh); }
+.b-photo svg { width: 50%; height: 50%; }
 #feed { position: absolute; right: calc(1.6vw + var(--sr)); top: 14vh; text-align: right; font-size: 2.5vh; }
 #feed div { margin-bottom: .5vh; padding: .3vh .9vw; background: rgba(8, 12, 28, .5); display: inline-block; clear: both; float: right; white-space: nowrap; }
 #feed i { font-style: normal; opacity: .8; margin: 0 .7vw; font-size: 2.1vh; }
@@ -64,7 +68,8 @@ button { font: inherit; color: inherit; }
 #crosshair .r { width: 9px; height: 2px; top: -1px; left: var(--gap); }
 #crosshair .dot { width: 2px; height: 2px; left: -1px; top: -1px; }
 #crosshair.on i { background: #ff4040; }
-#crosshair.melee i { display: none; }
+#crosshair.melee i, #crosshair.reddot i { display: none; }
+#crosshair.reddot .dot { display: block; width: 5px; height: 5px; left: -2.5px; top: -2.5px; border-radius: 50%; background: #ff2a2a; box-shadow: 0 0 4px 1px rgba(255, 40, 40, .8); }
 #crosshair.melee .dot { display: block; width: 6px; height: 6px; left: -3px; top: -3px; border-radius: 50%; }
 #hitmarker { position: absolute; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; }
 #hitmarker.show { opacity: 1; }
@@ -134,6 +139,27 @@ button { font: inherit; color: inherit; }
 .b-grenade.empty { opacity: .4; }
 #hud:not(.touch) .btn:not(#btn-pause), #hud:not(.touch) #stick { display: none; }
 
+/* photo mode: the gameplay HUD goes away, only #photo and the stick stay */
+#photo { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: none; }
+#hud.photo > *:not(#photo):not(#stick) { display: none !important; }
+#hud.photo #photo { display: block; }
+#photo-hint { position: absolute; left: calc(1.6vw + var(--sl)); top: 2.4vh; padding: 1vh 1.2vw; font-size: 2vh; line-height: 1.5; letter-spacing: .03em; background: rgba(8, 12, 28, .5); border-radius: 1vh; }
+#photo-hint b { color: var(--amber); letter-spacing: .08em; }
+#photo-hint.off { display: none; }
+#photo-fov { position: absolute; left: calc(1.6vw + var(--sl)); bottom: 2.4vh; padding: .5vh 1vw; font-size: 2.2vh; font-weight: 700; letter-spacing: .08em; background: rgba(8, 12, 28, .5); border-radius: .8vh; font-variant-numeric: tabular-nums; }
+.b-shutter { right: calc(11vw + var(--sr)); bottom: 22vh; width: 20vh; height: 20vh; background: rgba(255, 255, 255, .22); border-color: rgba(255, 255, 255, .8); }
+.b-rise { right: calc(1.6vw + var(--sr)); bottom: 38vh; width: 12vh; height: 12vh; }
+.b-sink { right: calc(1.6vw + var(--sr)); bottom: 22vh; width: 12vh; height: 12vh; }
+.b-leave { right: calc(1.6vw + var(--sr)); top: 2.4vh; width: 9.5vh; height: 9.5vh; }
+#photo-toast { position: absolute; left: 50%; bottom: 4vh; transform: translateX(-50%); display: none; align-items: center; gap: 1.2vw; padding: .8vh 1.6vw .8vh .8vh; font-size: 2.6vh; letter-spacing: .1em; background: rgba(8, 12, 28, .8); border-radius: 1vh; white-space: nowrap; }
+#photo-toast.go { display: flex; animation: photo-toast 2.2s ease-out forwards; }
+#photo-toast img { height: 7vh; border-radius: .5vh; }
+#photo-toast b.err { color: #ff6b6b; padding-left: .8vw; }
+#photo-flash { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: #fff; opacity: 0; }
+#photo-flash.go { animation: photo-flash .25s ease-out; }
+@keyframes photo-flash { from { opacity: .9; } to { opacity: 0; } }
+@keyframes photo-toast { 0%, 75% { opacity: 1; } 100% { opacity: 0; } }
+
 #stick { position: absolute; width: 28vh; height: 28vh; margin: -14vh 0 0 -14vh; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .4); background: rgba(255, 255, 255, .07); opacity: 0; transition: opacity .12s; }
 #stick.sprint { border-color: var(--amber); box-shadow: 0 0 0 3px rgba(255, 176, 32, .35); }
 #knob { position: absolute; left: 50%; top: 50%; width: 11.5vh; height: 11.5vh; border-radius: 50%; background: rgba(255, 255, 255, .5); transform: translate(-50%, -50%); }
@@ -191,6 +217,11 @@ button { cursor: pointer; }
 .set input[type=range] { width: 18vw; accent-color: var(--amber); touch-action: pan-x; }
 .help { columns: 2; column-gap: 3vw; font-size: 2.4vh; line-height: 1.5; }
 .help h3 { margin: 0 0 .6vh; font-size: 2.3vh; letter-spacing: .16em; color: var(--amber); }
+.panel .help { margin: 2vh 0; text-align: left; }
+/* the controls page inside the pause menu: the text scrolls, BACK always stays in view */
+.panel.ctl { display: flex; flex-direction: column; overflow: hidden; }
+.panel.ctl h1 { font-size: 5vh; }
+.panel.ctl .help { flex: 1; min-height: 0; overflow-y: auto; touch-action: pan-y; font-size: 2.2vh; padding-right: 1vw; }
 .help p { margin: 0 0 1.8vh; break-inside: avoid; }
 
 .panel { width: min(92vw, 150vh); max-height: 92vh; padding: 3vh 3vw; background: rgba(8, 12, 30, .92); border: 1px solid rgba(255, 255, 255, .2); border-radius: 1.8vh; text-align: center; overflow-y: auto; touch-action: pan-y; }

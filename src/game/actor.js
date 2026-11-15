@@ -18,6 +18,7 @@ export class Actor {
     this.isPlayer = false;
     this.body = makeBody(0.38, HEIGHTS[STAND]);
     this.soldier = new Soldier(team === MARINES ? 'marine' : 'enemy');
+    this.soldier.mesh.castShadow = true;
     game.scene.add(this.soldier.root);
     this.yaw = 0;
     this.pitch = 0;
@@ -56,6 +57,8 @@ export class Actor {
   setWeapon(def) {
     this.def = def;
     this.soldier.setWeapon(def);
+    const w = this.soldier.weapon;
+    if (w && w.userData.fit && (def.pose !== 'melee' || def.id === 'sword')) w.scale.setScalar(w.userData.fit);   // the longsword is true size too
   }
 
   place(x, z, yaw = 0) {

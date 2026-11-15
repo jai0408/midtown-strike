@@ -16,6 +16,10 @@ const ICON = {
   reload: '<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M38 24a14 14 0 1 1-4.5-10.3"/><path d="M34 6v9h-9"/></svg>',
   grenade: '<svg viewBox="0 0 48 48" fill="currentColor"><rect x="19" y="6" width="10" height="7" rx="1.5"/><path d="M29 8h7v9h-3v-6h-4z"/><ellipse cx="24" cy="29" rx="12" ry="14"/></svg>',
   pause: '<svg viewBox="0 0 48 48" fill="currentColor"><rect x="13" y="10" width="8" height="28" rx="2"/><rect x="27" y="10" width="8" height="28" rx="2"/></svg>',
+  camera: '<svg viewBox="0 0 48 48" fill="currentColor"><path d="M17 11h14l3 5h7a3 3 0 0 1 3 3v19a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V19a3 3 0 0 1 3-3h7z"/><circle cx="24" cy="27" r="7.5" fill="#0b1226"/><circle cx="24" cy="27" r="4.2"/></svg>',
+  up: '<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 30l12-12 12 12"/></svg>',
+  down: '<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 18l12 12 12-12"/></svg>',
+  exit: '<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"><path d="M12 12l24 24M36 12L12 36"/></svg>',
 };
 
 const HTML = `
@@ -31,6 +35,8 @@ const HTML = `
 <div id="objective"></div>
 <div id="compass"><div id="compass-strip"></div><i id="compass-obj"></i><i id="compass-tick"></i></div>
 <div id="btn-pause" class="btn" data-act="pause">${ICON.pause}</div>
+<div class="btn b-view" data-act="view"><b id="view-mode">TPP</b></div>
+<div class="btn b-view b-photo" data-act="photo">${ICON.camera}</div>
 <div id="fps"></div>
 <div id="feed"></div>
 <div id="crosshair"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i><i class="dot"></i></div>
@@ -58,6 +64,16 @@ const HTML = `
 <div class="btn b-reload" data-act="reload">${ICON.reload}</div>
 <div class="btn b-grenade" data-act="grenade">${ICON.grenade}<small id="gren-n">2</small></div>
 <div id="dead"><b>ELIMINATED</b><span id="dead-by"></span><em id="dead-t"></em></div>
+<div id="photo">
+  <div id="photo-hint"></div>
+  <div id="photo-fov"></div>
+  <div class="btn b-shutter" data-act="shutter">${ICON.camera}</div>
+  <div class="btn b-rise" data-act="up">${ICON.up}</div>
+  <div class="btn b-sink" data-act="down">${ICON.down}</div>
+  <div class="btn b-leave" data-act="photo">${ICON.exit}</div>
+  <div id="photo-toast"></div>
+  <div id="photo-flash"></div>
+</div>
 `;
 
 const _p = new THREE.Vector3();
@@ -76,6 +92,7 @@ export class Hud {
       slots: [...root.querySelectorAll('.slot')], stick: $('#stick'), knob: $('#knob'), gren: $('#gren-n'),
       dead: $('#dead'), deadBy: $('#dead-by'), deadT: $('#dead-t'), fire2: root.querySelector('.b-fire2'), fps: $('#fps'),
       ads: root.querySelector('.b-ads'), target: $('#target'), hint: $('#hint'),
+      photoHint: $('#photo-hint'), photoFov: $('#photo-fov'), photoToast: $('#photo-toast'), photoFlash: $('#photo-flash'),
     };
     this.cache = {};
     this.mapCtx = this.el.minimap.getContext('2d');
@@ -88,6 +105,7 @@ export class Hud {
     this.locT = 0;
     this.deadT = 0;
     this.hintT = 0;
+    this.photoUrl = '';
     // compass labels: three turns so that it can scroll seamlessly
     const names = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
     let strip = '';
@@ -145,7 +163,7 @@ export class Hud {
   }
 
   begin(game) {
-    this.root.classList.remove('hidden');
+    this.root.classList.remove('hidden', 'photo');
     const tdm = game.mode.id === 'tdm';
     this.el.topbar.style.display = tdm ? '' : 'none';
     this.el.objective.style.display = tdm ? 'none' : '';
@@ -169,13 +187,70 @@ export class Hud {
     this.hintT = seen < 3 ? 9 : 0;
     this.el.hint.innerHTML = touch
       ? '<b>LEFT THUMB</b> move · push far to sprint &nbsp; <b>RIGHT THUMB</b> aim &nbsp; <b>RED BUTTON</b> fire'
-      : '<b>WASD</b> move · <b>SHIFT</b> sprint · <b>MOUSE</b> aim, click to fire · <b>RIGHT CLICK</b> or <b>X</b> sights · <b>1–4</b> weapons · <b>ESC</b> pause';
+      : '<b>WASD</b> move · <b>SHIFT</b> sprint · <b>MOUSE</b> aim, click to fire · <b>RIGHT CLICK</b> or <b>X</b> sights · <b>1–4</b> weapons · <b>V</b> first / third person · <b>L</b> photo mode · <b>ESC</b> pause';
     this.el.hint.style.display = this.hintT > 0 ? '' : 'none';
     this.el.hint.style.opacity = 1;
   }
 
   hide() {
+    this.root.classList.remove('photo');
     this.root.classList.add('hidden');
+  }
+
+  /** Photo mode: the CSS hides the gameplay HUD and shows #photo (and the stick on touch). */
+  photoBegin() {
+    const touch = this.root.classList.contains('touch');
+    this.root.classList.add('photo');
+    this.clearDown();
+    this.el.photoHint.classList.remove('off');
+    this.el.photoToast.innerHTML = '';
+    this.cache.fov = null;
+    this.el.photoHint.innerHTML = touch
+      ? '<b>PHOTO MODE</b><br>Left thumb fly · drag to look<br>▲ ▼ rise / descend · camera button captures'
+      : '<b>PHOTO MODE</b> · <b>WASD</b> fly · <b>MOUSE</b> look<br><b>SPACE / E</b> up · <b>C / Q</b> down · <b>SHIFT</b> fast · <b>ALT</b> slow<br><b>SCROLL</b> zoom · <b>CLICK / ENTER</b> capture<br><b>H</b> hide this · <b>L / ESC</b> exit';
+  }
+
+  photoEnd() {
+    this.root.classList.remove('photo');
+    this.clearDown();
+    this.el.photoToast.innerHTML = '';
+    this._revokePhoto();
+  }
+
+  /** Buttons held while input was reset never get their touchend: un-press them. */
+  clearDown() {
+    this.root.querySelectorAll('.down').forEach((e) => e.classList.remove('down'));
+  }
+
+  photoHintToggle() {
+    this.el.photoHint.classList.toggle('off');
+  }
+
+  photoFov(fov) {
+    this._set('fov', Math.round(fov), (v) => { this.el.photoFov.textContent = 'FOV ' + v + '°'; });
+  }
+
+  photoFlash() {
+    const f = this.el.photoFlash;
+    f.classList.remove('go');
+    void f.offsetWidth;   // restart the animation when shots come quickly
+    f.classList.add('go');
+  }
+
+  /** Toast with a thumbnail (blob URL) or an error message when url is null. */
+  photoToast(url) {
+    this._revokePhoto();
+    const t = this.el.photoToast;
+    t.innerHTML = url ? `<img src="${url}" alt=""><b>PHOTO SAVED</b>` : '<b class="err">COULD NOT SAVE PHOTO</b>';
+    this.photoUrl = url || '';
+    t.classList.remove('go');
+    void t.offsetWidth;
+    t.classList.add('go');
+  }
+
+  _revokePhoto() {
+    if (this.photoUrl) { try { URL.revokeObjectURL(this.photoUrl); } catch (e) { /* ignore */ } }
+    this.photoUrl = '';
   }
 
   hitMarker(kill, head) {
@@ -245,8 +320,11 @@ export class Hud {
 
     // crosshair
     const def = p.def;
-    const showCross = p.alive && !p.scoped && !game.over;
+    const fpAds = p.fp && p.adsK > 0.6 && def.cat !== 'melee';
+    const showCross = p.alive && !p.scoped && !game.over && (!fpAds || !!def.optic);
+    this._set('viewMode', p.fp, (v) => { const e = document.getElementById('view-mode'); if (e) e.textContent = v ? 'FPP' : 'TPP'; });
     this._set('cross', showCross ? (def.cat === 'melee' ? 2 : 1) : 0, (v) => { el.cross.style.display = v ? '' : 'none'; el.cross.classList.toggle('melee', v === 2); });
+    this._set('reddot', fpAds && !!def.optic, (v) => el.cross.classList.toggle('reddot', v));
     if (showCross) {
       const gap = Math.round(clamp((Math.tan((p.spread * Math.PI) / 180) / Math.tan((cam.fov * Math.PI) / 360)) * (H / 2), 3, H * 0.2));
       this._set('gap', gap, (v) => el.cross.style.setProperty('--gap', v + 'px'));
