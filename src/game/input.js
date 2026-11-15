@@ -3,7 +3,7 @@
 // Desktop: WASD + mouse with pointer lock, for testing in a browser.
 import { clamp } from '../core/util.js';
 
-const blankPressed = () => ({ fire: false, ads: false, jump: false, crouch: false, prone: false, reload: false, grenade: false, interact: false, pause: false, map: false, next: false, last: false, slot: -1 });
+const blankPressed = () => ({ fire: false, ads: false, jump: false, crouch: false, prone: false, reload: false, grenade: false, interact: false, pause: false, map: false, next: false, last: false, view: false, photo: false, shutter: false, slot: -1 });
 
 export class Input {
   constructor(root, canvas) {
@@ -16,9 +16,11 @@ export class Input {
     this.ads = false;
     this.sprint = false;
     this.sprintLock = false;
+    this.up = false; this.down = false;   // photo-mode rise / descend buttons (held)
+    this.wheel = 0;                       // wheel delta since the last frame (photo-mode zoom)
     this.touchLook = false;
     this.pressed = blankPressed();
-    this.idle = { moveX: 0, moveY: 0, lookX: 0, lookY: 0, fire: false, ads: false, sprint: false, sprintLock: false, touchLook: false, pressed: blankPressed() };
+    this.idle = { moveX: 0, moveY: 0, lookX: 0, lookY: 0, fire: false, ads: false, sprint: false, sprintLock: false, touchLook: false, up: false, down: false, wheel: 0, pressed: blankPressed() };
     this.holdAds = false;
     this.keys = new Set();
     this.touches = new Map();   // identifier -> { role, x, y, act }
@@ -51,6 +53,7 @@ export class Input {
   reset() {
     this.moveX = this.moveY = this.lookX = this.lookY = 0;
     this.fire = false; this.ads = false; this.sprint = false; this.sprintLock = false;
+    this.up = false; this.down = false; this.wheel = 0;
     this.fireTouches = 0;
     this.touches.clear();
     this.stick = null;
@@ -60,9 +63,9 @@ export class Input {
   }
 
   endFrame() {
-    this.lookX = 0; this.lookY = 0;
+    this.lookX = 0; this.lookY = 0; this.wheel = 0;
     const p = this.pressed;
-    p.fire = p.ads = p.jump = p.crouch = p.prone = p.reload = p.grenade = p.interact = p.pause = p.map = p.next = p.last = false;
+    p.fire = p.ads = p.jump = p.crouch = p.prone = p.reload = p.grenade = p.interact = p.pause = p.map = p.next = p.last = p.view = p.photo = p.shutter = false;
     p.slot = -1;
   }
 
@@ -75,6 +78,8 @@ export class Input {
         p.ads = true;
         break;
       case 'slot': p.slot = +el.dataset.slot; break;
+      case 'up': this.up = true; break;
+      case 'down': this.down = true; break;
       case 'pause': if (this.onPause) this.onPause(); break;
       default: if (act in p) p[act] = true;
     }
@@ -84,6 +89,8 @@ export class Input {
   _release(act, el) {
     if (act === 'fire' || act === 'fire2') { if (this.fireTouches <= 0) this.fire = false; }
     else if (act === 'ads' && this.holdAds) this.ads = false;
+    else if (act === 'up') this.up = false;
+    else if (act === 'down') this.down = false;
     if (el) el.classList.remove('down');
   }
 
@@ -170,7 +177,7 @@ export class Input {
     root.addEventListener('touchcancel', end, opts);
 
     // --- desktop ------------------------------------------------------------
-    const KEY = { Space: 'jump', KeyC: 'crouch', ControlLeft: 'crouch', KeyZ: 'prone', KeyR: 'reload', KeyG: 'grenade', KeyF: 'interact', KeyE: 'interact', KeyM: 'map', KeyQ: 'last', Tab: 'map' };
+    const KEY = { Space: 'jump', KeyC: 'crouch', ControlLeft: 'crouch', KeyZ: 'prone', KeyR: 'reload', KeyG: 'grenade', KeyF: 'interact', KeyE: 'interact', KeyM: 'map', KeyQ: 'last', Tab: 'map', KeyV: 'view', KeyL: 'photo', Enter: 'shutter', NumpadEnter: 'shutter' };
     window.addEventListener('keydown', (e) => {
       if (!this.enabled) return;
       if (e.metaKey) {
@@ -223,6 +230,8 @@ export class Input {
       if (!this.enabled) return;
       e.preventDefault();
       const now = performance.now();
+      // photo mode zooms with the same events (line-mode wheels report small units)
+      if (!e.ctrlKey) this.wheel += e.deltaY * (e.deltaMode === 1 ? 33 : 1);
       const fresh = now - this._wheelAt > 180;
       this._wheelAt = now;
       if (fresh && !e.ctrlKey && Math.abs(e.deltaY) >= 1) this.pressed.next = true;

@@ -14,6 +14,20 @@ const SPRINT = 6.7;
 const JUMP_V = 5.9;
 const _v = new THREE.Vector3(), _m = new THREE.Vector3();
 
+// First person: where the weapon's sight point sits in camera space (x right,
+// y up, -z forward) at the hip and when aiming down the sights.
+const FP_HOLD = {
+  rifle: { hip: [0.105, -0.074, -0.2], ads: -0.2 },
+  sniper: { hip: [0.105, -0.082, -0.12], ads: -0.1 },
+  pistol: { hip: [0.085, -0.085, -0.36], ads: -0.42 },
+};
+// eye relief behind the sight point when aiming (m), where it differs from the pose default
+const FP_EYE = { ak47: -0.34, m16: -0.1, m4: -0.2, m1911: -0.45, ksr29: -0.05 };
+// hip position of the sight point per weapon, where the pose default does not suit (big scopes)
+const FP_HIP = { ksr29: [0.13, -0.125, -0.21], m40: [0.12, -0.11, -0.16], m107: [0.12, -0.115, -0.18] };
+const _fpE = new THREE.Euler(), _fpQ = new THREE.Quaternion(), _fpP = new THREE.Vector3(), _fpS = new THREE.Vector3(1, 1, 1);
+const _fpM = new THREE.Matrix4(), _fpM2 = new THREE.Matrix4(), _fpInv = new THREE.Matrix4();
+
 export class Player extends Actor {
   constructor(game, loadout) {
     super(game, MARINES, 'YOU');
@@ -48,6 +62,8 @@ export class Player extends Actor {
     this.camY = 0;
     this.camBack = 3.3;
     this.camSide = 0.75;
+    this.fp = game.settings.view === 'fpp';   // first-person camera
+    this.fpK = this.fp ? 1 : 0;
     this.stepT = 0;
     this.shakeP = 0; this.shakeY = 0;
     this.scoped = false;
@@ -127,6 +143,7 @@ export class Player extends Actor {
       this._kinematics();
       this._camera(dt, 1);
       this.updateModel(dt);
+      this._fpView(dt);
       return;
     }
     const def = this.def;
@@ -245,6 +262,11 @@ export class Player extends Actor {
 
     // --- weapons ------------------------------------------------------------
     if (input.pressed.slot >= 0) this.selectSlot(input.pressed.slot);
+    if (input.pressed.view) {
+      this.fp = !this.fp;
+      g.settings.view = this.fp ? 'fpp' : 'tpp';
+      if (g.onSettings) g.onSettings();
+    }
     if (input.pressed.next) this.selectSlot((this.slot + 1) % this.slots.length);
     if (input.pressed.last) this.selectSlot(this.lastSlot);
     this.switchT = Math.max(0, this.switchT - dt);
@@ -348,6 +370,59 @@ export class Player extends Actor {
 
     this._camera(dt, 0);
     this.updateModel(dt);
+    this._fpView(dt);
+  }
+
+  /**
+   * First-person weapon hold: runs after the soldier animation and moves the
+   * weapon so it is locked to the camera (sights on the screen centre when
+   * aiming), then re-solves the arm IK onto the grips. The head is hidden.
+   */
+  _fpView(dt) {
+    const sd = this.soldier, cam = this.game.camera;
+    const fp = !!sd.fpCam;
+    const hs = fp ? 0.001 : 1;
+    if (sd.b.head.scale.x !== hs) sd.b.head.scale.setScalar(hs);
+    const def = this.def;
+    const w = sd.weapon;
+    if (!fp || !w || !sd.points || !def || def.pose === 'melee' || !FP_HOLD[def.pose]) return;
+    const H = FP_HOLD[def.pose], pts = sd.points, sc = w.scale.x;
+    const sight = pts.sight || [0, pts.muzzle[1], pts.right[2]];
+    const ads = smooth(clamp(this.adsK, 0, 1));
+    const reload = sd.reloadK;
+    const sprint = sd.sprintK * sd.moveK * (1 - ads) * (1 - reload);
+    const amp = sd.moveK * clamp(this.speed / 4.8, 0, 1.3) * (1 - ads * 0.85);
+    const sw = Math.sin(sd.phase), cw = Math.cos(sd.phase);
+    // camera-space position of the sight point
+    const hip = FP_HIP[def.id] || H.hip;
+    let x = lerp(hip[0], 0, ads), y = lerp(hip[1], 0, ads), z = lerp(hip[2], FP_EYE[def.id] || H.ads, ads);
+    let rx = 0, ry = lerp(0.04, 0, ads), rz = 0;
+    x += sw * 0.007 * amp; y += -Math.abs(cw) * 0.009 * amp;
+    rz += sw * 0.02 * amp;
+    // sprint: rifle swung across the chest, muzzle down
+    x = lerp(x, 0.02, sprint); y = lerp(y, -0.17, sprint); z = lerp(z, -0.08, sprint);
+    rx = lerp(rx, -0.45, sprint); ry = lerp(ry, 0.75, sprint); rz = lerp(rz, 0.35, sprint);
+    // reload: tilt the magazine well towards the support hand
+    y = lerp(y, y - 0.05, reload); z = lerp(z, z + 0.03, reload);
+    rx += 0.32 * reload; ry += 0.22 * reload; rz += -0.5 * reload;
+    // recoil kick
+    z += sd.kick * 0.05; rx += sd.kick * 0.07;
+    // mount (camera space) = T(x, y, z) * R * T(-sight * sc)
+    _fpE.set(rx, ry, rz, 'YXZ');
+    _fpQ.setFromEuler(_fpE);
+    _fpM.compose(_fpP.set(x, y, z), _fpQ, _fpS);
+    _fpM2.makeTranslation(-sight[0] * sc, -sight[1] * sc, -sight[2] * sc);
+    _fpM.multiply(_fpM2);
+    // -> world -> chest space
+    sd.root.updateMatrixWorld(true);
+    _fpM.premultiply(cam.matrixWorld);
+    _fpInv.copy(sd.b.chest.matrixWorld).invert();
+    _fpM.premultiply(_fpInv);
+    const gm = sd.gunMount;
+    _fpM.decompose(gm.position, gm.quaternion, _fpP);
+    gm.updateMatrix();
+    // hands back onto the grips (same rig and reload choreography as third person)
+    sd.gripWeapon(this.reloadT >= 0 && def.reload ? this.reloadT / def.reload : -1);
   }
 
   _aimVector(out) {
@@ -496,8 +571,20 @@ export class Player extends Actor {
     t = w.raycast(sx, sy, sz, -d.x, -d.y, -d.z, back + 0.3, F_CAMERA, true);
     if (t < back + 0.3) back = Math.max(0.2, t - 0.3);
     this.camBack = back < this.camBack ? back : damp(this.camBack, back, 7, dt);
+    const fp = this.fp && this.alive;
+    this.fpK = fp ? 1 : 0;
+    // the soldier reads this to hide the head and hold the weapon up to the camera
+    this.soldier.fpCam = fp && !this.scoped ? cam : null;
+    const near = fp ? 0.04 : 0.12;
+    if (cam.near !== near) { cam.near = near; cam.updateProjectionMatrix(); }
     if (this.scoped) {
       cam.position.set(px + d.x * 0.2, this.camY + 0.02, pz + d.z * 0.2);
+    } else if (fp) {
+      // eyes: a little ahead of the neck, sliding forward when looking down so
+      // the view never ends up inside the chest rig
+      const fwd = 0.1 + Math.max(0, -this.pitch) * 0.3;
+      const hx = -Math.sin(this.yaw), hz = -Math.cos(this.yaw);
+      cam.position.set(px + hx * fwd, this.camY + 0.03 - Math.max(0, -this.pitch) * 0.06, pz + hz * fwd);
     } else {
       cam.position.set(sx - d.x * this.camBack, sy - d.y * this.camBack, sz - d.z * this.camBack);
       const floor = w.groundAt(cam.position.x, cam.position.z) + 0.22;
@@ -509,7 +596,8 @@ export class Player extends Actor {
     const f = damp(cam.fov, fov, 18, dt);
     if (Math.abs(f - cam.fov) > 0.01) { cam.fov = f; cam.updateProjectionMatrix(); }
     // do not look through our own head when the camera is squeezed in
-    this.soldier.root.visible = !this.scoped && (this.camBack > 0.55 || !this.alive);
+    this.soldier.root.visible = !this.scoped && (fp || this.camBack > 0.55 || !this.alive);
+    cam.updateMatrixWorld();
     this._aimVector(this.aimDir);
   }
 }

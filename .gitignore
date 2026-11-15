@@ -6,3 +6,5 @@ android/local.properties
 android/tools/lib/
 *.log
 tools/blender/preview/
+tools/blender/glb/
+*.bak
