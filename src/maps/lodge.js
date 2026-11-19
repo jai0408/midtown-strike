@@ -10,6 +10,8 @@ import { applyTerrainSplat, testTerrainLayers } from '../world/terrain.js';
 import { applyMountainShader } from '../world/mountain.js';
 import { World } from '../core/physics.js';
 import { getMaxAnisotropy, makeCanvas } from '../world/textures.js';
+import { createKoiPond } from '../world/pond.js';
+import { buildSchoolBuses } from '../world/school_bus.js';
 
 // let the loading screen repaint between the heavy steps
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -157,31 +159,60 @@ export async function buildLodge(onProgress = () => {}) {
   // -- foliage ---------------------------------------------------------------
   const foliage = await buildFoliage({ foliage: D.foliage, heightAt: groundAt, quality: 'medium' });
   for (const c of foliage.colliders) world.addBox(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]);
-  // foliage reacts to sun / hemi like everything else: no extra self-lit glow, leaves tamed from lime
-  foliage.group.traverse((o) => {
-    const m = o.material;
-    if (!m || !m.userData) return;
-    if (m.userData.uniforms && m.userData.uniforms.uSelfLit) m.userData.uniforms.uSelfLit.value = 0;
-    if (m.alphaTest > 0 && m.color) m.color.set(0xdde6d2);
-  });
-  // bushes: natural dark olive instead of neon (their material is shared by bush meshes only)
+  // foliage reacts to sun / hemi: rich, authentic Call of Duty Mobile forest tones
   const birchMats = new Map();
   foliage.group.traverse((o) => {
-    if (!o.isMesh || !o.material.color) return;
-    if (/^bush.*leaf/.test(o.name)) o.material.color.set(0x8f9a64);
-    else if (/^birch.*leaf/.test(o.name)) {
-      // birches share the pines' leaf material: give them an olive copy (same program, own colour)
-      let bm = birchMats.get(o.material);
+    const m = o.material;
+    if (!m) return;
+    if (m.userData && m.userData.uniforms && m.userData.uniforms.uSelfLit) m.userData.uniforms.uSelfLit.value = 0;
+    if (!o.isMesh || !m.color) return;
+
+    const name = o.name || '';
+    if (/^pine|spruce/.test(name)) {
+      // Deep, rich evergreen needle tones with subtle sun sheen
+      m.color.set(0x365434);
+      m.roughness = 0.68;
+    } else if (/^bush.*leaf/.test(name)) {
+      // Dense, rich woodland shrub foliage
+      m.color.set(0x44682e);
+      m.roughness = 0.72;
+    } else if (/^birch.*leaf/.test(name)) {
+      // Lush sunlit northern birch olive-gold
+      let bm = birchMats.get(m);
       if (!bm) {
-        const src = o.material;
-        bm = src.clone();
-        bm.onBeforeCompile = src.onBeforeCompile; bm.customProgramCacheKey = src.customProgramCacheKey; bm.userData = src.userData;
-        bm.color.set(0x929c68);
-        birchMats.set(src, bm);
+        bm = m.clone();
+        bm.onBeforeCompile = m.onBeforeCompile;
+        bm.customProgramCacheKey = m.customProgramCacheKey;
+        bm.userData = m.userData;
+        bm.color.set(0x648a3e);
+        bm.roughness = 0.70;
+        birchMats.set(m, bm);
       }
       o.material = bm;
+    } else if (/^fern/.test(name)) {
+      // Rich woodland floor green
+      m.color.set(0x386426);
+      m.roughness = 0.66;
+    } else if (name === 'grass') {
+      // Lush, vibrant meadow grass
+      m.color.set(0x568c36);
+      m.roughness = 0.74;
+    } else if (/bark/.test(name)) {
+      // Rich textured cedar and pine bark
+      m.color.set(0x524234);
+      m.roughness = 0.86;
+    } else if (m.alphaTest > 0) {
+      m.color.set(0x486c36);
     }
   });
+
+  // -- school buses & koi pond ----------------------------------------------
+  // Two American School Buses positioned between the lodges
+  const buses = buildSchoolBuses(groundAt, world);
+
+  // Natural uneven Koi Pond left side of the south yard lodge (~8m diameter, 5ft deep, 10 colorful Koi fish)
+  const pond = createKoiPond({ x: -18.5, z: 20.0, groundAt, world });
+
   world.finalize();
   onProgress(0.75);
   await tick();
@@ -200,7 +231,7 @@ export async function buildLodge(onProgress = () => {}) {
 
   const group = new THREE.Group();
   group.name = 'lodge';
-  group.add(scene, foliage.group, water.mesh);
+  group.add(scene, foliage.group, water.mesh, pond.group, buses.group);
 
   // the lodge interior gets almost no sky light: a few warm point lights, no shadows.
   // They are only switched on near the lodge (every lit pixel pays for each light).
@@ -215,8 +246,13 @@ export async function buildLodge(onProgress = () => {}) {
   const setInterior = (on) => { lit = on; for (const l of inside) l.visible = on; };
   onProgress(1);
 
-  // smallest zone containing the point
-  const zones = D.zones.map((z) => ({ ...z, area: (z.x1 - z.x0) * (z.z1 - z.z0) }));
+  // smallest zone containing the point (including Koi Pond and School Buses)
+  const allZones = [
+    { name: 'KOI POND', x0: -23.5, z0: 15.5, x1: -13.5, z1: 24.5 },
+    { name: 'SCHOOL BUSES', x0: -28.0, z0: 25.0, x1: -12.0, z1: 42.0 },
+    ...D.zones,
+  ];
+  const zones = allZones.map((z) => ({ ...z, area: (z.x1 - z.x0) * (z.z1 - z.z0) }));
   const zoneName = (x, z) => {
     let best = null;
     for (const q of zones) if (x >= q.x0 && x <= q.x1 && z >= q.z0 && z <= q.z1 && (!best || q.area < best.area)) best = q;
@@ -235,6 +271,7 @@ export async function buildLodge(onProgress = () => {}) {
       if (!lit && d < 30) setInterior(true); else if (lit && d > 36) setInterior(false);
       foliage.update(dt, camPos, drawScale, camera);
       water.update(dt);
+      pond.update(dt);
     },
     half: D.half,
     bounds: D.bounds,
@@ -257,6 +294,6 @@ export async function buildLodge(onProgress = () => {}) {
       for (const [m, wants] of casters) m.castShadow = on && wants;
       foliage.setQuality(name);
     },
-    dispose() { foliage.dispose(); water.dispose(); },
+    dispose() { foliage.dispose(); water.dispose(); pond.dispose(); buses.dispose(); },
   };
 }

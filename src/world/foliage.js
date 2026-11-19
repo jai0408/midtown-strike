@@ -19,10 +19,10 @@ const TIME_WRAP = 20 * Math.PI; // wind frequencies are multiples of 0.1 so the 
 
 /** Per-quality settings. dist/lod0 are metres at drawScale 1; grass is the radius around the camera. */
 const QUALITY = {
-  low: { dist: 60, lod0: 18, grass: 0, spacing: 0.9, shadow: false },
-  medium: { dist: 90, lod0: 24, grass: 22, spacing: 0.75, shadow: false },
-  high: { dist: 120, lod0: 32, grass: 35, spacing: 0.6, shadow: true },
-  ultra: { dist: 160, lod0: 42, grass: 45, spacing: 0.5, shadow: true },
+  low: { dist: 70, lod0: 20, grass: 18, spacing: 0.78, shadow: false },
+  medium: { dist: 100, lod0: 28, grass: 30, spacing: 0.62, shadow: false },
+  high: { dist: 135, lod0: 36, grass: 44, spacing: 0.48, shadow: true },
+  ultra: { dist: 175, lod0: 48, grass: 56, spacing: 0.40, shadow: true },
 };
 
 /** Draw / LOD0 distance multipliers per model class. */
@@ -157,7 +157,7 @@ uniform vec3 uCam;
 uniform float uFadeR;
 `;
 
-/** Shrinks grass into the ground towards the edge of the field and adds traveling wind waves. */
+/** Shrinks grass into the ground towards the edge of the field, adds traveling wind waves, and player trampling physics. */
 const FADE = `
 if (uFadeR > 0.0) {
   #ifdef USE_INSTANCING
@@ -175,10 +175,20 @@ if (uFadeR > 0.0) {
   float gBend = (0.45 + 0.55 * gWave) * uWind * 0.26 * clamp(transformed.y * 1.5, 0.0, 1.0);
   transformed.x += uWindDir.x * gBend;
   transformed.z += uWindDir.y * gBend;
+
+  // Player Trampling Physics: grass physically parts and bends outward around player's feet
+  float pDist = length(gd);
+  float pRadius = 1.7;
+  if (pDist < pRadius && pDist > 0.01) {
+    float pPush = (1.0 - pDist / pRadius) * clamp(transformed.y * 1.8, 0.0, 1.0);
+    vec2 pDir = gd / pDist;
+    transformed.xz += pDir * (pPush * 0.44);
+    transformed.y -= pPush * 0.26;
+  }
 }
 `;
 
-/** Wind: physical traveling gust fronts along uWindDir, hierarchical trunk/branch/leaf sway. */
+/** Wind: physical traveling gust fronts along uWindDir, hierarchical trunk/branch/leaf sway, and player proximity rustle. */
 const SWAY = `
 {
   vec3 ip = vec3(0.0);
@@ -213,6 +223,19 @@ const SWAY = `
   float flPhase = uTime * 4.9 + dot(position, vec3(2.4, 1.8, 3.0)) + ph;
   float flutter = sin(flPhase) * uWind * (0.35 + 0.65 * gust) * w * uFlutter;
   transformed += vec3(flutter, 0.4 * flutter, -flutter * 0.75);
+
+  // Proximity brush displacement for shrubs and low foliage (uAmp < 0.2)
+  if (uAmp < 0.2) {
+    vec2 toCam = ip.xz - uCam.xz;
+    float cDist = length(toCam);
+    float bRadius = 2.4;
+    if (cDist < bRadius && cDist > 0.01) {
+      float bPush = (1.0 - cDist / bRadius) * w * 0.32;
+      vec2 bDir = toCam / cDist;
+      transformed.xz += bDir * bPush;
+      transformed.y -= bPush * 0.14;
+    }
+  }
 }
 `;
 
@@ -327,14 +350,14 @@ export async function buildFoliage({ foliage, heightAt, quality = 'medium' }) {
   const group = new THREE.Group();
   group.name = 'foliage';
 
-  const barkMat = windMaterial({ map: tex.bark, normalMap: tex.barkN, normalScale: 0.8, side: THREE.FrontSide, amp: CLASS.tree.amp, flutter: 0, alphaTest: 0, roughness: 0.95, selfLit: 0 });
+  const barkMat = windMaterial({ map: tex.bark, normalMap: tex.barkN, normalScale: 1.35, side: THREE.FrontSide, amp: CLASS.tree.amp, flutter: 0, alphaTest: 0, roughness: 0.86, selfLit: 0 });
   const leafMats = {};
   for (const c of ['tree', 'bush', 'fern']) {
-    leafMats[c] = windMaterial({ map: tex.leaf, normalMap: tex.leafN, normalScale: 0.8, side: THREE.DoubleSide, amp: CLASS[c].amp, flutter: CLASS[c].flutter, alphaTest: 0.45, roughness: 0.8, selfLit: 0.07, twoSidedLight: true });
+    leafMats[c] = windMaterial({ map: tex.leaf, normalMap: tex.leafN, normalScale: c === 'tree' ? 1.05 : 0.85, side: THREE.DoubleSide, amp: CLASS[c].amp, flutter: CLASS[c].flutter, alphaTest: 0.45, roughness: 0.68, selfLit: 0.05, twoSidedLight: true });
   }
   // LOD1 birch crowns: crossed cards textured with renders of the LOD0 tree
-  leafMats.imp = windMaterial({ map: tex.imp, normalMap: null, normalScale: 0, side: THREE.DoubleSide, amp: CLASS.tree.amp, flutter: 0.02, alphaTest: 0.45, roughness: 0.8, selfLit: 0.05, twoSidedLight: true });
-  const grassMat = windMaterial({ map: tex.leaf, normalMap: tex.leafN, normalScale: 0.5, side: THREE.DoubleSide, amp: 0.16, flutter: 0.0, alphaTest: 0.5, roughness: 0.9, selfLit: 0.05, twoSidedLight: true, fade: true });
+  leafMats.imp = windMaterial({ map: tex.imp, normalMap: null, normalScale: 0, side: THREE.DoubleSide, amp: CLASS.tree.amp, flutter: 0.02, alphaTest: 0.45, roughness: 0.72, selfLit: 0.04, twoSidedLight: true });
+  const grassMat = windMaterial({ map: tex.leaf, normalMap: tex.leafN, normalScale: 0.75, side: THREE.DoubleSide, amp: 0.16, flutter: 0.0, alphaTest: 0.5, roughness: 0.76, selfLit: 0.04, twoSidedLight: true, fade: true });
   const geoms = [];
 
   // ---- gather instances per model -------------------------------------------------------
