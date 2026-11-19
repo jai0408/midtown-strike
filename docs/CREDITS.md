@@ -1,6 +1,6 @@
 # Credits
 
-Three weapon models in Midtown Strike come from Sketchfab. All were modified for the game
+Three weapon models and two Cedar Lodge creature models in Midtown Strike come from Sketchfab. All were modified for the game
 (decimated, re-baked / resized textures, re-oriented and scaled to true size, attachment points
 added) by `tools/blender/import_weapons.py`; the results are embedded in `src/game/weapons_glb.js`.
 
@@ -9,6 +9,8 @@ added) by `tools/blender/import_weapons.py`; the results are embedded in `src/ga
 | M1911 | "Colt M1911" | lokeig | https://sketchfab.com/3d-models/colt-m1911-06a24738a9664466beae2867b917f37c | CC-BY-NC-4.0 | one pistol and its magazine taken from the display scene; modified (decimated, re-baked) |
 | KSR-29 | "KSR 29 Sniper" | 3DHaupt | https://sketchfab.com/3d-models/ksr-29-sniper-jEosSrePMDJR9GXwpALOOaRkT3E | CC-BY-NC-4.0 | modified (decimated, re-baked textures) |
 | Longsword | "Magic sword." | Biomoloko | https://sketchfab.com/3d-models/magic-sword-2e0ae41235364282b34e735e6161fc16 | CC-BY-4.0 | modified (re-baked textures, emissive map dropped) |
+| Koi (Cedar Lodge pond) | "Koi Fish" | 7PLUS | https://sketchfab.com/3d-models/koi-fish-236859b809984f52b70c94fd040b9c59 | CC-BY-4.0 | modified (re-tinted per variety, animated) |
+| Phoenix (Cedar Lodge sky) | "phoenix bird" | NORBERTO-3D | https://sketchfab.com/3d-models/phoenix-bird-844ba0cf144a413ea92c779f18912042 | CC-BY-4.0 | modified (scaled, flight path) |
 
 Licences: CC-BY-4.0 https://creativecommons.org/licenses/by/4.0/ and CC-BY-NC-4.0
 https://creativecommons.org/licenses/by-nc/4.0/.

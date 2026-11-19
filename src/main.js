@@ -302,7 +302,7 @@ function renderMenu() {
     body = settingsHtml(true);
   } else {
     body = `<div class="help">${controlsHtml()}
-      <h3>CREDITS</h3><p>Models: Colt M1911 by lokeig and KSR 29 Sniper by 3DHaupt (CC-BY-NC-4.0), Magic sword by Biomoloko (CC-BY-4.0), via Sketchfab, modified. Non-commercial use only.</p>
+      <h3>CREDITS</h3><p>Models: Colt M1911 by lokeig and KSR 29 Sniper by 3DHaupt (CC-BY-NC-4.0), Magic sword by Biomoloko, Koi Fish by 7PLUS and phoenix bird by NORBERTO-3D (CC-BY-4.0), via Sketchfab, modified. Non-commercial use only.</p>
     </div>`;
   }
   menuEl.innerHTML = `

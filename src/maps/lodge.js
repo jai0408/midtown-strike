@@ -145,22 +145,9 @@ export async function buildLodge(onProgress = () => {}) {
   // the baked terrain colour is oversaturated under the strong sun
   scene.traverse((o) => {
     if (o.isMesh && o.material && o.material.name === 'terrain') {
+      // (the pond hole is cut in the splat shader itself, src/world/terrain.js: patching
+      // the shader a second time here redeclared vWPos and the terrain failed to compile)
       o.material.color.set(0xc9d0bd);
-      const prevCompile = o.material.onBeforeCompile;
-      o.material.onBeforeCompile = (shader, renderer) => {
-        if (prevCompile) prevCompile(shader, renderer);
-        shader.vertexShader = shader.vertexShader
-          .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;')
-          .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-        shader.fragmentShader = shader.fragmentShader
-          .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;')
-          .replace('#include <dithering_fragment>', `
-            vec2 pPond = vWPos.xz - vec2(-18.5, 20.0);
-            float pAngle = atan(pPond.x, pPond.y);
-            float pRadius = 3.9 + 0.58 * sin(2.0 * pAngle + 0.5) + 0.35 * cos(3.0 * pAngle - 0.7) + 0.22 * sin(5.0 * pAngle + 1.1) + 0.15 * cos(7.0 * pAngle);
-            if (length(pPond) < pRadius - 0.15) discard;
-            #include <dithering_fragment>`);
-      };
     }
   });
   // static: skip the per-frame matrix updates
