@@ -75,39 +75,53 @@ sc.collection.objects.link(sun_obj)
 sun_dir = Vector((-0.5003, -0.4803, 0.7204)).normalized()
 sun_obj.rotation_euler = (-sun_dir).to_track_quat("-Z", "Y").to_euler()
 
-# 4. Realistic Water Plane
+# 4. Realistic Expansive Lake Water (Behind the Lodge: Y_blender >= 42 to 300)
 WATER_Y = -1.2
-water_mesh = bpy.data.meshes.new("water_mesh")
-water_mesh.from_pydata(
-    [(-300, -300, WATER_Y), (300, -300, WATER_Y), (300, 48, WATER_Y), (-300, 48, WATER_Y)],
-    [],
-    [(0, 1, 2, 3)]
-)
-water_obj = bpy.data.objects.new("LakeWater", water_mesh)
-sc.collection.objects.link(water_obj)
+m_lake = bpy.data.meshes.new("LakeWaterMesh")
+LAKE_NX, LAKE_NY = 36, 36
+lake_verts = []
+lake_faces = []
+xs = np.linspace(-300, 300, LAKE_NX)
+ys = np.linspace(42, 300, LAKE_NY)
+for yi in range(LAKE_NY):
+    for xi in range(LAKE_NX):
+        wv = 0.02 * math.sin(xs[xi] * 0.18 + ys[yi] * 0.14)
+        lake_verts.append((float(xs[xi]), float(ys[yi]), WATER_Y + wv))
 
-water_mat = bpy.data.materials.new("RealisticWater")
-water_mat.use_nodes = True
-w_tree = water_mat.node_tree
-w_bsdf = w_tree.nodes.get("Principled BSDF")
-if w_bsdf:
-    w_bsdf.inputs["Base Color"].default_value = (0.02, 0.12, 0.18, 1.0)
-    w_bsdf.inputs["Roughness"].default_value = 0.05
-    w_bsdf.inputs["IOR"].default_value = 1.333
-    if "Transmission Weight" in w_bsdf.inputs:
-        w_bsdf.inputs["Transmission Weight"].default_value = 0.65
-    elif "Transmission" in w_bsdf.inputs:
-        w_bsdf.inputs["Transmission"].default_value = 0.65
+for yi in range(LAKE_NY - 1):
+    for xi in range(LAKE_NX - 1):
+        i0 = yi * LAKE_NX + xi
+        i1 = i0 + 1
+        i2 = (yi + 1) * LAKE_NX + xi + 1
+        i3 = (yi + 1) * LAKE_NX + xi
+        lake_faces.append((i0, i1, i2, i3))
 
-tex_noise = w_tree.nodes.new("ShaderNodeTexNoise")
-tex_noise.inputs["Scale"].default_value = 18.0
+m_lake.from_pydata(lake_verts, [], lake_faces)
+o_lake = bpy.data.objects.new("LakeWater", m_lake)
+sc.collection.objects.link(o_lake)
+
+mat_lake = bpy.data.materials.new("RealisticLakeWater")
+mat_lake.use_nodes = True
+lt = mat_lake.node_tree
+lbsdf = lt.nodes.get("Principled BSDF")
+if lbsdf:
+    lbsdf.inputs["Base Color"].default_value = (0.03, 0.16, 0.22, 1.0)
+    lbsdf.inputs["Roughness"].default_value = 0.03
+    lbsdf.inputs["IOR"].default_value = 1.333
+    if "Transmission Weight" in lbsdf.inputs:
+        lbsdf.inputs["Transmission Weight"].default_value = 0.85
+    elif "Transmission" in lbsdf.inputs:
+        lbsdf.inputs["Transmission"].default_value = 0.85
+
+tex_noise = lt.nodes.new("ShaderNodeTexNoise")
+tex_noise.inputs["Scale"].default_value = 22.0
 tex_noise.inputs["Detail"].default_value = 4.0
-bump = w_tree.nodes.new("ShaderNodeBump")
-bump.inputs["Strength"].default_value = 0.08
-bump.inputs["Distance"].default_value = 0.1
-w_tree.links.new(tex_noise.outputs["Fac"], bump.inputs["Height"])
-w_tree.links.new(bump.outputs["Normal"], w_bsdf.inputs["Normal"])
-water_mesh.materials.append(water_mat)
+bump = lt.nodes.new("ShaderNodeBump")
+bump.inputs["Strength"].default_value = 0.15
+bump.inputs["Distance"].default_value = 0.08
+lt.links.new(tex_noise.outputs["Fac"], bump.inputs["Height"])
+lt.links.new(bump.outputs["Normal"], lbsdf.inputs["Normal"])
+m_lake.materials.append(mat_lake)
 
 # 5. Enhance Glass Materials
 for mat in bpy.data.materials:
@@ -364,114 +378,371 @@ build_detailed_school_bus("SchoolBus_1", (-24.0, 28.5, 0.0), -0.35)
 build_detailed_school_bus("SchoolBus_2", (-16.5, 36.5, -0.05), 1.18)
 
 # -----------------------------------------------------------------------------
-# 8. Add Uneven Natural Koi Pond with 10 Colorful Koi Fish
+# 8. Add Uneven Natural Koi Pond with 5ft Excavated Basin & 10 Japanese Koi Fish
 # -----------------------------------------------------------------------------
-POND_CX, POND_CZ = -18.5, 20.0
-POND_GY = 0.06
-POND_WY = POND_GY - 0.05
-POND_DEPTH = 1.52
+POND_CX = -18.5
+POND_CY = -20.0
+POND_GROUND_Z = 0.06
+POND_DEPTH = 1.52 # ~5 feet deep
+POND_WATER_Z = POND_GROUND_Z - 0.05
 
 def pond_r(th):
     return 3.9 + 0.58 * math.sin(2 * th + 0.5) + 0.35 * math.cos(3 * th - 0.7) + 0.22 * math.sin(5 * th + 1.1)
 
-# Basin & water geometry
-verts_w = [(POND_CX, -POND_CZ, POND_WY)]
-faces_w = []
-verts_b = [(POND_CX, -POND_CZ, POND_GY - POND_DEPTH)]
-faces_b = []
-N_PTS = 32
+# 1. Exact Boolean Cut on Terrain for Pond Hole
+terrain_obj = bpy.data.objects.get("terrain")
+if terrain_obj:
+    N_CUT = 40
+    c_verts = [(POND_CX, POND_CY, -3.0), (POND_CX, POND_CY, 3.0)]
+    c_faces = []
+    for i in range(N_CUT):
+        th = (i / N_CUT) * math.pi * 2
+        r = pond_r(th) * 0.98
+        c_verts.append((POND_CX + math.sin(th) * r, POND_CY + math.cos(th) * r, -3.0))
+        c_verts.append((POND_CX + math.sin(th) * r, POND_CY + math.cos(th) * r, 3.0))
 
-for i in range(N_PTS):
-    th = (i / N_PTS) * math.pi * 2
-    r = pond_r(th)
-    px = POND_CX + math.sin(th) * r
-    pz = POND_CZ + math.cos(th) * r
-    verts_w.append((px, -pz, POND_WY))
-    verts_b.append((px, -pz, POND_GY + 0.08))
-    nxt = (i + 1) % N_PTS
-    faces_w.append((0, 1 + i, 1 + nxt))
-    faces_b.append((0, 1 + i, 1 + nxt))
+    for i in range(N_CUT):
+        nxt = (i + 1) % N_CUT
+        b0 = 2 + i * 2
+        t0 = b0 + 1
+        b1 = 2 + nxt * 2
+        t1 = b1 + 1
+        c_faces.append((b0, b1, t1, t0))
+        c_faces.append((0, b0, b1))
+        c_faces.append((1, t1, t0))
 
-# Water mesh
-m_pw = bpy.data.meshes.new("KoiPondWater")
-m_pw.from_pydata(verts_w, [], faces_w)
-o_pw = bpy.data.objects.new("KoiPondWater", m_pw)
-sc.collection.objects.link(o_pw)
+    m_cut = bpy.data.meshes.new("PondCutter")
+    m_cut.from_pydata(c_verts, [], c_faces)
+    o_cut = bpy.data.objects.new("PondCutter", m_cut)
+    sc.collection.objects.link(o_cut)
 
-mat_pw = bpy.data.materials.new("KoiWaterMat")
-mat_pw.use_nodes = True
-pw_bsdf = mat_pw.node_tree.nodes.get("Principled BSDF")
-if pw_bsdf:
-    pw_bsdf.inputs["Base Color"].default_value = (0.1, 0.42, 0.45, 1.0)
-    pw_bsdf.inputs["Roughness"].default_value = 0.04
-    pw_bsdf.inputs["IOR"].default_value = 1.333
-    if "Transmission Weight" in pw_bsdf.inputs:
-        pw_bsdf.inputs["Transmission Weight"].default_value = 0.75
-    elif "Transmission" in pw_bsdf.inputs:
-        pw_bsdf.inputs["Transmission"].default_value = 0.75
-o_pw.data.materials.append(mat_pw)
+    mod = terrain_obj.modifiers.new("PondHole", 'BOOLEAN')
+    mod.object = o_cut
+    mod.operation = 'DIFFERENCE'
+    mod.solver = 'EXACT'
+    bpy.context.view_layer.objects.active = terrain_obj
+    bpy.ops.object.modifier_apply(modifier="PondHole")
+    bpy.data.objects.remove(o_cut)
 
-# Basin bottom mesh
-m_pb = bpy.data.meshes.new("KoiPondBasin")
-m_pb.from_pydata(verts_b, [], faces_b)
-o_pb = bpy.data.objects.new("KoiPondBasin", m_pb)
-sc.collection.objects.link(o_pb)
-mat_pb = bpy.data.materials.new("BasinGravel")
-mat_pb.use_nodes = True
-mat_pb.node_tree.nodes.get("Principled BSDF").inputs["Base Color"].default_value = (0.18, 0.22, 0.16, 1.0)
-o_pb.data.materials.append(mat_pb)
+# 2. 3D Sunken Excavated Basin (5ft / 1.52m deep)
+N_BASIN = 44
+b_verts = []
+b_faces = []
+b_verts.append((POND_CX, POND_CY, POND_GROUND_Z - POND_DEPTH))
+for i in range(N_BASIN):
+    th = (i / N_BASIN) * math.pi * 2
+    r = pond_r(th) * 0.45
+    b_verts.append((POND_CX + math.sin(th) * r, POND_CY + math.cos(th) * r, POND_GROUND_Z - POND_DEPTH + 0.05))
+for i in range(N_BASIN):
+    th = (i / N_BASIN) * math.pi * 2
+    r = pond_r(th) * 0.78
+    b_verts.append((POND_CX + math.sin(th) * r, POND_CY + math.cos(th) * r, POND_GROUND_Z - 0.65))
+for i in range(N_BASIN):
+    th = (i / N_BASIN) * math.pi * 2
+    r = pond_r(th) * 1.05
+    b_verts.append((POND_CX + math.sin(th) * r, POND_CY + math.cos(th) * r, POND_GROUND_Z + 0.08))
 
-# River stones around rim
-for i in range(28):
-    th = (i / 28) * math.pi * 2 + math.sin(i * 3.1) * 0.05
-    r = pond_r(th) + 0.15 + 0.12 * math.sin(i * 4.3)
-    rx = POND_CX + math.sin(th) * r
-    rz = POND_CZ + math.cos(th) * r
-    bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=1, radius=0.35 + 0.15 * math.sin(i * 2.7))
-    st = bpy.context.active_object
-    st.location = (rx, -rz, POND_GY + 0.05)
-    st.scale = (1.0 + 0.2 * math.cos(i), 1.0 + 0.2 * math.sin(i), 0.6)
-    mat_stone = bpy.data.materials.new(f"stone_{i}")
-    mat_stone.use_nodes = True
-    col = (0.35, 0.38, 0.34, 1.0) if i % 3 != 0 else (0.28, 0.42, 0.24, 1.0) # grey rock or moss
-    mat_stone.node_tree.nodes.get("Principled BSDF").inputs["Base Color"].default_value = col
-    st.data.materials.append(mat_stone)
+for i in range(N_BASIN):
+    nxt = (i + 1) % N_BASIN
+    b_faces.append((0, 1 + i, 1 + nxt))
+    r1a, r1b = 1 + i, 1 + nxt
+    r2a, r2b = 1 + N_BASIN + i, 1 + N_BASIN + nxt
+    b_faces.append((r1a, r2a, r2b, r1b))
+    r3a, r3b = 1 + N_BASIN * 2 + i, 1 + N_BASIN * 2 + nxt
+    b_faces.append((r2a, r3a, r3b, r2b))
 
-# 10 Colorful Koi Fish
-KOI_COLORS = [
-    ("Kohaku", (0.95, 0.25, 0.08, 1.0)),     # Red/White
-    ("Ogon", (0.98, 0.82, 0.08, 1.0)),       # Pure Gold
-    ("Sanke", (0.92, 0.92, 0.95, 1.0)),      # White with markings
-    ("Showa", (0.12, 0.12, 0.15, 1.0)),      # Black & Scarlet
-    ("Tancho", (0.96, 0.96, 0.96, 1.0)),     # White with Red Crown
-    ("Asagi", (0.42, 0.52, 0.62, 1.0)),      # Indigo/Blue-Grey
-    ("Ki_Utsuri", (0.94, 0.72, 0.05, 1.0)),  # Yellow & Black
-    ("Shiro", (0.98, 0.98, 0.98, 1.0)),      # Pure White Pearl
-    ("Matsuba", (0.84, 0.58, 0.18, 1.0)),    # Shimmering Bronze
-    ("Beni", (0.88, 0.18, 0.08, 1.0)),       # Deep Crimson
+m_basin = bpy.data.meshes.new("KoiPondBasin")
+m_basin.from_pydata(b_verts, [], b_faces)
+o_basin = bpy.data.objects.new("KoiPondBasin", m_basin)
+sc.collection.objects.link(o_basin)
+
+mat_basin = bpy.data.materials.new("PondGravelBasin")
+mat_basin.use_nodes = True
+bbsdf = mat_basin.node_tree.nodes.get("Principled BSDF")
+if bbsdf:
+    bbsdf.inputs["Base Color"].default_value = (0.16, 0.20, 0.16, 1.0)
+    bbsdf.inputs["Roughness"].default_value = 0.85
+m_basin.materials.append(mat_basin)
+
+# 3. Crystal Clear Pond Water Surface
+w_verts = [(POND_CX, POND_CY, POND_WATER_Z)]
+w_faces = []
+for i in range(N_BASIN):
+    th = (i / N_BASIN) * math.pi * 2
+    r = pond_r(th) * 1.01
+    w_verts.append((POND_CX + math.sin(th) * r, POND_CY + math.cos(th) * r, POND_WATER_Z))
+    nxt = (i + 1) % N_BASIN
+    w_faces.append((0, 1 + i, 1 + nxt))
+
+m_pwater = bpy.data.meshes.new("PondWaterSurface")
+m_pwater.from_pydata(w_verts, [], w_faces)
+o_pwater = bpy.data.objects.new("PondWaterSurface", m_pwater)
+sc.collection.objects.link(o_pwater)
+
+mat_pwater = bpy.data.materials.new("CrystalClearPondWater")
+mat_pwater.use_nodes = True
+ptree = mat_pwater.node_tree
+pbsdf = ptree.nodes.get("Principled BSDF")
+if pbsdf:
+    pbsdf.inputs["Base Color"].default_value = (0.15, 0.45, 0.48, 1.0)
+    pbsdf.inputs["Roughness"].default_value = 0.03
+    pbsdf.inputs["IOR"].default_value = 1.333
+    if "Transmission Weight" in pbsdf.inputs:
+        pbsdf.inputs["Transmission Weight"].default_value = 0.94
+    elif "Transmission" in pbsdf.inputs:
+        pbsdf.inputs["Transmission"].default_value = 0.94
+
+p_noise = ptree.nodes.new("ShaderNodeTexNoise")
+p_noise.inputs["Scale"].default_value = 32.0
+p_noise.inputs["Detail"].default_value = 4.0
+p_bump = ptree.nodes.new("ShaderNodeBump")
+p_bump.inputs["Strength"].default_value = 0.03
+p_bump.inputs["Distance"].default_value = 0.03
+ptree.links.new(p_noise.outputs["Fac"], p_bump.inputs["Height"])
+ptree.links.new(p_bump.outputs["Normal"], pbsdf.inputs["Normal"])
+m_pwater.materials.append(mat_pwater)
+
+# 4. 36 River Coping Stones around Rim
+mat_stone = bpy.data.materials.new("PondRiverStone")
+mat_stone.use_nodes = True
+mat_stone.node_tree.nodes.get("Principled BSDF").inputs["Base Color"].default_value = (0.38, 0.40, 0.36, 1.0)
+mat_moss = bpy.data.materials.new("PondMossStone")
+mat_moss.use_nodes = True
+mat_moss.node_tree.nodes.get("Principled BSDF").inputs["Base Color"].default_value = (0.24, 0.36, 0.18, 1.0)
+
+for i in range(36):
+    th = (i / 36) * math.pi * 2 + 0.04 * math.sin(i * 3.7)
+    r = pond_r(th) + 0.08 + 0.10 * math.sin(i * 4.9)
+    sx = POND_CX + math.sin(th) * r
+    sy = POND_CY + math.cos(th) * r
+    sz = POND_GROUND_Z + 0.12
+
+    rad = 0.44 + 0.10 * math.sin(i * 2.8)
+    bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=2, radius=rad)
+    stone = bpy.context.active_object
+    stone.scale = (1.15, 1.0, 0.65)
+    stone.location = (sx, sy, sz)
+    stone.rotation_euler = (math.sin(i * 1.5) * 0.3, math.cos(i * 2.1) * 0.3, th)
+    stone.data.materials.append(mat_moss if i % 3 == 0 else mat_stone)
+    if hasattr(stone.data, "polygons"):
+        stone.data.polygons.foreach_set('use_smooth', [True] * len(stone.data.polygons))
+
+# 5. 10 Distinct Japanese Koi Fish (Organic Sleek 3D Meshes with Smooth Shading)
+KOI_VARIETIES = [
+    ("Kohaku", (0.98, 0.98, 0.96, 1.0), (0.95, 0.18, 0.05, 1.0), "patch"),        # Pearl white with vibrant red markings
+    ("Taisho Sanke", (0.96, 0.96, 0.94, 1.0), (0.92, 0.16, 0.04, 1.0), "tri"),     # White with vermilion & sumi black
+    ("Showa", (0.12, 0.12, 0.14, 1.0), (0.92, 0.16, 0.04, 1.0), "swirl"),          # Midnight black with scarlet & white
+    ("Yamabuki Ogon", (1.0, 0.82, 0.10, 1.0), (1.0, 0.90, 0.25, 1.0), "solid"),    # Pure shimmering metallic gold
+    ("Shiro Utsuri", (0.10, 0.10, 0.12, 1.0), (0.98, 0.98, 0.98, 1.0), "stripe"),  # Black body with white markings
+    ("Tancho", (0.98, 0.98, 0.98, 1.0), (0.95, 0.12, 0.04, 1.0), "tancho"),       # Pure pearl white with crimson crown spot
+    ("Asagi", (0.32, 0.42, 0.50, 1.0), (0.96, 0.35, 0.06, 1.0), "asagi"),          # Steel-blue net scales with fiery belly
+    ("Ki Utsuri", (0.10, 0.10, 0.12, 1.0), (0.98, 0.78, 0.05, 1.0), "stripe"),     # Lacquer black with bright canary yellow
+    ("Beni Kumonryu", (0.96, 0.96, 0.95, 1.0), (0.92, 0.15, 0.05, 1.0), "tri"),    # White dragon with scarlet & ink
+    ("Kin Matsuba", (0.88, 0.64, 0.18, 1.0), (0.98, 0.76, 0.24, 1.0), "scale"),    # Bronze pinecone luster
 ]
 
-for i in range(10):
-    name, color = KOI_COLORS[i]
-    th = (i / 10) * math.pi * 2 + 0.3
-    r = 1.2 + (i % 5) * 0.38
-    fx = POND_CX + math.sin(th) * r
-    fz = POND_CZ + math.cos(th) * r
-    fy = POND_WY - 0.35 - (i % 4) * 0.22 # varied swimming depths
+def build_koi_3d(name, base_col, pat_col, style, loc, yaw, scale=1.35):
+    k_root = bpy.data.objects.new(f"Koi_{name}", None)
+    sc.collection.objects.link(k_root)
 
-    bpy.ops.mesh.primitive_cone_add(vertices=6, radius1=0.08, radius2=0.015, depth=0.55)
-    fish = bpy.context.active_object
-    fish.name = f"Koi_{name}"
-    fish.location = (fx, -fz, fy)
-    fish.rotation_euler = (math.radians(90), 0, th + math.pi / 2 + 0.2)
+    # 1. Sleek organic fish body cross-sections along the spine
+    SEGS = [
+        ( 0.52 * scale, 0.02 * scale, 0.02 * scale,  0.00),         # Snout tip
+        ( 0.40 * scale, 0.09 * scale, 0.08 * scale,  0.01 * scale),  # Head / Eyes
+        ( 0.20 * scale, 0.15 * scale, 0.13 * scale,  0.02 * scale),  # Gills / Maximum Girth
+        ( 0.00 * scale, 0.14 * scale, 0.12 * scale,  0.015 * scale), # Torso Midsection
+        (-0.20 * scale, 0.11 * scale, 0.09 * scale,  0.005 * scale), # Tapering Belly
+        (-0.36 * scale, 0.06 * scale, 0.06 * scale, -0.005 * scale), # Lower Flank
+        (-0.48 * scale, 0.03 * scale, 0.035 * scale, -0.01 * scale), # Caudal Peduncle Base
+    ]
 
-    mat_koi = bpy.data.materials.new(f"mat_{name}")
-    mat_koi.use_nodes = True
-    k_bsdf = mat_koi.node_tree.nodes.get("Principled BSDF")
-    k_bsdf.inputs["Base Color"].default_value = color
-    k_bsdf.inputs["Roughness"].default_value = 0.25
-    k_bsdf.inputs["Metallic"].default_value = 0.35 # glistening wet fish scales
-    fish.data.materials.append(mat_koi)
+    N_RAD = 12
+    verts = []
+    faces = []
+
+    # Build rings of vertices
+    for si, (sy, hw, hh, z_off) in enumerate(SEGS):
+        # Organic gentle swimming undulation curve along spine
+        und = 0.025 * scale * math.sin(si * 0.9)
+        for ri in range(N_RAD):
+            ang = (ri / N_RAD) * math.pi * 2
+            vx = hw * math.cos(ang) + und
+            vz = hh * math.sin(ang) + z_off
+            verts.append((vx, sy, vz))
+
+    # Ring quad faces
+    for si in range(len(SEGS) - 1):
+        for ri in range(N_RAD):
+            nxt_r = (ri + 1) % N_RAD
+            v0 = si * N_RAD + ri
+            v1 = si * N_RAD + nxt_r
+            v2 = (si + 1) * N_RAD + nxt_r
+            v3 = (si + 1) * N_RAD + ri
+            faces.append((v0, v1, v2, v3))
+
+    # Snout cap (front)
+    snout_center = len(verts)
+    verts.append((0, 0.56 * scale, 0))
+    for ri in range(N_RAD):
+        nxt_r = (ri + 1) % N_RAD
+        faces.append((snout_center, ri, nxt_r))
+
+    # Tail peduncle cap (rear)
+    tail_center = len(verts)
+    verts.append((0, -0.50 * scale, -0.01 * scale))
+    last_ring = (len(SEGS) - 1) * N_RAD
+    for ri in range(N_RAD):
+        nxt_r = (ri + 1) % N_RAD
+        faces.append((tail_center, last_ring + nxt_r, last_ring + ri))
+
+    m_body = bpy.data.meshes.new(f"mesh_body_{name}")
+    m_body.from_pydata(verts, [], faces)
+    if hasattr(m_body, "polygons"):
+        m_body.polygons.foreach_set('use_smooth', [True] * len(m_body.polygons))
+
+    o_body = bpy.data.objects.new(f"body_{name}", m_body)
+    sc.collection.objects.link(o_body)
+    o_body.parent = k_root
+
+    # Base Fish Scale Material
+    mat_k = bpy.data.materials.new(f"mat_{name}")
+    mat_k.use_nodes = True
+    kbsdf = mat_k.node_tree.nodes.get("Principled BSDF")
+    if kbsdf:
+        kbsdf.inputs["Base Color"].default_value = base_col
+        kbsdf.inputs["Roughness"].default_value = 0.12
+        kbsdf.inputs["Metallic"].default_value = 0.45 # Glistening wet fish scales
+        if "Emission Color" in kbsdf.inputs:
+            kbsdf.inputs["Emission Color"].default_value = (base_col[0] * 0.25, base_col[1] * 0.25, base_col[2] * 0.25, 1.0)
+            kbsdf.inputs["Emission Strength"].default_value = 0.5
+    o_body.data.materials.append(mat_k)
+
+    # 2. Distinct Pattern Patches (Kohaku red hi, Sanke markings, Tancho spot)
+    mat_pat = bpy.data.materials.new(f"mat_pat_{name}")
+    mat_pat.use_nodes = True
+    pbs = mat_pat.node_tree.nodes.get("Principled BSDF")
+    if pbs:
+        pbs.inputs["Base Color"].default_value = pat_col
+        pbs.inputs["Roughness"].default_value = 0.12
+        pbs.inputs["Metallic"].default_value = 0.45
+        if "Emission Color" in pbs.inputs:
+            pbs.inputs["Emission Color"].default_value = (pat_col[0] * 0.35, pat_col[1] * 0.35, pat_col[2] * 0.35, 1.0)
+            pbs.inputs["Emission Strength"].default_value = 0.75
+
+    if style == "tancho":
+        # Red circular crown on head
+        bpy.ops.mesh.primitive_cylinder_add(vertices=12, radius=0.055 * scale, depth=0.02 * scale)
+        spot = bpy.context.active_object
+        spot.location = (0, 0.34 * scale, 0.082 * scale)
+        spot.parent = k_root
+        spot.data.materials.append(mat_pat)
+    else:
+        # Vibrant dorsal color patches
+        for pi, (py, pz_scl, pl, pw) in enumerate([(0.18, 0.02, 0.38, 0.16), (-0.12, 0.015, 0.28, 0.12)]):
+            bpy.ops.mesh.primitive_cylinder_add(vertices=10, radius=pw * scale, depth=pl * scale)
+            patch = bpy.context.active_object
+            patch.scale = (0.9, 1.0, 0.35)
+            patch.rotation_euler = (math.radians(90), 0, 0)
+            patch.location = (0.01 * (1 if pi == 0 else -1) * scale, py * scale, (0.12 + pz_scl) * scale)
+            patch.parent = k_root
+            patch.data.materials.append(mat_pat)
+
+    # 3. Delicate Translucent Caudal Tail Fin (Fan shape undulating behind fish)
+    t_verts = [
+        (0.0, -0.48 * scale, -0.01 * scale),                           # peduncle top
+        (0.0, -0.48 * scale, -0.03 * scale),                           # peduncle bot
+        (0.03 * scale, -0.74 * scale,  0.18 * scale),                  # top lobe tip
+        (0.02 * scale, -0.66 * scale,  0.00 * scale),                  # fork notch
+        (0.03 * scale, -0.72 * scale, -0.16 * scale),                  # bot lobe tip
+    ]
+    t_faces = [(0, 2, 3, 1), (1, 3, 4)]
+    m_tail = bpy.data.meshes.new(f"mesh_tail_{name}")
+    m_tail.from_pydata(t_verts, [], t_faces)
+    o_tail = bpy.data.objects.new(f"tail_{name}", m_tail)
+    sc.collection.objects.link(o_tail)
+    o_tail.parent = k_root
+    o_tail.data.materials.append(mat_pat if style in ("patch", "tri") else mat_k)
+
+    # 4. Angled Pectoral Fins
+    for side in (-1, 1):
+        f_verts = [
+            (side * 0.14 * scale, 0.24 * scale, -0.01 * scale),
+            (side * 0.14 * scale, 0.16 * scale, -0.03 * scale),
+            (side * 0.36 * scale, 0.10 * scale, -0.05 * scale),
+            (side * 0.34 * scale, 0.18 * scale, -0.03 * scale),
+        ]
+        f_faces = [(0, 1, 2, 3) if side == 1 else (3, 2, 1, 0)]
+        m_fin = bpy.data.meshes.new(f"fin_{side}_{name}")
+        m_fin.from_pydata(f_verts, [], f_faces)
+        o_fin = bpy.data.objects.new(f"fin_{side}_{name}", m_fin)
+        sc.collection.objects.link(o_fin)
+        o_fin.parent = k_root
+        o_fin.data.materials.append(mat_pat if style == "asagi" else mat_k)
+
+    # 5. Delicate Dorsal Fin along spine
+    d_verts = [
+        (0.0,  0.22 * scale, 0.13 * scale),
+        (0.0, -0.18 * scale, 0.10 * scale),
+        (0.01 * scale, -0.12 * scale, 0.21 * scale),
+        (0.005 * scale, 0.14 * scale, 0.20 * scale),
+    ]
+    d_faces = [(0, 1, 2, 3)]
+    m_dorsal = bpy.data.meshes.new(f"dorsal_{name}")
+    m_dorsal.from_pydata(d_verts, [], d_faces)
+    o_dorsal = bpy.data.objects.new(f"dorsal_{name}", m_dorsal)
+    sc.collection.objects.link(o_dorsal)
+    o_dorsal.parent = k_root
+    o_dorsal.data.materials.append(mat_pat if style in ("patch", "swirl") else mat_k)
+
+    k_root.location = loc
+    k_root.rotation_euler = (0, 0, yaw)
+    return k_root
+
+KOI_POSITIONS = [
+    (-1.4, -0.6, -0.18, 0.8),    # Kohaku
+    ( 1.2,  0.8, -0.28, 2.2),    # Taisho Sanke
+    (-0.5,  1.5, -0.24, -1.2),   # Showa
+    ( 1.8, -0.8, -0.16, 1.5),    # Yamabuki Ogon
+    (-1.8,  1.2, -0.32, 0.4),    # Shiro Utsuri
+    ( 0.0, -1.5, -0.20, 3.1),    # Tancho
+    (-1.0, -1.8, -0.28, -2.1),   # Asagi
+    ( 0.6, -0.4, -0.36, 1.0),    # Ki Utsuri
+    ( 1.5, -1.6, -0.25, -0.8),   # Beni Kumonryu
+    (-0.2,  0.6, -0.22, 2.6),    # Kin Matsuba
+]
+
+for i, (kname, kbase, kpat, kstyle) in enumerate(KOI_VARIETIES):
+    ox, oy, rel_z, yaw = KOI_POSITIONS[i]
+    kx = POND_CX + ox
+    ky = POND_CY + oy
+    kz = POND_WATER_Z + rel_z
+    build_koi_3d(kname, kbase, kpat, kstyle, (kx, ky, kz), yaw, scale=1.35)
+
+# 6. Floating Lily Pads with Lotus Flowers
+mat_lily = bpy.data.materials.new("LilyPad")
+mat_lily.use_nodes = True
+mat_lily.node_tree.nodes.get("Principled BSDF").inputs["Base Color"].default_value = (0.18, 0.52, 0.16, 1.0)
+mat_lotus = bpy.data.materials.new("LotusFlower")
+mat_lotus.use_nodes = True
+mat_lotus.node_tree.nodes.get("Principled BSDF").inputs["Base Color"].default_value = (0.96, 0.55, 0.78, 1.0)
+
+for li in range(7):
+    lth = li * 0.92 + 0.35
+    lr = 1.6 + 0.9 * math.cos(li * 1.9)
+    lx = POND_CX + math.sin(lth) * lr
+    ly = POND_CY + math.cos(lth) * lr
+    lz = POND_WATER_Z + 0.012
+
+    bpy.ops.mesh.primitive_cylinder_add(vertices=12, radius=0.34, depth=0.01)
+    pad = bpy.context.active_object
+    pad.location = (lx, ly, lz)
+    pad.data.materials.append(mat_lily)
+
+    if li % 2 == 0:
+        bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=2, radius=0.11)
+        lotus = bpy.context.active_object
+        lotus.location = (lx + 0.05, ly + 0.05, lz + 0.09)
+        lotus.data.materials.append(mat_lotus)
 
 # -----------------------------------------------------------------------------
 # 9. Helper to render camera views
@@ -505,8 +776,8 @@ def render_camera(out_name, loc, target, focal_len=24.0, res=(960, 540)):
 # -----------------------------------------------------------------------------
 # 10. Render Key Perspectives
 # -----------------------------------------------------------------------------
-# View 1: Close-up on the natural uneven Koi Pond & 10 colorful Koi fish
-v1 = render_camera("lodge_render_koi_pond", loc=(-18.5, 14.5, 2.8), target=(-18.5, 20.0, -0.2), focal_len=30)
+# View 1: Looking down into the 5ft excavated Koi Pond at 45 degrees, revealing clear water & 10 swimming Koi
+v1 = render_camera("lodge_render_koi_pond", loc=(-19.3, 25.2, 4.4), target=(-18.5, 19.8, -0.34), focal_len=30)
 
 # View 2: The Two School Buses parked between the lodges
 v2 = render_camera("lodge_render_buses", loc=(-27.0, 44.0, 3.8), target=(-20.5, 32.5, 1.6), focal_len=28)
@@ -514,8 +785,8 @@ v2 = render_camera("lodge_render_buses", loc=(-27.0, 44.0, 3.8), target=(-20.5, 
 # View 3: Broad perspective of South Yard Lodge with pond, buses, and lush green trees
 v3 = render_camera("lodge_render_south_yard", loc=(-8.0, 48.0, 5.5), target=(-16.0, 22.0, 2.2), focal_len=24)
 
-# View 4: Lakeshore panorama with clear water & reflections
-v4 = render_camera("lodge_render_lake", loc=(-18, -38, 3.5), target=(10, -52, 1.2), focal_len=22)
+# View 4: Lakeshore panorama behind lodge with reflective lake water, canoes, and boathouse
+v4 = render_camera("lodge_render_lake", loc=(-18.0, -36.0, 4.2), target=(12.0, -65.0, 0.5), focal_len=22)
 
 # View 5: Close 3/4 Hero shot of the School Bus between lodges
 v5 = render_camera("lodge_render_bus_detail", loc=(-21.5, 42.5, 2.6), target=(-16.5, 36.5, 1.7), focal_len=35)

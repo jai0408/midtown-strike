@@ -142,13 +142,44 @@ export async function buildLodge(onProgress = () => {}) {
     for (const m of new Set(mm)) await applyMountainShader(m, layers.layers[3].albedo, D.sun && D.sun.dir);
   }
   // the baked terrain colour is oversaturated under the strong sun
-  scene.traverse((o) => { if (o.isMesh && o.material && o.material.name === 'terrain') o.material.color.set(0xc9d0bd); });
+  scene.traverse((o) => {
+    if (o.isMesh && o.material && o.material.name === 'terrain') {
+      o.material.color.set(0xc9d0bd);
+      const prevCompile = o.material.onBeforeCompile;
+      o.material.onBeforeCompile = (shader, renderer) => {
+        if (prevCompile) prevCompile(shader, renderer);
+        shader.vertexShader = shader.vertexShader
+          .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;')
+          .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+        shader.fragmentShader = shader.fragmentShader
+          .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;')
+          .replace('#include <dithering_fragment>', `
+            vec2 pPond = vWPos.xz - vec2(-18.5, 20.0);
+            float pAngle = atan(pPond.x, pPond.y);
+            float pRadius = 3.9 + 0.58 * sin(2.0 * pAngle + 0.5) + 0.35 * cos(3.0 * pAngle - 0.7) + 0.22 * sin(5.0 * pAngle + 1.1) + 0.15 * cos(7.0 * pAngle);
+            if (length(pPond) < pRadius - 0.15) discard;
+            #include <dithering_fragment>`);
+      };
+    }
+  });
   // static: skip the per-frame matrix updates
   scene.updateMatrixWorld(true);
   scene.traverse((o) => { o.matrixAutoUpdate = false; });
 
   // -- physics ---------------------------------------------------------------
-  const groundAt = makeGroundAt(D.height);
+  const rawGroundAt = makeGroundAt(D.height);
+  // Excavate the 5ft deep Koi Pond basin in the physics terrain height function
+  const groundAt = (x, z) => {
+    const dx = x - (-18.5), dz = z - 20.0;
+    const d = Math.hypot(dx, dz);
+    const th = Math.atan2(dx, dz);
+    const pr = 3.9 + 0.58 * Math.sin(2 * th + 0.5) + 0.35 * Math.cos(3 * th - 0.7) + 0.22 * Math.sin(5 * th + 1.1) + 0.15 * Math.cos(7 * th);
+    if (d < pr) {
+      const depthFrac = Math.min(1.0, (1.0 - d / pr) * 2.0);
+      return rawGroundAt(x, z) - depthFrac * 1.52; // 5ft depth in the pond
+    }
+    return rawGroundAt(x, z);
+  };
   const world = new World(D.half, 8);
   world.groundAt = groundAt;
   world.rough = true;   // terrain dips below 0 at the creek and the shore

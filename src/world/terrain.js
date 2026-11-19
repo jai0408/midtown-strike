@@ -104,6 +104,13 @@ export async function applyTerrainSplat(mat, T) {
         uniform vec4 uRect, uTile, uRough;
         uniform vec2 uFade;`)
       .replace('#include <map_fragment>', `#include <map_fragment>
+        // Discard terrain surface over the 5ft deep Koi Pond so the basin, clear water, and 10 Koi fish are visible
+        {
+          vec2 pPond = vWPos.xz - vec2(-18.5, 20.0);
+          float pAngle = atan(pPond.x, pPond.y);
+          float pRadius = 3.9 + 0.58 * sin(2.0 * pAngle + 0.5) + 0.35 * cos(3.0 * pAngle - 0.7) + 0.22 * sin(5.0 * pAngle + 1.1) + 0.15 * cos(7.0 * pAngle);
+          if (length(pPond) < pRadius - 0.15) discard;
+        }
         vec2 dnTotal = vec2(0.0);
         float dRough = 1.0, dFade = 1.0 - smoothstep(uFade.x, uFade.y, length(vViewPosition));
         vec2 p = vWPos.xz;
