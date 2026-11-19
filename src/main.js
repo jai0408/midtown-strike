@@ -12,7 +12,7 @@ import { fmtTime, clamp } from './core/util.js';
 import { HALF, groundAt } from './world/layout.js';
 import * as THREE from 'three';
 
-const VERSION = '1.3.0';
+const VERSION = '1.3.1';
 const STORE = 'midtown-strike-v1';
 // a laptop or desktop: no touch screen, keyboard and mouse / trackpad instead
 const DESKTOP = !('ontouchstart' in window) && !(navigator.maxTouchPoints > 0);
