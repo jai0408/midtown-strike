@@ -10,6 +10,7 @@
 // The baked terrain colour stays on as soft macro colour / AO, and the detail fades out with distance.
 import * as THREE from 'three';
 import { makeCanvas, getMaxAnisotropy } from './textures.js';
+import { POND_GLSL } from './pond_shape.js';
 
 const LAYER = 512;   // texels per layer side
 
@@ -54,7 +55,13 @@ async function arrayOf(images, srgb) {
 
 async function splatTexture(png) {
   let source = png;
-  if (typeof png === 'string') {
+  // createImageBitmap with premultiplyAlpha 'none': alpha is the rock weight, not transparency,
+  // so where it is 0 (most of the map) a premultiplied decode would wipe the other three weights.
+  // The <img> path is only a fallback for WebViews without createImageBitmap options.
+  if (typeof png === 'string' && typeof createImageBitmap === 'function') {
+    try { source = await createImageBitmap(blobOf(png), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' }); } catch (e) { source = png; }
+  }
+  if (typeof source === 'string') {
     source = await new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => resolve(img);
@@ -102,14 +109,13 @@ export async function applyTerrainSplat(mat, T) {
         uniform sampler2D uSplat;
         uniform sampler2DArray uAlb, uNrm;
         uniform vec4 uRect, uTile, uRough;
-        uniform vec2 uFade;`)
+        uniform vec2 uFade;
+        ${POND_GLSL}`)
       .replace('#include <map_fragment>', `#include <map_fragment>
-        // Discard terrain surface over the 5ft deep Koi Pond so the basin, clear water, and 10 Koi fish are visible
+        // the koi pond basin: no terrain surface over it (shape from world/pond_shape.js)
         {
-          vec2 pPond = vWPos.xz - vec2(-18.5, 20.0);
-          float pAngle = atan(pPond.x, pPond.y);
-          float pRadius = 3.9 + 0.58 * sin(2.0 * pAngle + 0.5) + 0.35 * cos(3.0 * pAngle - 0.7) + 0.22 * sin(5.0 * pAngle + 1.1) + 0.15 * cos(7.0 * pAngle);
-          if (length(pPond) < pRadius - 0.15) discard;
+          vec2 pPond = vWPos.xz - POND_C;
+          if (length(pPond) < pondRadiusGL(atan(pPond.x, pPond.y)) - 0.15) discard;
         }
         vec2 dnTotal = vec2(0.0);
         float dRough = 1.0, dFade = 1.0 - smoothstep(uFade.x, uFade.y, length(vViewPosition));

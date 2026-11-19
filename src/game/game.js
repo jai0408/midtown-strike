@@ -420,6 +420,8 @@ export class Game {
     else this._updateSweep(dt);
 
     this.fx.update(dt, this.camera, this.view.renderer.domElement.height);
+    // grass and shrubs part around the player, not the (third-person) camera
+    if (this.map.setFocus && p) this.map.setFocus(p.x, p.y, p.z);
     this.map.update(dt, cam, this.view.quality.draw);
     this.audio.updateAmbient(dt);
     this.hud.update(this, dt);

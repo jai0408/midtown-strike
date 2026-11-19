@@ -11,6 +11,7 @@ import { applyMountainShader } from '../world/mountain.js';
 import { World } from '../core/physics.js';
 import { getMaxAnisotropy, makeCanvas } from '../world/textures.js';
 import { createKoiPond } from '../world/pond.js';
+import { POND, inPond, pondDrop } from '../world/pond_shape.js';
 import { buildSchoolBuses } from '../world/school_bus.js';
 import { createPhoenix } from '../world/phoenix.js';
 
@@ -54,7 +55,7 @@ function prepareMaterial(m, glass, matName) {
   if (glass) {
     m.transparent = true;
     m.depthWrite = false;
-    m.roughness = 0.08;
+    m.roughness = 0.1;   // not lower: sharp sun glints overflow half-float targets on phones
     m.metalness = 0.05;
     m.envMapIntensity = 2.4;
     if (m.opacity > 0.6) m.opacity = 0.4;
@@ -77,7 +78,7 @@ function prepareMaterial(m, glass, matName) {
     const name = (matName || m.name || '').toLowerCase();
     if (name.includes('metal')) {
       m.envMapIntensity = 2.2;
-      m.roughness = Math.min(m.roughness, 0.35);
+      m.roughness = Math.min(Math.max(m.roughness, 0.22), 0.35);   // >= 0.22: see the glass note above
       m.metalness = Math.max(m.metalness, 0.85);
     } else if (name.includes('shingle')) {
       m.envMapIntensity = 1.3;
@@ -156,18 +157,8 @@ export async function buildLodge(onProgress = () => {}) {
 
   // -- physics ---------------------------------------------------------------
   const rawGroundAt = makeGroundAt(D.height);
-  // Excavate the 5ft deep Koi Pond basin in the physics terrain height function
-  const groundAt = (x, z) => {
-    const dx = x - (-18.5), dz = z - 20.0;
-    const d = Math.hypot(dx, dz);
-    const th = Math.atan2(dx, dz);
-    const pr = 3.9 + 0.58 * Math.sin(2 * th + 0.5) + 0.35 * Math.cos(3 * th - 0.7) + 0.22 * Math.sin(5 * th + 1.1) + 0.15 * Math.cos(7 * th);
-    if (d < pr) {
-      const depthFrac = Math.min(1.0, (1.0 - d / pr) * 2.0);
-      return rawGroundAt(x, z) - depthFrac * 1.52; // 5ft depth in the pond
-    }
-    return rawGroundAt(x, z);
-  };
+  // the koi pond basin is dug into the ground (shape shared via world/pond_shape.js)
+  const groundAt = (x, z) => rawGroundAt(x, z) - pondDrop(x, z);
   const world = new World(D.half, 8);
   world.groundAt = groundAt;
   world.rough = true;   // terrain dips below 0 at the creek and the shore
@@ -176,53 +167,17 @@ export async function buildLodge(onProgress = () => {}) {
   await tick();
 
   // -- foliage ---------------------------------------------------------------
-  const foliage = await buildFoliage({ foliage: D.foliage, heightAt: groundAt, quality: 'medium' });
+  // nothing grows in the pond: drop trees and bushes inside its rim (grass via the exclude test)
+  const dry = (list) => (list || []).filter((t) => !inPond(t[0], t[2], -0.6));
+  const plants = { ...D.foliage, trees: dry(D.foliage.trees), bushes: dry(D.foliage.bushes) };
+  const foliage = await buildFoliage({ foliage: plants, heightAt: groundAt, quality: 'medium', exclude: (x, z) => inPond(x, z, -0.4) });
   for (const c of foliage.colliders) world.addBox(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]);
-  // foliage reacts to sun / hemi: rich, authentic Call of Duty Mobile forest tones
-  const birchMats = new Map();
+  // foliage reacts to sun / hemi like everything else (no extra self-lit glow). Its colours come
+  // from the foliage textures: don't recolour here, the bark and leaf materials are shared by
+  // every tree kind, so tinting by mesh name changed other trees too.
   foliage.group.traverse((o) => {
     const m = o.material;
-    if (!m) return;
-    if (m.userData && m.userData.uniforms && m.userData.uniforms.uSelfLit) m.userData.uniforms.uSelfLit.value = 0;
-    if (!o.isMesh || !m.color) return;
-
-    const name = o.name || '';
-    if (/^pine|spruce/.test(name)) {
-      // Deep, rich evergreen needle tones with subtle sun sheen
-      m.color.set(0x365434);
-      m.roughness = 0.68;
-    } else if (/^bush.*leaf/.test(name)) {
-      // Dense, rich woodland shrub foliage
-      m.color.set(0x44682e);
-      m.roughness = 0.72;
-    } else if (/^birch.*leaf/.test(name)) {
-      // Lush sunlit northern birch olive-gold
-      let bm = birchMats.get(m);
-      if (!bm) {
-        bm = m.clone();
-        bm.onBeforeCompile = m.onBeforeCompile;
-        bm.customProgramCacheKey = m.customProgramCacheKey;
-        bm.userData = m.userData;
-        bm.color.set(0x648a3e);
-        bm.roughness = 0.70;
-        birchMats.set(m, bm);
-      }
-      o.material = bm;
-    } else if (/^fern/.test(name)) {
-      // Rich woodland floor green
-      m.color.set(0x386426);
-      m.roughness = 0.66;
-    } else if (name === 'grass') {
-      // Lush, vibrant meadow grass
-      m.color.set(0x568c36);
-      m.roughness = 0.74;
-    } else if (/bark/.test(name)) {
-      // Rich textured cedar and pine bark
-      m.color.set(0x524234);
-      m.roughness = 0.86;
-    } else if (m.alphaTest > 0) {
-      m.color.set(0x486c36);
-    }
+    if (m && m.userData && m.userData.uniforms && m.userData.uniforms.uSelfLit) m.userData.uniforms.uSelfLit.value = 0;
   });
 
   // -- school buses & koi pond ----------------------------------------------
@@ -230,7 +185,7 @@ export async function buildLodge(onProgress = () => {}) {
   const buses = buildSchoolBuses(groundAt, world);
 
   // Natural uneven Koi Pond left side of the south yard lodge (~8m diameter, 5ft deep, 10 colorful Koi fish)
-  const pond = createKoiPond({ x: -18.5, z: 20.0, groundAt, world });
+  const pond = createKoiPond({ x: POND.x, z: POND.z, groundAt, world });
 
   // Mythical Phoenix Bird soaring across the skies above the lodge and lake
   const phoenix = createPhoenix();
@@ -296,6 +251,8 @@ export async function buildLodge(onProgress = () => {}) {
       pond.update(dt);
       phoenix.update(dt);
     },
+    /** Where the player stands: grass and shrubs part around it (foliage.setFocus when present). */
+    setFocus(x, y, z) { if (foliage.setFocus) foliage.setFocus(x, y, z); },
     half: D.half,
     bounds: D.bounds,
     groundAt,

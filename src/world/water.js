@@ -96,7 +96,7 @@ export function createWater(water, heightAt, sunDir = [-0.5003, 0.7204, 0.4803])
   // roughness stays well above ~0.1: a mirror-sharp sun glint overflows half-float
   // targets on phones (NaN squares through bloom). The shader also clamps its output.
   const material = new THREE.MeshStandardMaterial({
-    color: 0x0a3442, roughness: 0.18, metalness: 0.05, transparent: true, opacity: 0.98, depthWrite: false, envMapIntensity: 1.8,
+    color: 0x0a3442, roughness: 0.24, metalness: 0.05, transparent: true, opacity: 0.98, depthWrite: false, envMapIntensity: 1.8,
   });
   material.customProgramCacheKey = () => 'lodge-water-v2';
   material.onBeforeCompile = (shader) => {
