@@ -22,11 +22,11 @@ const _fwd = new THREE.Vector3();
 export const ATMOSPHERES = {
   midtown: {
     sky: { top: 0x1d3a66, mid: 0x5f86b3, horizon: 0xd9b08c, haze: 0x56606e, sunCol: 0xffc98a, gain: 1.6, stars: 1 },
-    sunDir: [-0.82, 0.44, 0.36], sunColor: 0xffdcb0, sunIntensity: 3.4,
-    hemi: { sky: 0xa9c4ee, ground: 0x4a443e, intensity: 0.9 },
+    sunDir: [-0.82, 0.44, 0.36], sunColor: 0xffdcb0, sunIntensity: 3.6,
+    hemi: { sky: 0xa9c4ee, ground: 0x4a443e, intensity: 0.85 },
     fog: { color: 0x56606e, near: 90, far: null },
-    exposure: 1.0, envIntensity: 0.9, envFloor: 0x25262a, shadowR: 55, shadowRadius: 2, shadowNormalBias: 0.05,
-    grade: { sat: 0.92, curve: 0, warm: 1.0 },
+    exposure: 1.04, envIntensity: 1.15, envFloor: 0x25262a, shadowR: 55, shadowRadius: 1.8, shadowNormalBias: 0.04,
+    grade: { sat: 1.02, curve: 0.25, warm: 1.0 },
   },
   // clear sunny afternoon, CoD-Mobile-daytime style: saturated blue zenith, light blue horizon,
   // soft clouds, strong warm sun, low ambient (dark shadow sides), light blue haze from ~120 m

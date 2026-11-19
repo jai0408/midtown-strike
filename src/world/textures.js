@@ -11,9 +11,9 @@ export function makeCanvas(w, h) {
   return c;
 }
 
-let maxAniso = 4;
+let maxAniso = 8;
 export function setMaxAnisotropy(v) {
-  maxAniso = Math.min(8, v || 1);
+  maxAniso = Math.min(16, v || 1);
 }
 export const getMaxAnisotropy = () => maxAniso;
 
@@ -133,35 +133,97 @@ function finishSurface(A, Hc, O, W, Hh, { grain = 0.3, grainH = 0.25, blotch = 0
 /** Road surface: 7 m tile. Returns { map, normalMap, orm }. */
 export function asphaltTexture() {
   const rng = new RNG(11);
-  const S = 512;
+  const S = 1024;
   const mk = () => { const c = makeCanvas(S, S); return [c, c.getContext('2d')]; };
   const [A, ga] = mk(), [Hc, gh] = mk(), [O, go] = mk();
-  ga.fillStyle = '#313235'; ga.fillRect(0, 0, S, S);
+  ga.fillStyle = '#2d2e32'; ga.fillRect(0, 0, S, S);
   gh.fillStyle = gray(128); gh.fillRect(0, 0, S, S);
   go.fillStyle = rgbRM(0.95, 0); go.fillRect(0, 0, S, S);
   const all = (fa, fh, fo, alpha, draw) => {
     for (const [g, f] of [[ga, fa], [gh, fh], [go, fo]]) { g.globalAlpha = alpha; g.fillStyle = f; g.strokeStyle = f; draw(g); }
     ga.globalAlpha = gh.globalAlpha = go.globalAlpha = 1;
   };
+
+  // Tire wear lanes (traffic burnishes asphalt into dark rubberized paths with lower roughness)
+  for (const [x0, x1] of [[0.18 * S, 0.40 * S], [0.60 * S, 0.82 * S]]) {
+    const w = x1 - x0;
+    const grA = ga.createLinearGradient(x0, 0, x1, 0);
+    grA.addColorStop(0, 'rgba(32,33,36,0)');
+    grA.addColorStop(0.3, 'rgba(28,29,32,0.45)');
+    grA.addColorStop(0.7, 'rgba(28,29,32,0.45)');
+    grA.addColorStop(1, 'rgba(32,33,36,0)');
+    ga.fillStyle = grA; ga.fillRect(x0, 0, w, S);
+
+    const grO = go.createLinearGradient(x0, 0, x1, 0);
+    grO.addColorStop(0, rgbRM(0.95, 0));
+    grO.addColorStop(0.3, rgbRM(0.68, 0));
+    grO.addColorStop(0.7, rgbRM(0.68, 0));
+    grO.addColorStop(1, rgbRM(0.95, 0));
+    go.fillStyle = grO; go.fillRect(x0, 0, w, S);
+
+    // subtle tire tread rubber striations
+    ga.strokeStyle = 'rgba(20,21,24,0.3)';
+    ga.lineWidth = 1.5;
+    for (let k = 0; k < 22; k++) {
+      const sx = x0 + 6 + rng.next() * (w - 12);
+      ga.beginPath(); ga.moveTo(sx, 0); ga.lineTo(sx + rng.range(-3, 3), S); ga.stroke();
+    }
+  }
+
+  // Embedded cast-iron manhole cover (CoD-style authentic urban street detail)
+  {
+    const mx = S * 0.5, my = S * 0.5, mr = 68;
+    wrapped(S, S, (ox, oy) => {
+      const cx = mx + ox, cy = my + oy;
+      // outer rim
+      ga.fillStyle = '#222326'; ga.beginPath(); ga.arc(cx, cy, mr + 8, 0, 7); ga.fill();
+      gh.fillStyle = gray(180); gh.beginPath(); gh.arc(cx, cy, mr + 8, 0, 7); gh.fill();
+      go.fillStyle = rgbRM(0.42, 0.88); go.beginPath(); ga.arc(cx, cy, mr + 8, 0, 7); go.fill();
+
+      // rim recess groove
+      gh.strokeStyle = gray(55); gh.lineWidth = 3.5; gh.beginPath(); gh.arc(cx, cy, mr + 3, 0, 7); gh.stroke();
+
+      // cover plate
+      ga.fillStyle = '#28292d'; ga.beginPath(); ga.arc(cx, cy, mr, 0, 7); ga.fill();
+      gh.fillStyle = gray(140); gh.beginPath(); gh.arc(cx, cy, mr, 0, 7); gh.fill();
+      go.fillStyle = rgbRM(0.40, 0.85); go.beginPath(); go.arc(cx, cy, mr, 0, 7); go.fill();
+
+      // concentric traction rings
+      for (const r of [16, 32, 48, 60]) {
+        gh.strokeStyle = gray(190); gh.lineWidth = 2.5; gh.beginPath(); gh.arc(cx, cy, r, 0, 7); gh.stroke();
+        ga.strokeStyle = '#18191c'; ga.lineWidth = 1.5; ga.beginPath(); ga.arc(cx, cy, r, 0, 7); ga.stroke();
+      }
+      // radial lugs
+      for (let a = 0; a < 16; a++) {
+        const ang = (a / 16) * Math.PI * 2;
+        const x1 = cx + Math.cos(ang) * 18, y1 = cy + Math.sin(ang) * 18;
+        const x2 = cx + Math.cos(ang) * (mr - 4), y2 = cy + Math.sin(ang) * (mr - 4);
+        gh.strokeStyle = gray(195); gh.lineWidth = 2; gh.beginPath(); gh.moveTo(x1, y1); gh.lineTo(x2, y2); gh.stroke();
+        ga.strokeStyle = '#1a1b1e'; ga.lineWidth = 1.2; ga.beginPath(); ga.moveTo(x1, y1); ga.lineTo(x2, y2); ga.stroke();
+      }
+    });
+  }
+
   // repair patches (rotated rects, slightly different tone, raised edge)
-  for (let i = 0; i < 5; i++) {
-    const x = rng.next() * S, y = rng.next() * S, w = 50 + rng.next() * 140, h = 30 + rng.next() * 90, rot = rng.range(-0.15, 0.15);
+  for (let i = 0; i < 7; i++) {
+    const x = rng.next() * S, y = rng.next() * S, w = 80 + rng.next() * 240, h = 50 + rng.next() * 160, rot = rng.range(-0.15, 0.15);
     const fresh = rng.chance(0.5);
     wrapped(S, S, (ox, oy) => {
       if (Math.abs(ox) + Math.abs(oy) > 0 && (x + ox < -w || x + ox > S + w || y + oy < -h || y + oy > S + h)) return;
-      all(fresh ? '#2c2d30' : '#4a4b4e', gray(fresh ? 134 : 124), rgbRM(fresh ? 0.78 : 0.93, 0), 0.8, (g) => {
+      all(fresh ? '#27282b' : '#45464a', gray(fresh ? 136 : 122), rgbRM(fresh ? 0.74 : 0.92, 0), 0.85, (g) => {
         g.save(); g.translate(x + ox, y + oy); g.rotate(rot); g.fillRect(0, 0, w, h);
-        g.lineWidth = 2; g.globalAlpha = 0.9;
-        if (g === gh) { g.strokeStyle = gray(90); g.strokeRect(0, 0, w, h); }
+        g.lineWidth = 3; g.globalAlpha = 0.9;
+        if (g === gh) { g.strokeStyle = gray(85); g.strokeRect(0, 0, w, h); }
         g.restore();
       });
     });
   }
-  // oil stains and rubber (dark, low roughness)
-  for (let i = 0; i < 9; i++) {
-    const x = rng.next() * S, y = rng.next() * S, rx = 14 + rng.next() * 40, ry = 10 + rng.next() * 30, a = 0.25 + rng.next() * 0.35;
+
+  // oil stains and damp sheen (dark, low roughness, slight skylight reflection)
+  for (let i = 0; i < 14; i++) {
+    const x = rng.next() * S, y = rng.next() * S, rx = 20 + rng.next() * 60, ry = 14 + rng.next() * 45, a = 0.3 + rng.next() * 0.4;
     wrapped(S, S, (ox, oy) => {
-      for (const [g, col] of [[ga, '28,28,31'], [go, '0,70,0']]) {
+      for (const [g, col] of [[ga, '24,24,28'], [go, '0,65,0']]) {
         const gr = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, Math.max(rx, ry));
         gr.addColorStop(0, `rgba(${col},${a})`); gr.addColorStop(1, `rgba(${col},0)`);
         g.save(); g.translate(x + ox, y + oy); g.scale(rx / Math.max(rx, ry), ry / Math.max(rx, ry)); g.translate(-(x + ox), -(y + oy));
@@ -169,14 +231,15 @@ export function asphaltTexture() {
       }
     });
   }
+
   // cracks and tar-snake sealant
   const lines = [];
-  for (let i = 0; i < 14; i++) {
+  for (let i = 0; i < 20; i++) {
     const pts = [[rng.next() * S, rng.next() * S]];
-    const n = 5 + (rng.next() * 8 | 0), ang = rng.next() * 6.28, snake = i < 6;
+    const n = 6 + (rng.next() * 10 | 0), ang = rng.next() * 6.28, snake = i < 9;
     for (let k = 0; k < n; k++) {
       const p = pts[k]; const a = ang + rng.range(-0.7, 0.7);
-      pts.push([p[0] + Math.cos(a) * rng.range(10, 30), p[1] + Math.sin(a) * rng.range(10, 30)]);
+      pts.push([p[0] + Math.cos(a) * rng.range(14, 42), p[1] + Math.sin(a) * rng.range(14, 42)]);
     }
     lines.push({ pts, snake });
   }
@@ -184,9 +247,9 @@ export function asphaltTexture() {
     wrapped(S, S, (ox, oy) => {
       ga.lineJoin = gh.lineJoin = go.lineJoin = 'round';
       for (const [g, col, lw, al] of [
-        [ga, snake ? '#141517' : '#121314', snake ? 3 : 1.2, snake ? 0.85 : 0.7],
-        [gh, snake ? gray(136) : gray(100), snake ? 3 : 1.4, 0.7],
-        [go, snake ? rgbRM(0.62, 0) : rgbRM(0.97, 0), snake ? 3 : 1.2, 1],
+        [ga, snake ? '#111214' : '#101012', snake ? 4.5 : 1.6, snake ? 0.9 : 0.75],
+        [gh, snake ? gray(142) : gray(95), snake ? 4.5 : 1.8, 0.75],
+        [go, snake ? rgbRM(0.55, 0) : rgbRM(0.97, 0), snake ? 4.5 : 1.6, 1],
       ]) {
         g.globalAlpha = al; g.strokeStyle = col; g.lineWidth = lw; g.beginPath();
         pts.forEach((p, k) => (k ? g.lineTo(p[0] + ox, p[1] + oy) : g.moveTo(p[0] + ox, p[1] + oy)));
@@ -195,101 +258,124 @@ export function asphaltTexture() {
     });
   }
   ga.globalAlpha = gh.globalAlpha = go.globalAlpha = 1;
-  // coarse aggregate stones
-  for (let i = 0; i < 2600; i++) {
-    const x = rng.next() * S, y = rng.next() * S, r = 0.8 + rng.next() * 1.6;
-    const v = rng.chance(0.5) ? 'rgba(120,120,126,0.35)' : 'rgba(10,10,12,0.35)';
+
+  // coarse aggregate stones & mineral flecks
+  for (let i = 0; i < 5200; i++) {
+    const x = rng.next() * S, y = rng.next() * S, r = 0.9 + rng.next() * 2.2;
+    const v = rng.chance(0.5) ? 'rgba(130,130,138,0.38)' : 'rgba(8,8,10,0.38)';
     ga.fillStyle = v; ga.beginPath(); ga.arc(x, y, r, 0, 7); ga.fill();
-    gh.fillStyle = rng.chance(0.5) ? gray(160) : gray(100); gh.globalAlpha = 0.6; gh.beginPath(); gh.arc(x, y, r, 0, 7); gh.fill(); gh.globalAlpha = 1;
+    gh.fillStyle = rng.chance(0.5) ? gray(165) : gray(95); gh.globalAlpha = 0.65; gh.beginPath(); gh.arc(x, y, r, 0, 7); gh.fill(); gh.globalAlpha = 1;
   }
-  return finishSurface(A, Hc, O, S, S, { grain: 0.8, grainH: 1.4, blotch: 0.22, nStrength: 3, seed: 21 });
+  return finishSurface(A, Hc, O, S, S, { grain: 0.85, grainH: 1.5, blotch: 0.22, nStrength: 4.2, seed: 21 });
 }
 
 /** Sidewalk: 3.2 m tile holding 2 x 2 poured slabs (1.6 m). Returns { map, normalMap, orm }. */
 export function pavingTexture() {
   const rng = new RNG(12);
-  const S = 512, SL = S / 2, J = 0.1 * S;       // joints offset so kerb UV corner stays plain concrete
+  const S = 1024, SL = S / 2, J = 0.1 * S;       // joints offset so kerb UV corner stays plain concrete
   const mk = () => { const c = makeCanvas(S, S); return [c, c.getContext('2d')]; };
   const [A, ga] = mk(), [Hc, gh] = mk(), [O, go] = mk();
-  ga.fillStyle = '#aaa79f'; ga.fillRect(0, 0, S, S);
+  ga.fillStyle = '#a6a39b'; ga.fillRect(0, 0, S, S);
   gh.fillStyle = gray(128); gh.fillRect(0, 0, S, S);
   go.fillStyle = rgbRM(0.86, 0); go.fillRect(0, 0, S, S);
+
   // slab tone variation
   for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) {
     const x = J + i * SL, y = J + j * SL, a = rng.range(0.04, 0.16), light = rng.chance(0.5);
     wrapped(S, S, (ox, oy) => {
-      ga.globalAlpha = a; ga.fillStyle = light ? '#e8e2d4' : '#4a463e'; ga.fillRect(x + ox, y + oy, SL, SL);
-      go.globalAlpha = 1; go.fillStyle = rgbRM(0.8 + rng.next() * 0.0 + (light ? 0.04 : 0.08), 0);
+      ga.globalAlpha = a; ga.fillStyle = light ? '#eae4d6' : '#45423a'; ga.fillRect(x + ox, y + oy, SL, SL);
+      go.globalAlpha = 1; go.fillStyle = rgbRM(0.8 + (light ? 0.04 : 0.08), 0);
     });
   }
   ga.globalAlpha = 1;
+
+  // tactile blister strip along one kerb edge (standard NYC / modern military shooter street paving)
+  {
+    const tw = 0.075 * S;
+    wrapped(S, S, (ox, oy) => {
+      ga.fillStyle = 'rgba(188,142,42,0.35)'; ga.fillRect(ox, oy, tw, S);
+      go.fillStyle = rgbRM(0.72, 0); go.fillRect(ox, oy, tw, S);
+      // dome studs
+      for (let sy = 10; sy < S; sy += 18) {
+        for (let sx = 8; sx < tw - 6; sx += 18) {
+          const px = ox + sx, py = oy + sy;
+          ga.fillStyle = '#c49a34'; ga.beginPath(); ga.arc(px, py, 4.5, 0, 7); ga.fill();
+          gh.fillStyle = gray(195); gh.beginPath(); gh.arc(px, py, 4.5, 0, 7); gh.fill();
+        }
+      }
+    });
+  }
+
   // slab-surface stains and soiling
-  for (let i = 0; i < 22; i++) {
-    const x = rng.next() * S, y = rng.next() * S, r = 10 + rng.next() * 50, a = 0.05 + rng.next() * 0.12;
+  for (let i = 0; i < 35; i++) {
+    const x = rng.next() * S, y = rng.next() * S, r = 16 + rng.next() * 80, a = 0.05 + rng.next() * 0.14;
     const dark = rng.chance(0.8);
     wrapped(S, S, (ox, oy) => {
       const gr = ga.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
-      gr.addColorStop(0, dark ? `rgba(40,36,30,${a})` : `rgba(240,235,220,${a})`); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      gr.addColorStop(0, dark ? `rgba(38,34,28,${a})` : `rgba(242,238,225,${a})`); gr.addColorStop(1, 'rgba(0,0,0,0)');
       ga.fillStyle = gr; ga.fillRect(x + ox - r, y + oy - r, r * 2, r * 2);
     });
   }
+
   // joints: dark groove, lighter tooled edge, soil collected along them
   for (let k = 0; k < 2; k++) {
     const p = J + k * SL;
     for (const horiz of [true, false]) {
       const R = (g, col, off, th, al) => { g.globalAlpha = al; g.fillStyle = col; horiz ? g.fillRect(0, p + off, S, th) : g.fillRect(p + off, 0, th, S); };
-      R(ga, '#58554e', -5, 10, 0.25); R(ga, '#2a2824', -1.5, 3, 0.9); R(ga, '#d3cfc4', 2, 3, 0.35);
-      R(gh, gray(40), -1.5, 3, 1); R(gh, gray(150), -4, 2.5, 0.8); R(gh, gray(145), 2, 2.5, 0.8);
-      R(go, rgbRM(0.97, 0), -3, 6, 1);
+      R(ga, '#524f48', -8, 16, 0.28); R(ga, '#24221f', -2.5, 5, 0.95); R(ga, '#dedad0', 3, 4, 0.38);
+      R(gh, gray(35), -2.5, 5, 1); R(gh, gray(155), -6, 4, 0.85); R(gh, gray(150), 3, 4, 0.85);
+      R(go, rgbRM(0.97, 0), -4, 8, 1);
     }
   }
   ga.globalAlpha = gh.globalAlpha = go.globalAlpha = 1;
+
   // hairline cracks
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 11; i++) {
     let x = rng.next() * S, y = rng.next() * S, a = rng.next() * 6.28;
-    wrapped(S, S, () => {});
     const pts = [[x, y]];
-    for (let k = 0; k < 8; k++) { a += rng.range(-0.8, 0.8); x += Math.cos(a) * rng.range(8, 24); y += Math.sin(a) * rng.range(8, 24); pts.push([x, y]); }
+    for (let k = 0; k < 10; k++) { a += rng.range(-0.8, 0.8); x += Math.cos(a) * rng.range(12, 36); y += Math.sin(a) * rng.range(12, 36); pts.push([x, y]); }
     wrapped(S, S, (ox, oy) => {
-      for (const [g, col, lw] of [[ga, 'rgba(25,23,20,0.75)', 1.1], [gh, gray(45), 1.6]]) {
+      for (const [g, col, lw] of [[ga, 'rgba(22,20,18,0.8)', 1.5], [gh, gray(40), 2.2]]) {
         g.strokeStyle = col; g.lineWidth = lw; g.beginPath();
         pts.forEach((p, k) => (k ? g.lineTo(p[0] + ox, p[1] + oy) : g.moveTo(p[0] + ox, p[1] + oy)));
         g.stroke();
       }
     });
   }
-  // chewing gum: dark flat discs, slightly glossy
-  for (let i = 0; i < 140; i++) {
-    const x = rng.next() * S, y = rng.next() * S, r = 1.2 + rng.next() * 2.2, v = 50 + rng.next() * 25;
-    ga.fillStyle = `rgba(${v},${v - 4},${v - 8},0.7)`; ga.beginPath(); ga.arc(x, y, r, 0, 7); ga.fill();
-    go.fillStyle = rgbRM(0.5, 0); go.beginPath(); go.arc(x, y, r, 0, 7); go.fill();
-    gh.fillStyle = gray(140); gh.beginPath(); gh.arc(x, y, r, 0, 7); gh.fill();
+
+  // chewing gum & micro spots
+  for (let i = 0; i < 220; i++) {
+    const x = rng.next() * S, y = rng.next() * S, r = 1.4 + rng.next() * 2.8, v = 45 + rng.next() * 28;
+    ga.fillStyle = `rgba(${v},${v - 4},${v - 8},0.75)`; ga.beginPath(); ga.arc(x, y, r, 0, 7); ga.fill();
+    go.fillStyle = rgbRM(0.48, 0); go.beginPath(); go.arc(x, y, r, 0, 7); go.fill();
+    gh.fillStyle = gray(142); gh.beginPath(); gh.arc(x, y, r, 0, 7); gh.fill();
   }
-  return finishSurface(A, Hc, O, S, S, { grain: 0.4, grainH: 1.0, blotch: 0.12, nStrength: 3.5, seed: 33 });
+  return finishSurface(A, Hc, O, S, S, { grain: 0.45, grainH: 1.1, blotch: 0.14, nStrength: 3.8, seed: 33 });
 }
 
 /**
  * Road paint, tiling along V only. Columns (U): lane dashes | zebra crossing |
- * solid white | solid yellow. Worn, dusty, with tyre-scuffed gaps.
+ * solid white | solid yellow. Worn, dusty, with tyre-scuffed gaps and raised thermoplastic feel.
  */
 export function markingsTexture() {
-  const S = 256, K = S / 64;
+  const S = 512, K = S / 64;
   const c = makeCanvas(S, S), g = c.getContext('2d');
   g.clearRect(0, 0, S, S);
-  g.fillStyle = 'rgba(214,214,204,0.95)';
+  // High-visibility road paint with realistic opacity
+  g.fillStyle = 'rgba(235,235,228,0.98)';
   g.fillRect(2 * K, 0, 12 * K, 26 * K);
   g.fillRect(18 * K, 0, 12 * K, 32 * K);
   g.fillRect(34 * K, 0, 12 * K, 64 * K);
-  g.fillStyle = 'rgba(214,170,44,0.95)';
+  g.fillStyle = 'rgba(230,175,32,0.98)';
   g.fillRect(50 * K, 0, 12 * K, 64 * K);
   const img = g.getImageData(0, 0, S, S), d = img.data;
   const n1 = fbm(S, S, 71, 4, 4, 0.55), n2 = fbm(S, S, 72, 16, 3, 0.6);
   for (let i = 0; i < S * S; i++) {
     if (!d[i * 4 + 3]) continue;
-    const wear = Math.min(1, Math.max(0, (n1[i] - 0.28) * 4.0));  // erosion
-    const dust = 0.72 + 0.3 * n2[i];
-    d[i * 4] *= dust; d[i * 4 + 1] *= dust; d[i * 4 + 2] *= dust * 0.97;
-    d[i * 4 + 3] *= Math.min(1, wear * (0.55 + n2[i] * 0.7));
+    const wear = Math.min(1, Math.max(0, (n1[i] - 0.22) * 3.8));  // edge and traffic erosion
+    const dust = 0.78 + 0.25 * n2[i];
+    d[i * 4] *= dust; d[i * 4 + 1] *= dust; d[i * 4 + 2] *= dust * 0.98;
+    d[i * 4 + 3] *= Math.min(1, wear * (0.6 + n2[i] * 0.65));
   }
   g.putImageData(img, 0, 0);
   const t = toTexture(c, { aniso: true });
@@ -313,9 +399,9 @@ export const FACADES = [
 
 export function facadeTextures(def, seed) {
   const rng = new RNG(seed);
-  const W = 512, H = 1024, SW = 256, SH = 512;     // albedo full-res; height / ORM / emissive half-res
-  const mk = (w, h, k) => { const c = makeCanvas(w, h), g = c.getContext('2d'); g.scale(k, k); return [c, g]; };
-  const [a, g] = mk(W, H, 1), [hc, gh] = mk(SW, SH, 0.5), [oc, go] = mk(SW, SH, 0.5), [e, ge] = mk(SW, SH, 0.5);
+  const W = 512, H = 1024, SW = 512, SH = 1024;     // full-resolution albedo, height, ORM and emissive
+  const mk = (w, h, k) => { const c = makeCanvas(w, h), g = c.getContext('2d'); if (k !== 1) g.scale(k, k); return [c, g]; };
+  const [a, g] = mk(W, H, 1), [hc, gh] = mk(SW, SH, 1), [oc, go] = mk(SW, SH, 1), [e, ge] = mk(SW, SH, 1);
   const fill = (cv, col, x, y, w, h, al = 1) => { cv.globalAlpha = al; cv.fillStyle = col; cv.fillRect(x, y, w, h); cv.globalAlpha = 1; };
   const mas = !def.run;                     // masonry-like wall vs curtain wall
   const wallRough = def.run ? 0.38 : 0.9, wallMetal = def.run ? 0.55 : 0;
@@ -1060,69 +1146,69 @@ export function foliageTextures() {
   return { map, alphaMap };
 }
 
-/** Tileable furrowed bark, 512 px = ~1.4 m. Returns { map, normalMap }. */
+/** Tileable furrowed bark, 1024 px = ~1.4 m. Returns { map, normalMap }. */
 export function barkTextures() {
-  const W = 512, H = 512, rng = new RNG(4242);
-  const ridge1 = fbm(W, 1, 11, 24, 3, 0.55), warp = fbm(W, H, 12, 3, 4, 0.5), blot = fbm(W, H, 13, 5, 4, 0.5), brk = fbm(W, H, 14, 8, 3, 0.5);
+  const W = 1024, H = 1024, rng = new RNG(4242);
+  const ridge1 = fbm(W, 1, 11, 28, 4, 0.55), warp = fbm(W, H, 12, 3, 4, 0.5), blot = fbm(W, H, 13, 5, 4, 0.5), brk = fbm(W, H, 14, 8, 3, 0.5);
   const hf = new Float32Array(W * H);
   const c = makeCanvas(W, H), g = c.getContext('2d');
   const img = g.createImageData(W, H), d = img.data;
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const i = y * W + x;
-      const xs = (x + Math.floor((warp[i] - 0.5) * 70) + W * 2) % W;
+      const xs = (x + Math.floor((warp[i] - 0.5) * 120) + W * 2) % W;
       const r = ridge1[xs];
       let h = Math.abs(r - 0.5) * 2; // 0 = crest... valleys at 0.5 crossings
       h = Math.pow(1 - h, 0.7);
       h = h * (0.75 + 0.25 * brk[i]) - (brk[i] > 0.62 ? 0.25 : 0);
       h = Math.max(0, Math.min(1, h)) * 0.8 + blot[i] * 0.2;
       hf[i] = h;
-      const k = 0.3 + h * 0.7, n = 0.92 + rng.next() * 0.16;
-      d[i * 4] = Math.min(255, (92 * k + 14) * n * (0.9 + blot[i] * 0.25));
+      const k = 0.28 + h * 0.72, n = 0.92 + rng.next() * 0.16;
+      d[i * 4] = Math.min(255, (94 * k + 14) * n * (0.9 + blot[i] * 0.25));
       d[i * 4 + 1] = Math.min(255, (82 * k + 12) * n * (0.9 + blot[i] * 0.2));
-      d[i * 4 + 2] = Math.min(255, (72 * k + 10) * n * (0.9 + blot[i] * 0.15));
+      d[i * 4 + 2] = Math.min(255, (70 * k + 10) * n * (0.9 + blot[i] * 0.15));
       d[i * 4 + 3] = 255;
     }
   }
   g.putImageData(img, 0, 0);
-  return { map: toTexture(c), normalMap: toTexture(normalCanvas(hf, W, H, 5), { srgb: false }) };
+  return { map: toTexture(c), normalMap: toTexture(normalCanvas(hf, W, H, 6.0), { srgb: false }) };
 }
 
-/** Mown lawn, 512 px = 4 m. Returns { map, normalMap }. */
+/** Mown lawn, 1024 px = 4 m. Returns { map, normalMap }. */
 export function grassTextures() {
-  const W = 512, H = 512, rng = new RNG(9090);
-  const blot = fbm(W, H, 21, 4, 5, 0.55), fine = fbm(W, H, 22, 32, 3, 0.6);
+  const W = 1024, H = 1024, rng = new RNG(9090);
+  const blot = fbm(W, H, 21, 5, 5, 0.55), fine = fbm(W, H, 22, 36, 4, 0.6);
   const c = makeCanvas(W, H), g = c.getContext('2d');
   const img = g.createImageData(W, H), d = img.data;
   const hf = new Float32Array(W * H);
   for (let i = 0; i < W * H; i++) {
     const b = blot[i], f = fine[i];
-    const k = 0.78 + b * 0.5 + (f - 0.5) * 0.5;
-    d[i * 4] = Math.min(255, 62 * k + 8 * (1 - b)); d[i * 4 + 1] = Math.min(255, 104 * k); d[i * 4 + 2] = Math.min(255, 38 * k); d[i * 4 + 3] = 255;
+    const k = 0.76 + b * 0.52 + (f - 0.5) * 0.5;
+    d[i * 4] = Math.min(255, 58 * k + 8 * (1 - b)); d[i * 4 + 1] = Math.min(255, 108 * k); d[i * 4 + 2] = Math.min(255, 36 * k); d[i * 4 + 3] = 255;
     hf[i] = f;
   }
   g.putImageData(img, 0, 0);
-  const cols = ['#4f8a2c', '#6aa23a', '#3c7424', '#86b44a', '#2f5e1d'];
+  const cols = ['#498628', '#649e36', '#387020', '#82b044', '#2c5a1a', '#528d2e'];
   g.lineCap = 'round';
   wrapped(W, H, (ox, oy) => {
     const r2 = new RNG(777);
-    for (let i = 0; i < 5200; i++) {
+    for (let i = 0; i < 11000; i++) {
       const x = r2.next() * W + ox, y = r2.next() * H + oy;
       if (x < -20 || x > W + 20 || y < -20 || y > H + 20) continue;
-      const l = 5 + r2.next() * 9, a = -Math.PI / 2 + (r2.next() - 0.5) * 1.1;
+      const l = 6 + r2.next() * 14, a = -Math.PI / 2 + (r2.next() - 0.5) * 1.15;
       g.globalAlpha = 0.25 + r2.next() * 0.45;
       g.strokeStyle = cols[(r2.next() * cols.length) | 0];
-      g.lineWidth = 1 + r2.next() * 0.8;
+      g.lineWidth = 1.2 + r2.next() * 0.9;
       g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
     }
   });
   g.globalAlpha = 1;
   // faint clover / dry flecks
-  for (let i = 0; i < 160; i++) {
+  for (let i = 0; i < 320; i++) {
     g.fillStyle = rng.chance(0.5) ? 'rgba(150,150,70,0.35)' : 'rgba(35,70,25,0.4)';
-    g.beginPath(); g.arc(rng.next() * W, rng.next() * H, 1 + rng.next() * 3, 0, 7); g.fill();
+    g.beginPath(); g.arc(rng.next() * W, rng.next() * H, 1.2 + rng.next() * 3.5, 0, 7); g.fill();
   }
-  return { map: toTexture(c), normalMap: toTexture(normalCanvas(hf, W, H, 1.6), { srgb: false }) };
+  return { map: toTexture(c), normalMap: toTexture(normalCanvas(hf, W, H, 2.4), { srgb: false }) };
 }
 
 /** Dark soil / wood mulch, 256 px = 1 m. */

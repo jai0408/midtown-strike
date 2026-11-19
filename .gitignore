@@ -7,4 +7,6 @@ android/tools/lib/
 *.log
 tools/blender/preview/
 tools/blender/glb/
+__pycache__/
+*.pyc
 *.bak

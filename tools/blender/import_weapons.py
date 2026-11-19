@@ -472,8 +472,111 @@ def build_sword():
     return o, {k: g(p) for k, p in pts.items()}
 
 
-JPEG_QUALITY = {"m1911": 76, "ksr29": 68, "sword": 76}   # the exporter re-encodes the textures at this quality
-BUILDS = {"m1911": build_m1911, "ksr29": build_ksr29, "sword": build_sword}
+def build_m4():
+    objs = import_glb("assault rifle.glb")
+    meshes = [o for o in bpy.data.objects if o.type == "MESH"]
+    for o in meshes:
+        bake_world(o)
+        keep_first_uv(o)
+
+    body_objs = [bpy.data.objects[n] for n in ["Object_4", "Object_6", "Object_11", "Object_9", "Object_10", "Object_5"] if n in bpy.data.objects]
+    acc_objs = [bpy.data.objects["Object_8"]]
+    mag_objs = [bpy.data.objects["Object_7"]]
+    sight_objs = [bpy.data.objects["Object_12"]]
+
+    mat_body = bpy.data.objects["Object_4"].active_material
+    mat_acc = bpy.data.objects["Object_8"].active_material
+    mat_mag = bpy.data.objects["Object_7"].active_material
+    mat_sight = bpy.data.objects["Object_12"].active_material
+
+    im_body_base = image_of(mat_body, "Image_0")
+    im_body_n = image_of(mat_body, "Image_1")
+    im_acc_base = image_of(mat_acc, "Image_4")
+    im_acc_n = image_of(mat_acc, "Image_5")
+    im_mag_base = image_of(mat_mag, "Image_2")
+    im_mag_n = image_of(mat_mag, "Image_3")
+    im_sight_base = image_of(mat_sight, "Image_6")
+    im_sight_n = image_of(mat_sight, "Image_7")
+
+    W = 1024
+    base_atlas = np.zeros((W, W, 4), np.float32)
+    nrm_atlas = np.zeros((W, W, 4), np.float32)
+    base_atlas[..., 3] = nrm_atlas[..., 3] = 1.0
+
+    base_atlas[512:1024, 0:512] = shrink(read_pixels(im_body_base, True), 512, 512)
+    nrm_atlas[512:1024, 0:512] = shrink(read_pixels(im_body_n, False), 512, 512)
+    base_atlas[512:1024, 512:1024] = shrink(read_pixels(im_acc_base, True), 512, 512)
+    nrm_atlas[512:1024, 512:1024] = shrink(read_pixels(im_acc_n, False), 512, 512)
+    base_atlas[0:512, 0:512] = shrink(read_pixels(im_mag_base, True), 512, 512)
+    nrm_atlas[0:512, 0:512] = shrink(read_pixels(im_mag_n, False), 512, 512)
+    base_atlas[0:512, 512:1024] = shrink(read_pixels(im_sight_base, True), 512, 512)
+    nrm_atlas[0:512, 512:1024] = shrink(read_pixels(im_sight_n, False), 512, 512)
+
+    def remap_uv(objs, u_off, v_off, u_scale, v_scale):
+        for o in objs:
+            uv = o.data.uv_layers[0].data
+            a = np.empty(len(uv) * 2, np.float32)
+            uv.foreach_get("uv", a)
+            a = a.reshape(-1, 2)
+            a[:, 0] = np.clip(a[:, 0], 0, 1) * u_scale + u_off
+            a[:, 1] = np.clip(a[:, 1], 0, 1) * v_scale + v_off
+            uv.foreach_set("uv", a.ravel())
+
+    remap_uv(body_objs, 0.0, 0.5, 0.5, 0.5)
+    remap_uv(acc_objs, 0.5, 0.5, 0.5, 0.5)
+    remap_uv(mag_objs, 0.0, 0.0, 0.5, 0.5)
+    remap_uv(sight_objs, 0.5, 0.0, 0.5, 0.5)
+
+    all_objs = body_objs + acc_objs + mag_objs + sight_objs
+    bpy.ops.object.select_all(action="DESELECT")
+    for o in all_objs: o.select_set(True)
+    bpy.context.view_layer.objects.active = all_objs[0]
+    with bpy.context.temp_override(active_object=all_objs[0], selected_editable_objects=all_objs, selected_objects=all_objs):
+        bpy.ops.object.join()
+    ob = all_objs[0]
+    ob.name = "m4"
+
+    v = verts(ob)
+    length = np.ptp(v[:, 0])
+    scale = 0.80 / length
+
+    orient(ob, (0, -1, 0), (1, 0, 0), (0, 0, 1), scale)
+    v = verts(ob)
+
+    lo, hi = v.min(0), v.max(0)
+    muzzle_pts = v[v[:, 1] > hi[1] - 0.01]
+    bore_z = (muzzle_pts[:, 2].min() + muzzle_pts[:, 2].max()) / 2
+    muzzle = np.array([0.0, hi[1], bore_z])
+
+    grip_pts = v[(v[:, 1] > -0.13) & (v[:, 1] < -0.05) & (v[:, 2] < bore_z - 0.05)]
+    grip = np.array([0.0, float(grip_pts[:, 1].mean()), float(grip_pts[:, 2].mean())])
+
+    left_pts = v[(v[:, 1] > 0.18) & (v[:, 1] < 0.28) & (v[:, 2] < bore_z + 0.02) & (v[:, 2] > bore_z - 0.05)]
+    left = np.array([0.0, float(left_pts[:, 1].mean()), bore_z - 0.015])
+    magp = np.array([0.0, 0.08, bore_z - 0.08])
+    sight = np.array([0.0, -0.02, float(v[(v[:, 1] > -0.08) & (v[:, 1] < 0.05)][:, 2].max())])
+    eject = np.array([0.024, 0.01, bore_z + 0.005])
+
+    pts = {"muzzle": muzzle, "right": grip, "left": left, "mag": magp, "sight": sight, "eject": eject}
+
+    target = np.array([0.0, -0.03, -0.035])
+    shift = target - grip
+    transform(ob, Matrix.Translation(Vector(shift)))
+    pts = {k: v + shift for k, v in pts.items()}
+
+    ob.data.materials.clear()
+    img_base = save_image(base_atlas, "m4_base", True, 78)
+    img_nrm = save_image(shrink(nrm_atlas, 1024, 1024), "m4_n", False, 80)
+    mat = make_material("m4", img_base, img_nrm, None, metal=0.48, rough=0.38)
+    ob.data.materials.append(mat)
+
+    tris = decimate(ob, 7800)
+    shade(ob, 38)
+    return ob, {k: g(v) for k, v in pts.items()}
+
+
+JPEG_QUALITY = {"m1911": 76, "ksr29": 68, "sword": 76, "m4": 78}   # the exporter re-encodes the textures at this quality
+BUILDS = {"m1911": build_m1911, "ksr29": build_ksr29, "sword": build_sword, "m4": build_m4}
 
 
 # ---------------------------------------------------------------------------

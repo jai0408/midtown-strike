@@ -145,9 +145,13 @@ export async function loadWeaponAssets() {
           if (!o.isMesh) return;
           o.castShadow = true;
           o.frustumCulled = false;
-          const m = o.material;
-          m.envMapIntensity = 0.8;
-          if (m.map && m.map.anisotropy !== undefined) m.map.anisotropy = 4;
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          for (const m of mats) {
+            if (!m) continue;
+            m.envMapIntensity = 1.0;
+            if (m.map && m.map.anisotropy !== undefined) m.map.anisotropy = 4;
+            if (m.normalMap && m.normalMap.anisotropy !== undefined) m.normalMap.anisotropy = 4;
+          }
         });
         glbModels.set(id, { scene: gltf.scene, points: WEAPON_GLB[id].points });
         resolve();

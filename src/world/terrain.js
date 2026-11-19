@@ -21,18 +21,22 @@ function blobOf(s) {
   return new Blob([u8], { type: png ? 'image/png' : 'image/jpeg' });
 }
 
-/** Four images (base64 or ready canvases) -> one RGBA8 texture array. */
+/** Four images (base64 or ready canvases / elements) -> one RGBA8 texture array. */
 async function arrayOf(images, srgb) {
   const data = new Uint8Array(LAYER * LAYER * 4 * images.length);
   const c = makeCanvas(LAYER, LAYER), g = c.getContext('2d', { willReadFrequently: true });
   for (let i = 0; i < images.length; i++) {
-    const src = images[i];
+    let src = images[i];
     g.clearRect(0, 0, LAYER, LAYER);
     if (typeof src === 'string') {
-      const bmp = await createImageBitmap(blobOf(src));
-      g.drawImage(bmp, 0, 0, LAYER, LAYER);
-      if (bmp.close) bmp.close();
-    } else g.drawImage(src, 0, 0, LAYER, LAYER);
+      src = await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = src.startsWith('data:') ? src : 'data:image/png;base64,' + (src.indexOf(',') >= 0 ? src.slice(src.indexOf(',') + 1) : src);
+      });
+    }
+    g.drawImage(src, 0, 0, LAYER, LAYER);
     data.set(g.getImageData(0, 0, LAYER, LAYER).data, i * LAYER * LAYER * 4);
   }
   const t = new THREE.DataArrayTexture(data, LAYER, LAYER, images.length);
@@ -49,9 +53,16 @@ async function arrayOf(images, srgb) {
 }
 
 async function splatTexture(png) {
-  // premultiplyAlpha none: the alpha channel is the rock weight, not transparency
-  const bmp = await createImageBitmap(typeof png === 'string' ? blobOf(png) : png, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
-  const t = new THREE.Texture(bmp);
+  let source = png;
+  if (typeof png === 'string') {
+    source = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = png.startsWith('data:') ? png : 'data:image/png;base64,' + (png.indexOf(',') >= 0 ? png.slice(png.indexOf(',') + 1) : png);
+    });
+  }
+  const t = new THREE.Texture(source);
   t.flipY = false;   // image row 0 is z0
   t.premultiplyAlpha = false;
   t.colorSpace = THREE.NoColorSpace;
