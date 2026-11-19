@@ -12,6 +12,7 @@ import { World } from '../core/physics.js';
 import { getMaxAnisotropy, makeCanvas } from '../world/textures.js';
 import { createKoiPond } from '../world/pond.js';
 import { buildSchoolBuses } from '../world/school_bus.js';
+import { createPhoenix } from '../world/phoenix.js';
 
 // let the loading screen repaint between the heavy steps
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -244,6 +245,9 @@ export async function buildLodge(onProgress = () => {}) {
   // Natural uneven Koi Pond left side of the south yard lodge (~8m diameter, 5ft deep, 10 colorful Koi fish)
   const pond = createKoiPond({ x: -18.5, z: 20.0, groundAt, world });
 
+  // Mythical Phoenix Bird soaring across the skies above the lodge and lake
+  const phoenix = createPhoenix();
+
   world.finalize();
   onProgress(0.75);
   await tick();
@@ -262,7 +266,7 @@ export async function buildLodge(onProgress = () => {}) {
 
   const group = new THREE.Group();
   group.name = 'lodge';
-  group.add(scene, foliage.group, water.mesh, pond.group, buses.group);
+  group.add(scene, foliage.group, water.mesh, pond.group, buses.group, phoenix.group);
 
   // the lodge interior gets almost no sky light: a few warm point lights, no shadows.
   // They are only switched on near the lodge (every lit pixel pays for each light).
@@ -303,6 +307,7 @@ export async function buildLodge(onProgress = () => {}) {
       foliage.update(dt, camPos, drawScale, camera);
       water.update(dt);
       pond.update(dt);
+      phoenix.update(dt);
     },
     half: D.half,
     bounds: D.bounds,
@@ -325,6 +330,6 @@ export async function buildLodge(onProgress = () => {}) {
       for (const [m, wants] of casters) m.castShadow = on && wants;
       foliage.setQuality(name);
     },
-    dispose() { foliage.dispose(); water.dispose(); pond.dispose(); buses.dispose(); },
+    dispose() { foliage.dispose(); water.dispose(); pond.dispose(); buses.dispose(); phoenix.dispose(); },
   };
 }

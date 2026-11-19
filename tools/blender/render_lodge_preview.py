@@ -527,196 +527,35 @@ for i in range(36):
     if hasattr(stone.data, "polygons"):
         stone.data.polygons.foreach_set('use_smooth', [True] * len(stone.data.polygons))
 
-# 5. 10 Distinct Japanese Koi Fish (Organic Sleek 3D Meshes with Smooth Shading)
-KOI_VARIETIES = [
-    ("Kohaku", (0.98, 0.98, 0.96, 1.0), (0.95, 0.18, 0.05, 1.0), "patch"),        # Pearl white with vibrant red markings
-    ("Taisho Sanke", (0.96, 0.96, 0.94, 1.0), (0.92, 0.16, 0.04, 1.0), "tri"),     # White with vermilion & sumi black
-    ("Showa", (0.12, 0.12, 0.14, 1.0), (0.92, 0.16, 0.04, 1.0), "swirl"),          # Midnight black with scarlet & white
-    ("Yamabuki Ogon", (1.0, 0.82, 0.10, 1.0), (1.0, 0.90, 0.25, 1.0), "solid"),    # Pure shimmering metallic gold
-    ("Shiro Utsuri", (0.10, 0.10, 0.12, 1.0), (0.98, 0.98, 0.98, 1.0), "stripe"),  # Black body with white markings
-    ("Tancho", (0.98, 0.98, 0.98, 1.0), (0.95, 0.12, 0.04, 1.0), "tancho"),       # Pure pearl white with crimson crown spot
-    ("Asagi", (0.32, 0.42, 0.50, 1.0), (0.96, 0.35, 0.06, 1.0), "asagi"),          # Steel-blue net scales with fiery belly
-    ("Ki Utsuri", (0.10, 0.10, 0.12, 1.0), (0.98, 0.78, 0.05, 1.0), "stripe"),     # Lacquer black with bright canary yellow
-    ("Beni Kumonryu", (0.96, 0.96, 0.95, 1.0), (0.92, 0.15, 0.05, 1.0), "tri"),    # White dragon with scarlet & ink
-    ("Kin Matsuba", (0.88, 0.64, 0.18, 1.0), (0.98, 0.76, 0.24, 1.0), "scale"),    # Bronze pinecone luster
+# 5. 10 Authentic Japanese Koi Fish imported from 3D Model koi_fish 1.glb
+KOI_GLB = os.path.join(ROOT, "tools", "blender", "glb", "koi_fish.glb")
+if not os.path.exists(KOI_GLB):
+    KOI_GLB = "/Users/jaikeerthanchowdarybonam/Desktop/game/koi_fish 1.glb"
+
+KOI_CONFIGS = [
+    # (rel_x, rel_y, rel_depth, yaw_deg, scale, pitch_deg, roll_deg)
+    (-1.2, -0.5, -0.35,  25, 0.125,  2, -5),
+    ( 1.4,  0.7, -0.48, 140, 0.118, -3,  4),
+    (-0.6,  1.6, -0.30, 220, 0.130,  1,  2),
+    ( 1.6, -0.9, -0.55, -45, 0.122, -2, -3),
+    (-1.9,  1.1, -0.65,  85, 0.115,  3,  6),
+    ( 0.2, -1.6, -0.42, 175, 0.128, -1, -2),
+    (-1.1, -1.9, -0.52, -100,0.110,  2, -4),
+    ( 0.8, -0.3, -0.70,  55, 0.135, -4,  5),
+    ( 1.7, -1.7, -0.38, -135,0.120,  1,  3),
+    (-0.3,  0.5, -0.45, -15, 0.126,  0, -1),
 ]
 
-def build_koi_3d(name, base_col, pat_col, style, loc, yaw, scale=1.35):
-    k_root = bpy.data.objects.new(f"Koi_{name}", None)
-    sc.collection.objects.link(k_root)
-
-    # 1. Sleek organic fish body cross-sections along the spine
-    SEGS = [
-        ( 0.52 * scale, 0.02 * scale, 0.02 * scale,  0.00),         # Snout tip
-        ( 0.40 * scale, 0.09 * scale, 0.08 * scale,  0.01 * scale),  # Head / Eyes
-        ( 0.20 * scale, 0.15 * scale, 0.13 * scale,  0.02 * scale),  # Gills / Maximum Girth
-        ( 0.00 * scale, 0.14 * scale, 0.12 * scale,  0.015 * scale), # Torso Midsection
-        (-0.20 * scale, 0.11 * scale, 0.09 * scale,  0.005 * scale), # Tapering Belly
-        (-0.36 * scale, 0.06 * scale, 0.06 * scale, -0.005 * scale), # Lower Flank
-        (-0.48 * scale, 0.03 * scale, 0.035 * scale, -0.01 * scale), # Caudal Peduncle Base
-    ]
-
-    N_RAD = 12
-    verts = []
-    faces = []
-
-    # Build rings of vertices
-    for si, (sy, hw, hh, z_off) in enumerate(SEGS):
-        # Organic gentle swimming undulation curve along spine
-        und = 0.025 * scale * math.sin(si * 0.9)
-        for ri in range(N_RAD):
-            ang = (ri / N_RAD) * math.pi * 2
-            vx = hw * math.cos(ang) + und
-            vz = hh * math.sin(ang) + z_off
-            verts.append((vx, sy, vz))
-
-    # Ring quad faces
-    for si in range(len(SEGS) - 1):
-        for ri in range(N_RAD):
-            nxt_r = (ri + 1) % N_RAD
-            v0 = si * N_RAD + ri
-            v1 = si * N_RAD + nxt_r
-            v2 = (si + 1) * N_RAD + nxt_r
-            v3 = (si + 1) * N_RAD + ri
-            faces.append((v0, v1, v2, v3))
-
-    # Snout cap (front)
-    snout_center = len(verts)
-    verts.append((0, 0.56 * scale, 0))
-    for ri in range(N_RAD):
-        nxt_r = (ri + 1) % N_RAD
-        faces.append((snout_center, ri, nxt_r))
-
-    # Tail peduncle cap (rear)
-    tail_center = len(verts)
-    verts.append((0, -0.50 * scale, -0.01 * scale))
-    last_ring = (len(SEGS) - 1) * N_RAD
-    for ri in range(N_RAD):
-        nxt_r = (ri + 1) % N_RAD
-        faces.append((tail_center, last_ring + nxt_r, last_ring + ri))
-
-    m_body = bpy.data.meshes.new(f"mesh_body_{name}")
-    m_body.from_pydata(verts, [], faces)
-    if hasattr(m_body, "polygons"):
-        m_body.polygons.foreach_set('use_smooth', [True] * len(m_body.polygons))
-
-    o_body = bpy.data.objects.new(f"body_{name}", m_body)
-    sc.collection.objects.link(o_body)
-    o_body.parent = k_root
-
-    # Base Fish Scale Material
-    mat_k = bpy.data.materials.new(f"mat_{name}")
-    mat_k.use_nodes = True
-    kbsdf = mat_k.node_tree.nodes.get("Principled BSDF")
-    if kbsdf:
-        kbsdf.inputs["Base Color"].default_value = base_col
-        kbsdf.inputs["Roughness"].default_value = 0.12
-        kbsdf.inputs["Metallic"].default_value = 0.45 # Glistening wet fish scales
-        if "Emission Color" in kbsdf.inputs:
-            kbsdf.inputs["Emission Color"].default_value = (base_col[0] * 0.25, base_col[1] * 0.25, base_col[2] * 0.25, 1.0)
-            kbsdf.inputs["Emission Strength"].default_value = 0.5
-    o_body.data.materials.append(mat_k)
-
-    # 2. Distinct Pattern Patches (Kohaku red hi, Sanke markings, Tancho spot)
-    mat_pat = bpy.data.materials.new(f"mat_pat_{name}")
-    mat_pat.use_nodes = True
-    pbs = mat_pat.node_tree.nodes.get("Principled BSDF")
-    if pbs:
-        pbs.inputs["Base Color"].default_value = pat_col
-        pbs.inputs["Roughness"].default_value = 0.12
-        pbs.inputs["Metallic"].default_value = 0.45
-        if "Emission Color" in pbs.inputs:
-            pbs.inputs["Emission Color"].default_value = (pat_col[0] * 0.35, pat_col[1] * 0.35, pat_col[2] * 0.35, 1.0)
-            pbs.inputs["Emission Strength"].default_value = 0.75
-
-    if style == "tancho":
-        # Red circular crown on head
-        bpy.ops.mesh.primitive_cylinder_add(vertices=12, radius=0.055 * scale, depth=0.02 * scale)
-        spot = bpy.context.active_object
-        spot.location = (0, 0.34 * scale, 0.082 * scale)
-        spot.parent = k_root
-        spot.data.materials.append(mat_pat)
-    else:
-        # Vibrant dorsal color patches
-        for pi, (py, pz_scl, pl, pw) in enumerate([(0.18, 0.02, 0.38, 0.16), (-0.12, 0.015, 0.28, 0.12)]):
-            bpy.ops.mesh.primitive_cylinder_add(vertices=10, radius=pw * scale, depth=pl * scale)
-            patch = bpy.context.active_object
-            patch.scale = (0.9, 1.0, 0.35)
-            patch.rotation_euler = (math.radians(90), 0, 0)
-            patch.location = (0.01 * (1 if pi == 0 else -1) * scale, py * scale, (0.12 + pz_scl) * scale)
-            patch.parent = k_root
-            patch.data.materials.append(mat_pat)
-
-    # 3. Delicate Translucent Caudal Tail Fin (Fan shape undulating behind fish)
-    t_verts = [
-        (0.0, -0.48 * scale, -0.01 * scale),                           # peduncle top
-        (0.0, -0.48 * scale, -0.03 * scale),                           # peduncle bot
-        (0.03 * scale, -0.74 * scale,  0.18 * scale),                  # top lobe tip
-        (0.02 * scale, -0.66 * scale,  0.00 * scale),                  # fork notch
-        (0.03 * scale, -0.72 * scale, -0.16 * scale),                  # bot lobe tip
-    ]
-    t_faces = [(0, 2, 3, 1), (1, 3, 4)]
-    m_tail = bpy.data.meshes.new(f"mesh_tail_{name}")
-    m_tail.from_pydata(t_verts, [], t_faces)
-    o_tail = bpy.data.objects.new(f"tail_{name}", m_tail)
-    sc.collection.objects.link(o_tail)
-    o_tail.parent = k_root
-    o_tail.data.materials.append(mat_pat if style in ("patch", "tri") else mat_k)
-
-    # 4. Angled Pectoral Fins
-    for side in (-1, 1):
-        f_verts = [
-            (side * 0.14 * scale, 0.24 * scale, -0.01 * scale),
-            (side * 0.14 * scale, 0.16 * scale, -0.03 * scale),
-            (side * 0.36 * scale, 0.10 * scale, -0.05 * scale),
-            (side * 0.34 * scale, 0.18 * scale, -0.03 * scale),
-        ]
-        f_faces = [(0, 1, 2, 3) if side == 1 else (3, 2, 1, 0)]
-        m_fin = bpy.data.meshes.new(f"fin_{side}_{name}")
-        m_fin.from_pydata(f_verts, [], f_faces)
-        o_fin = bpy.data.objects.new(f"fin_{side}_{name}", m_fin)
-        sc.collection.objects.link(o_fin)
-        o_fin.parent = k_root
-        o_fin.data.materials.append(mat_pat if style == "asagi" else mat_k)
-
-    # 5. Delicate Dorsal Fin along spine
-    d_verts = [
-        (0.0,  0.22 * scale, 0.13 * scale),
-        (0.0, -0.18 * scale, 0.10 * scale),
-        (0.01 * scale, -0.12 * scale, 0.21 * scale),
-        (0.005 * scale, 0.14 * scale, 0.20 * scale),
-    ]
-    d_faces = [(0, 1, 2, 3)]
-    m_dorsal = bpy.data.meshes.new(f"dorsal_{name}")
-    m_dorsal.from_pydata(d_verts, [], d_faces)
-    o_dorsal = bpy.data.objects.new(f"dorsal_{name}", m_dorsal)
-    sc.collection.objects.link(o_dorsal)
-    o_dorsal.parent = k_root
-    o_dorsal.data.materials.append(mat_pat if style in ("patch", "swirl") else mat_k)
-
-    k_root.location = loc
-    k_root.rotation_euler = (0, 0, yaw)
-    return k_root
-
-KOI_POSITIONS = [
-    (-1.4, -0.6, -0.18, 0.8),    # Kohaku
-    ( 1.2,  0.8, -0.28, 2.2),    # Taisho Sanke
-    (-0.5,  1.5, -0.24, -1.2),   # Showa
-    ( 1.8, -0.8, -0.16, 1.5),    # Yamabuki Ogon
-    (-1.8,  1.2, -0.32, 0.4),    # Shiro Utsuri
-    ( 0.0, -1.5, -0.20, 3.1),    # Tancho
-    (-1.0, -1.8, -0.28, -2.1),   # Asagi
-    ( 0.6, -0.4, -0.36, 1.0),    # Ki Utsuri
-    ( 1.5, -1.6, -0.25, -0.8),   # Beni Kumonryu
-    (-0.2,  0.6, -0.22, 2.6),    # Kin Matsuba
-]
-
-for i, (kname, kbase, kpat, kstyle) in enumerate(KOI_VARIETIES):
-    ox, oy, rel_z, yaw = KOI_POSITIONS[i]
-    kx = POND_CX + ox
-    ky = POND_CY + oy
-    kz = POND_WATER_Z + rel_z
-    build_koi_3d(kname, kbase, kpat, kstyle, (kx, ky, kz), yaw, scale=1.35)
+for idx, (rx, ry, rz, yaw, scl, pitch, roll) in enumerate(KOI_CONFIGS):
+    bpy.ops.import_scene.gltf(filepath=KOI_GLB)
+    new_objs = [o for o in bpy.context.selected_objects if o.type == 'MESH']
+    root = bpy.context.active_object or new_objs[0]
+    while root.parent:
+        root = root.parent
+    root.name = f"Koi_{idx}"
+    root.scale = (scl, scl, scl)
+    root.location = (POND_CX + rx, POND_CY + ry, POND_WATER_Z + rz)
+    root.rotation_euler = (math.radians(pitch), math.radians(roll), math.radians(yaw))
 
 # 6. Floating Lily Pads with Lotus Flowers
 mat_lily = bpy.data.materials.new("LilyPad")
@@ -743,6 +582,33 @@ for li in range(7):
         lotus = bpy.context.active_object
         lotus.location = (lx + 0.05, ly + 0.05, lz + 0.09)
         lotus.data.materials.append(mat_lotus)
+
+# -----------------------------------------------------------------------------
+# 8. Add Flying Mythical Phoenix Bird in the Sky
+# -----------------------------------------------------------------------------
+PHOENIX_GLB = os.path.join(ROOT, "tools", "blender", "glb", "phoenix.glb")
+if not os.path.exists(PHOENIX_GLB):
+    PHOENIX_GLB = "/Users/jaikeerthanchowdarybonam/Desktop/game/phoenix_bird.glb"
+
+bpy.ops.import_scene.gltf(filepath=PHOENIX_GLB)
+ico = bpy.data.objects.get("Icosphere")
+if ico:
+    bpy.data.objects.remove(ico)
+
+p_root = bpy.data.objects.get("Sketchfab_model")
+if p_root:
+    p_root.name = "Phoenix_Bird"
+    p_root.scale = (0.013, 0.013, 0.013)
+    p_root.location = (6.0, 68.0, 22.0)
+    p_root.rotation_euler = (math.radians(-82), math.radians(-18), math.radians(35))
+
+    p_light = bpy.data.lights.new("PhoenixAura", "POINT")
+    p_light.energy = 800.0
+    p_light.color = (1.0, 0.50, 0.15)
+    p_light.shadow_soft_size = 2.0
+    p_light_obj = bpy.data.objects.new("PhoenixAura", p_light)
+    p_light_obj.location = (6.0, 68.0, 22.0)
+    sc.collection.objects.link(p_light_obj)
 
 # -----------------------------------------------------------------------------
 # 9. Helper to render camera views
@@ -790,5 +656,8 @@ v4 = render_camera("lodge_render_lake", loc=(-18.0, -36.0, 4.2), target=(12.0, -
 
 # View 5: Close 3/4 Hero shot of the School Bus between lodges
 v5 = render_camera("lodge_render_bus_detail", loc=(-21.5, 42.5, 2.6), target=(-16.5, 36.5, 1.7), focal_len=35)
+
+# View 6: Close Hero Shot of the Soaring Phoenix Bird in the sky over the lake and mountains
+v6 = render_camera("lodge_render_phoenix", loc=(-6.0, -50.0, 25.5), target=(6.0, -68.0, 22.0), focal_len=36)
 
 print("All new lodge renders complete!", flush=True)

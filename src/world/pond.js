@@ -1,8 +1,17 @@
 // Uneven natural Koi Pond left side of Cedar Lodge south yard:
 // ~8m diameter, 5ft depth, river stone coping, crystal clear water with ripples,
-// lily pads, and 10 colorful Japanese Koi fish with realistic swimming physics.
+// lily pads, and 10 colorful Japanese Koi fish using the authentic 3D model (koi_fish 1.glb).
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { F_DEFAULT, S_CONCRETE, S_DIRT } from '../core/physics.js';
+import { KOI_GLB } from './creatures_asset.js';
+
+function decodeBase64(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
 
 /** Uneven, natural, organic perimeter radius function (averaging ~4m radius, 8m diameter). */
 export function pondRadius(th) {
@@ -386,40 +395,96 @@ export function createKoiPond({ x: cx = -18.5, z: cz = 20.0, groundAt, world }) 
   }
 
   // -------------------------------------------------------------------------
-  // 5. 10 Colorful Japanese Koi Fish with Natural Swimming Physics
+  // 5. 10 Photorealistic Japanese Koi Fish from koi_fish 1.glb
   // -------------------------------------------------------------------------
-  const fishMat = new THREE.MeshStandardMaterial({
-    vertexColors: true, roughness: 0.35, metalness: 0.15,
-  });
-
   const koiFishes = [];
-  for (let i = 0; i < 10; i++) {
-    const species = KOI_SPECIES[i % KOI_SPECIES.length];
-    const scale = 0.95 + (i % 4) * 0.12; // varying fish sizes (0.95m - 1.35m scaled length)
-    const geo = buildKoiMesh(species, scale);
-    const mesh = new THREE.Mesh(geo, fishMat);
-    mesh.castShadow = true;
-    group.add(mesh);
+  try {
+    const loader = new GLTFLoader();
+    const buf = decodeBase64(KOI_GLB);
+    loader.parse(buf, '', (gltf) => {
+      let masterMesh = null;
+      gltf.scene.traverse((obj) => {
+        if (obj.isMesh && !masterMesh) masterMesh = obj;
+      });
+      const clip = gltf.animations && gltf.animations.length > 0 ? gltf.animations[0] : null;
 
-    // Initial swim trajectory state
-    const th0 = (i / 10) * Math.PI * 2;
-    const rOrbit = 1.3 + (i % 5) * 0.42; // orbit distance from pond center (1.3 to 3.0 m)
-    const depthTarget = -0.35 - (i % 4) * 0.26; // varying swimming depth
-    const speed = 0.45 + (i % 3) * 0.16; // swimming speed (m/s)
-    const dir = i % 2 === 0 ? 1 : -1; // clockwise / counter-clockwise
+      if (masterMesh) {
+        masterMesh.castShadow = true;
+        masterMesh.receiveShadow = true;
+        const baseMat = masterMesh.material;
+        if (baseMat) {
+          baseMat.roughness = 0.18;
+          baseMat.metalness = 0.35;
+        }
 
-    koiFishes.push({
-      mesh,
-      geo,
-      origPos: geo.attributes.position.array.slice(),
-      th: th0,
-      rOrbit,
-      depthTarget,
-      speed,
-      dir,
-      phase: i * 1.3,
-      tailFreq: 4.8 * speed,
+        const TINTS = [
+          new THREE.Color(1.0, 1.0, 1.0),      // Kohaku (natural scarlet & pearl white)
+          new THREE.Color(1.05, 1.0, 0.95),    // Taisho Sanke (vermilion & sumi)
+          new THREE.Color(1.22, 0.98, 0.35),   // Yamabuki Ogon (radiant metallic gold)
+          new THREE.Color(1.15, 0.65, 0.65),   // Beni Kumonryu (flowing black & scarlet)
+          new THREE.Color(1.25, 1.25, 1.30),   // Shiro Utsuri (white lightning)
+          new THREE.Color(1.12, 0.85, 0.45),   // Kin Matsuba (shimmering bronze-gold)
+          new THREE.Color(0.85, 0.98, 1.18),   // Asagi (slate blue-grey with fiery belly)
+          new THREE.Color(0.78, 0.78, 0.85),   // Showa (midnight black & scarlet)
+          new THREE.Color(1.18, 1.10, 0.45),   // Ki Utsuri (brilliant yellow-gold)
+          new THREE.Color(1.02, 0.96, 0.96),   // Tancho (crimson crown)
+        ];
+
+        for (let i = 0; i < 10; i++) {
+          const fishRoot = new THREE.Group();
+          fishRoot.name = `koi_fish_${i}`;
+
+          const inner = new THREE.Group();
+          inner.name = `koi_inner_${i}`;
+          inner.quaternion.set(-0.5, 0.5, 0.5, 0.5);
+          const scale = 0.115 + 0.008 * (i % 4); // ~74cm - 89cm length
+          inner.scale.set(scale, scale, scale);
+          fishRoot.add(inner);
+
+          const clonedMesh = masterMesh.clone();
+          clonedMesh.castShadow = true;
+          clonedMesh.receiveShadow = true;
+          const mat = baseMat.clone();
+          mat.color.copy(TINTS[i % TINTS.length]);
+          clonedMesh.material = mat;
+          inner.add(clonedMesh);
+
+          group.add(fishRoot);
+
+          let mixer = null;
+          if (clip) {
+            mixer = new THREE.AnimationMixer(clonedMesh);
+            const act = mixer.clipAction(clip);
+            act.time = (i * 0.625) % clip.duration; // Staggered swimming phase
+            act.setEffectiveTimeScale(0.85 + (i % 3) * 0.15); // Varied swimming tempo
+            act.play();
+          }
+
+          // Initial swim orbit trajectory state inside pond
+          const th0 = (i / 10) * Math.PI * 2;
+          const rOrbit = 1.1 + (i % 5) * 0.42; // Orbit distance from center (1.1 to 2.8m)
+          const depthTarget = -0.30 - (i % 4) * 0.22; // Varied swimming depth
+          const speed = 0.38 + (i % 3) * 0.14; // Swimming speed (m/s)
+          const dir = i % 2 === 0 ? 1 : -1;
+
+          koiFishes.push({
+            root: fishRoot,
+            inner,
+            mesh: clonedMesh,
+            mat,
+            mixer,
+            th: th0,
+            rOrbit,
+            depthTarget,
+            speed,
+            dir,
+            phase: i * 1.3,
+          });
+        }
+      }
     });
+  } catch (err) {
+    console.warn('Failed to load KOI_GLB:', err);
   }
 
   // Return container and animation update function
@@ -429,37 +494,24 @@ export function createKoiPond({ x: cx = -18.5, z: cz = 20.0, groundAt, world }) 
       waterUniforms.uTime.value = (waterUniforms.uTime.value + dt) % 4096;
       const t = waterUniforms.uTime.value;
 
-      // Update 10 Koi swimming physics & spine undulation
+      // Update 10 Koi swimming trajectories, banking, and morph animation
       for (let i = 0; i < koiFishes.length; i++) {
         const fish = koiFishes[i];
-        // Advance angle around pond
         fish.th += (fish.dir * (fish.speed / Math.max(1.0, fish.rOrbit))) * dt;
 
-        // Current orbit radius with subtle breathing wander
-        const rNow = Math.min(fish.rOrbit + 0.25 * Math.sin(t * 0.7 + fish.phase), pondRadius(fish.th) - 0.45);
+        const rNow = Math.min(fish.rOrbit + 0.22 * Math.sin(t * 0.7 + fish.phase), pondRadius(fish.th) - 0.45);
         const fx = cx + Math.sin(fish.th) * rNow;
         const fz = cz + Math.cos(fish.th) * rNow;
-        const fy = WATER_Y + fish.depthTarget + 0.08 * Math.sin(t * 1.1 + fish.phase);
+        const fy = WATER_Y + fish.depthTarget + 0.05 * Math.sin(t * 1.1 + fish.phase);
 
-        // Heading angle (tangential to orbit)
-        const yaw = fish.th + (fish.dir > 0 ? Math.PI / 2 : -Math.PI / 2) + 0.15 * Math.sin(t * 1.5 + fish.phase);
-        fish.mesh.position.set(fx, fy, fz);
-        fish.mesh.rotation.set(0, yaw, 0.08 * Math.sin(t * 2.0 + fish.phase));
+        // Heading angle (tangential to swimming orbit)
+        const yaw = fish.th + (fish.dir > 0 ? Math.PI / 2 : -Math.PI / 2) + 0.12 * Math.sin(t * 1.4 + fish.phase);
+        fish.root.position.set(fx, fy, fz);
+        fish.root.rotation.set(0, yaw, 0.05 * Math.sin(t * 2.0 + fish.phase));
 
-        // Spine & tail sinusoidal undulation animation (swimming physics)
-        const pos = fish.geo.attributes.position.array;
-        const orig = fish.origPos;
-        const wave = Math.sin(t * fish.tailFreq + fish.phase);
-
-        for (let v = 0; v < pos.length; v += 3) {
-          const zOrig = orig[v + 2];
-          // Vertices towards rear tail (z > -0.1) wiggle horizontally with increasing amplitude
-          const flexFactor = Math.max(0.0, (zOrig + 0.15) * 1.8);
-          pos[v] = orig[v] + wave * 0.045 * flexFactor * flexFactor;
-          pos[v + 1] = orig[v + 1];
-          pos[v + 2] = orig[v + 2];
+        if (fish.mixer) {
+          fish.mixer.update(dt);
         }
-        fish.geo.attributes.position.needsUpdate = true;
       }
     },
     dispose() {
@@ -467,8 +519,10 @@ export function createKoiPond({ x: cx = -18.5, z: cz = 20.0, groundAt, world }) 
       waterGeo.dispose(); pondWaterMat.dispose();
       padMat.dispose(); flowerMat.dispose(); flowerCenterMat.dispose();
       stoneMat.dispose(); mossMat.dispose();
-      fishMat.dispose();
-      for (const f of koiFishes) f.geo.dispose();
+      for (const f of koiFishes) {
+        if (f.mixer) f.mixer.stopAllAction();
+        if (f.mat) f.mat.dispose();
+      }
       for (const rg of rockGeos) rg.dispose();
     },
   };
