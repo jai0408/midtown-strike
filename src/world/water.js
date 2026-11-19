@@ -163,7 +163,8 @@ export function createWater(water, heightAt, sunDir = [-0.5003, 0.7204, 0.4803])
           
           // Sun specular glint track across the waves (Call of Duty Mobile style sun glints)
           vec3 sunV = normalize((viewMatrix * vec4(uSunDir, 0.0)).xyz);
-          vec3 halfVec = normalize(sunV + vDir);
+          vec3 hv = sunV + vDir;
+          vec3 halfVec = hv / max(length(hv), 1e-4);   // zero when looking straight against the sun
           float NdotH = max(dot(normal, halfVec), 0.0);
           float sunGlint = pow(NdotH, 160.0) * 7.0 + pow(NdotH, 24.0) * 1.2;
           outgoingLight += uSunColor * (sunGlint * fresnel * 0.45);

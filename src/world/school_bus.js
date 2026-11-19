@@ -27,12 +27,14 @@ export function loadLodgeProps() {
   return propsPromise;
 }
 
-/** Adds segmented collision boxes along the yawed bus body (unchanged from the previous bus: 3 AABBs). */
+/** Adds segmented collision boxes along the yawed bus body (7 short AABBs so a yawed bus stays tight). */
 function addBusColliders(world, x, z, yaw, yBase) {
   const W = 2.6, H = 3.2;
   const c = Math.cos(yaw), s = Math.sin(yaw);
-  const segments = [-3.6, 0.0, 3.6];
-  const halfSeg = 2.0, halfW = W / 2;
+  // many short boxes: the axis-aligned box of a rotated segment grows with its length,
+  // and 3 long ones stuck out about 1 m past the sides of the yawed bus
+  const segments = [-4.71, -3.14, -1.57, 0, 1.57, 3.14, 4.71];
+  const halfSeg = 0.8, halfW = W / 2;
   const ex = Math.abs(c) * halfW + Math.abs(s) * halfSeg;
   const ez = Math.abs(s) * halfW + Math.abs(c) * halfSeg;
   for (const seg of segments) {

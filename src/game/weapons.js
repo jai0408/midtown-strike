@@ -148,7 +148,7 @@ export async function loadWeaponAssets() {
           const mats = Array.isArray(o.material) ? o.material : [o.material];
           for (const m of mats) {
             if (!m) continue;
-            m.envMapIntensity = 1.0;
+            m.envMapIntensity = 0.8;   // as approved: the weapons are shared with Midtown
             if (m.map && m.map.anisotropy !== undefined) m.map.anisotropy = 4;
             if (m.normalMap && m.normalMap.anisotropy !== undefined) m.normalMap.anisotropy = 4;
           }

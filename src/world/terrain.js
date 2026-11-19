@@ -115,7 +115,8 @@ export async function applyTerrainSplat(mat, T) {
         // the koi pond basin: no terrain surface over it (shape from world/pond_shape.js)
         {
           vec2 pPond = vWPos.xz - POND_C;
-          if (length(pPond) < pondRadiusGL(atan(pPond.x, pPond.y)) - 0.15) discard;
+          float pD = length(pPond);
+          if (pD < 2.5 || pD < pondRadiusGL(atan(pPond.x, pPond.y + 1e-4)) - 0.15) discard;   // atan(0, 0) is undefined
         }
         vec2 dnTotal = vec2(0.0);
         float dRough = 1.0, dFade = 1.0 - smoothstep(uFade.x, uFade.y, length(vViewPosition));

@@ -70,7 +70,7 @@ function prepareMaterial(m, glass, matName) {
             float NdotV = clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0);
             float fresnel = 0.04 + 0.96 * pow(1.0 - NdotV, 4.0);
             outgoingLight += reflectedLight.indirectSpecular * (fresnel * 2.2);
-            gl_FragColor.a = clamp(mix(0.22, 0.92, fresnel), 0.0, 1.0);
+            diffuseColor.a = clamp(mix(0.22, 0.92, fresnel), 0.0, 1.0);   // opaque_fragment writes gl_FragColor from it
             if (!(dot(outgoingLight, vec3(1.0)) < 20000.0)) outgoingLight = vec3(0.0);
             outgoingLight = clamp(outgoingLight, 0.0, 24.0);
           }
