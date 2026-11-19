@@ -1,8 +1,6 @@
 // In-match HUD: touch controls, crosshair, minimap, compass, kill feed,
 // health/ammo, damage indicators and the overlays shown during a match.
 import * as THREE from 'three';
-import { HALF, AVENUES, STREETS, broadwayX, districtName, crossStreet, LANDMARKS } from '../world/layout.js';
-import { makeCanvas } from '../world/textures.js';
 import { CATEGORIES } from '../game/weapons.js';
 import { MARINES } from '../game/actor.js';
 import { clamp, fmtTime } from '../core/util.js';
@@ -79,7 +77,7 @@ const HTML = `
 const _p = new THREE.Vector3();
 
 export class Hud {
-  constructor(root, city) {
+  constructor(root, map) {
     this.root = root;
     root.innerHTML = HTML;
     const $ = (id) => root.querySelector(id);
@@ -96,7 +94,7 @@ export class Hud {
     };
     this.cache = {};
     this.mapCtx = this.el.minimap.getContext('2d');
-    this.base = this._drawBaseMap(city);
+    this.setMap(map);
     this.hitT = 0;
     this.flash = 0;
     this.toasts = [];
@@ -113,58 +111,22 @@ export class Hud {
     this.el.compassStrip.innerHTML = strip;
   }
 
+  /** The map whose minimap picture and place names the HUD shows. */
+  setMap(map) {
+    this.map = map;
+    this.base = map.minimap;
+    this.cache = {};
+  }
+
   _set(key, value, fn) {
     if (this.cache[key] === value) return;
     this.cache[key] = value;
     fn(value);
   }
 
-  /** Whole-map image (2.5 m per pixel), north up. */
-  _drawBaseMap(city) {
-    const S = 2.5, N = Math.round((HALF * 2) / S);
-    const c = makeCanvas(N, N), g = c.getContext('2d');
-    const X = (x) => (x + HALF) / S, Z = (z) => (z + HALF) / S;
-    g.fillStyle = '#20232c';
-    g.fillRect(0, 0, N, N);
-    // sidewalks / blocks slightly lighter than the roadway
-    g.fillStyle = '#2b2f3a';
-    for (let c2 = -1; c2 < AVENUES.length; c2++) {
-      const x0 = c2 < 0 ? -HALF : AVENUES[c2].x + AVENUES[c2].road, x1 = c2 + 1 >= AVENUES.length ? HALF : AVENUES[c2 + 1].x - AVENUES[c2 + 1].road;
-      for (let r = -1; r < STREETS.length; r++) {
-        const z0 = r < 0 ? -HALF : STREETS[r].z + STREETS[r].road, z1 = r + 1 >= STREETS.length ? HALF : STREETS[r + 1].z - STREETS[r + 1].road;
-        g.fillRect(X(x0), Z(z0), (x1 - x0) / S, (z1 - z0) / S);
-      }
-    }
-    // Broadway
-    g.strokeStyle = '#20232c';
-    g.lineWidth = 16 / S;
-    g.beginPath();
-    g.moveTo(X(broadwayX(-HALF)), Z(-HALF));
-    g.lineTo(X(0), Z(0));
-    g.lineTo(X(broadwayX(HALF)), Z(HALF));
-    g.stroke();
-    g.fillStyle = '#244a2c';
-    for (const p of city.ctx.parks) g.fillRect(X(p.x0), Z(p.z0), (p.x1 - p.x0) / S, (p.z1 - p.z0) / S);
-    for (const b of city.ctx.buildings) {
-      if (Math.abs(b.x0) > HALF || Math.abs(b.z0) > HALF) continue;
-      g.fillStyle = b.nearTS ? '#5d6480' : b.h > 150 ? '#565d70' : '#454b5b';
-      if (b.round) { g.beginPath(); g.arc(X(b.cx), Z(b.cz), b.round / S, 0, 7); g.fill(); }
-      else g.fillRect(X(b.x0) + 0.5, Z(b.z0) + 0.5, (b.x1 - b.x0) / S - 1, (b.z1 - b.z0) / S - 1);
-    }
-    g.fillStyle = '#10283f';
-    g.fillRect(0, 0, 3, N);
-    // the bowtie glows
-    const grad = g.createRadialGradient(X(8), Z(30), 4, X(8), Z(30), 120);
-    grad.addColorStop(0, 'rgba(255,90,170,0.16)');
-    grad.addColorStop(1, 'rgba(255,90,170,0)');
-    g.fillStyle = grad;
-    g.fillRect(X(-300), Z(-300), 600 / S, 660 / S);
-    return { canvas: c, scale: S, size: N };
-  }
-
   begin(game) {
     this.root.classList.remove('hidden', 'photo');
-    const tdm = game.mode.id === 'tdm';
+    const tdm = game.mode.kind === 'tdm';
     this.el.topbar.style.display = tdm ? '' : 'none';
     this.el.objective.style.display = tdm ? 'none' : '';
     this.el.dead.classList.remove('show');
@@ -366,7 +328,7 @@ export class Hud {
     this._set('adsOn', game.input.ads, (v) => el.ads.classList.toggle('on', v));
 
     // score / clock / objective
-    if (game.mode.id === 'tdm') {
+    if (game.mode.kind === 'tdm') {
       this._set('s0', game.score[0], (v) => { el.score0.textContent = v; });
       this._set('s1', game.score[1], (v) => { el.score1.textContent = v; });
       this._set('clock', fmtTime(game.clock), (v) => { el.clock.textContent = v; });
@@ -380,7 +342,7 @@ export class Hud {
     el.compassStrip.style.transform = `translateX(${(-(hdg + 360) * 2).toFixed(1)}px)`;
     const o = game.objective;
     let markerShown = false;
-    if (o && game.mode.id !== 'tdm') {
+    if (o && game.mode.kind !== 'tdm') {
       const bearing = (Math.atan2(o.x - p.x, -(o.z - p.z)) * 180) / Math.PI;
       let rel = ((bearing - hdg + 540) % 360) - 180;
       el.compassObj.style.display = '';
@@ -421,14 +383,14 @@ export class Hud {
     this.locT -= dt;
     if (this.locT <= 0) {
       this.locT = 0.5;
-      this._set('loc1', districtName(p.x, p.z), (v) => { el.loc.firstElementChild.textContent = v; });
-      this._set('loc2', crossStreet(p.x, p.z), (v) => { el.loc.lastElementChild.textContent = v; });
+      this._set('loc1', this.map.zoneName(p.x, p.z), (v) => { el.loc.firstElementChild.textContent = v; });
+      this._set('loc2', this.map.subName(p.x, p.z), (v) => { el.loc.lastElementChild.textContent = v; });
     }
   }
 
   _minimap(game) {
     const g = this.mapCtx, size = 220, half = size / 2, p = game.player;
-    const R = 95;                       // metres shown from the centre to the edge
+    const R = this.base.radius;         // metres shown from the centre to the edge
     const k = half / R;                 // px per metre
     const b = this.base;
     g.setTransform(1, 0, 0, 1, 0, 0);
@@ -444,7 +406,7 @@ export class Hud {
     // base map: source rectangle around the player
     const sp = k * b.scale;             // screen px per map px
     g.imageSmoothingEnabled = true;
-    g.drawImage(b.canvas, -((p.x + HALF) / b.scale) * sp, -((p.z + HALF) / b.scale) * sp, b.size * sp, b.size * sp);
+    g.drawImage(b.canvas, -((p.x - b.x0) / b.scale) * sp, -((p.z - b.z0) / b.scale) * sp, b.size * sp, b.size * sp);
     // strongpoints
     if (game.sectors) {
       for (const s of game.sectors) {
@@ -501,10 +463,10 @@ export class Hud {
   /** Full-map picture for the travel / overview screen. Returns hit-test data. */
   drawFullMap(canvas, game) {
     const g = canvas.getContext('2d'), N = canvas.width, b = this.base, p = game.player;
-    const k = N / (HALF * 2);
+    const k = N / (b.size * b.scale);   // px per metre
     g.clearRect(0, 0, N, N);
     g.drawImage(b.canvas, 0, 0, N, N);
-    const X = (x) => (x + HALF) * k, Z = (z) => (z + HALF) * k;
+    const X = (x) => (x - b.x0) * k, Z = (z) => (z - b.z0) * k;
     g.textAlign = 'center';
     g.font = `700 ${Math.round(N * 0.02)}px sans-serif`;
     if (game.sectors) {
@@ -518,7 +480,7 @@ export class Hud {
       }
     } else {
       g.fillStyle = '#fff';
-      g.fillText('TIMES SQUARE', X(8), Z(-360));
+      if (b.label) g.fillText(b.label.text, X(b.label.x), Z(b.label.z));
       const bd = game.mode.bounds;
       g.strokeStyle = '#ffb020';
       g.setLineDash([6, 4]);

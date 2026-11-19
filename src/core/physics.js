@@ -38,6 +38,8 @@ export class World {
     this._lists = new Array(this.n * this.n);
     this.cells = null;
     this.groundAt = () => 0;
+    // true for rolling terrain (may dip below 0): rays then march the height field
+    this.rough = false;
     this._q = [];
     // result of the last raycast
     this.hit = { t: Infinity, x: 0, y: 0, z: 0, nx: 0, ny: 1, nz: 0, box: -1, surf: S_GROUND };
@@ -133,7 +135,10 @@ export class World {
     let best = maxT;
     let box = -1;
     let axis = 1;
-    if (ground && dy < -1e-6) {
+    if (ground && this.rough && dy < -1e-6) {
+      const t = this._groundMarch(ox, oy, oz, dx, dy, dz, Math.min(best, maxT));
+      if (t >= 0 && t < best) { best = t; box = -2; }
+    } else if (ground && dy < -1e-6) {
       // Roads sit at 0, sidewalks slightly higher: intersect y=0 first and
       // refine against the local ground height.
       let t = -oy / dy;
@@ -223,6 +228,30 @@ export class World {
       }
     }
     return this._finish(best, box, axis, ox, oy, oz, dx, dy, dz, maxT);
+  }
+
+  /** First crossing of a downward ray with the height field (-1 for none): coarse steps, then bisection. */
+  _groundMarch(ox, oy, oz, dx, dy, dz, tMax) {
+    const gAt = this.groundAt;
+    let t0 = 0, d0 = oy - gAt(ox, oz);
+    if (d0 < 0) return -1;                      // starts under the surface
+    const tLow = (oy + 8) / -dy;                // nothing is lower than -8 m: stop the march there
+    const end = Math.min(tMax, tLow);
+    const step = 1.5;
+    for (let t = step; ; t += step) {
+      const tt = Math.min(t, end);
+      const d1 = oy + dy * tt - gAt(ox + dx * tt, oz + dz * tt);
+      if (d1 <= 0) {
+        let a = t0, b = tt;
+        for (let k = 0; k < 6; k++) {
+          const m = (a + b) * 0.5;
+          if (oy + dy * m - gAt(ox + dx * m, oz + dz * m) > 0) a = m; else b = m;
+        }
+        return b;
+      }
+      if (tt >= end) return -1;
+      t0 = tt;
+    }
   }
 
   _miss(maxT) {

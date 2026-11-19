@@ -1,6 +1,7 @@
 // Street-level navigation graph for the bots: one node per intersection
 // (plus the Broadway crossings), edges along streets and avenues that are not
-// blocked by buildings. Paths are found with A*.
+// blocked by buildings. Paths are found with A*. navFromNodes() is the shared
+// half (nearest / A* / random node) that other maps reuse with their own nodes.
 import { AVENUES, STREETS, broadwayX, HALF } from './layout.js';
 import { F_BUILDING } from '../core/physics.js';
 
@@ -50,6 +51,17 @@ export function buildNav(world) {
   };
   for (let r = 0; r < STREETS.length - 1; r++) link(bwNode(r), bwNode(r + 1));
 
+  return navFromNodes(nodes, streetLos(world));
+}
+
+/** Street line of sight: buildings block, everything else is walked around by the mover. */
+const streetLos = (world) => (x0, z0, x1, z1) => world.clear(x0, 1.2, z0, x1, 1.2, z1, F_BUILDING);
+
+/**
+ * Path finding over a linked node graph ({ id, x, z, links: [{ to, d }] }).
+ * `los(x0, z0, x1, z1)` says whether two ground points see each other.
+ */
+export function navFromNodes(nodes, los) {
   const N = nodes.length;
   const gScore = new Float32Array(N);
   const fScore = new Float32Array(N);
@@ -74,7 +86,7 @@ export function buildNav(world) {
       for (let j = k + 1; j < m; j++) if (dist2[order[j]] < dist2[order[b]]) b = j;
       const t = order[k]; order[k] = order[b]; order[b] = t;
       const n = nodes[order[k]];
-      if (!needLos || dist2[order[k]] <= 9 || world.clear(x, 1.2, z, n.x, 1.2, n.z, F_BUILDING)) return order[k];
+      if (!needLos || dist2[order[k]] <= 9 || los(x, z, n.x, n.z)) return order[k];
     }
     return -1;
   }
@@ -84,7 +96,7 @@ export function buildNav(world) {
    * included). Returns a direct segment when the two points see each other.
    */
   function findPath(x0, z0, x1, z1) {
-    if (world.clear(x0, 1.2, z0, x1, 1.2, z1, F_BUILDING)) return [{ x: x1, z: z1 }];
+    if (los(x0, z0, x1, z1)) return [{ x: x1, z: z1 }];
     let s = nearest(x0, z0), g = nearest(x1, z1);
     if (s < 0) s = nearest(x0, z0, false);
     if (g < 0) g = nearest(x1, z1, false);
@@ -123,9 +135,9 @@ export function buildNav(world) {
     }
     path.reverse();
     // drop leading nodes we can skip because a later one is already visible
-    while (path.length > 1 && world.clear(x0, 1.2, z0, path[1].x, 1.2, path[1].z, F_BUILDING)) path.shift();
+    while (path.length > 1 && los(x0, z0, path[1].x, path[1].z)) path.shift();
     // same at the far end
-    while (path.length > 2 && world.clear(path[path.length - 3].x, 1.2, path[path.length - 3].z, x1, 1.2, z1, F_BUILDING)) path.splice(path.length - 2, 1);
+    while (path.length > 2 && los(path[path.length - 3].x, path[path.length - 3].z, x1, z1)) path.splice(path.length - 2, 1);
     return path;
   }
 

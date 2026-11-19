@@ -15,6 +15,7 @@ let maxAniso = 4;
 export function setMaxAnisotropy(v) {
   maxAniso = Math.min(8, v || 1);
 }
+export const getMaxAnisotropy = () => maxAniso;
 
 export function toTexture(canvas, { repeat = true, srgb = true, aniso = true, nearest = false } = {}) {
   const t = new THREE.CanvasTexture(canvas);

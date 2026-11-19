@@ -6,9 +6,10 @@ import { MARINES, HOSTILES, HEAD, LEGS, STAND } from './actor.js';
 import { FX } from './fx.js';
 import { damageAt, WEAPONS } from './weapons.js';
 import { F_BULLET, F_SEE, GRAVITY } from '../core/physics.js';
-import { LANDMARKS, HALF, groundAt } from '../world/layout.js';
+import { LANDMARKS } from '../world/layout.js';
 import { clamp, rand, pick } from '../core/util.js';
 import { makeCanvas, toTexture } from '../world/textures.js';
+import { LODGE_DATA } from '../maps/lodge_asset.js';
 
 const DIFF = { recruit: 0.7, regular: 1.0, hardened: 1.25, veteran: 1.5 };
 const _v = new THREE.Vector3();
@@ -16,7 +17,7 @@ const hitCopy = { x: 0, y: 0, z: 0, nx: 0, ny: 1, nz: 0, surf: 0 };
 
 export const MODES = {
   tdm: {
-    id: 'tdm', name: 'TEAM DEATHMATCH', place: 'TIMES SQUARE',
+    id: 'tdm', kind: 'tdm', map: 'midtown', name: 'TEAM DEATHMATCH', place: 'TIMES SQUARE',
     blurb: '6 v 6 in the Times Square bowtie. First team to 30 eliminations wins.',
     scoreLimit: 30, timeLimit: 480,
     bounds: { x0: -160, x1: 180, z0: -215, z1: 215 },
@@ -25,12 +26,22 @@ export const MODES = {
       [[-4, -108], [-30, -100], [5, -150], [-38, -152], [70, -162], [-96, -162]],
     ],
     hotspots: [[0, 0], [22, 100], [-22, -100], [42, 62], [-30, -60], [4, 150], [-4, -150], [-90, 4], [100, 84], [-26, -128], [60, 2], [-60, 82], [30, -82]],
+    spawnUse: 3, jitter: 1,   // spawn points in rotation; scatter around them (x1)
   },
   sweep: {
-    id: 'sweep', name: 'CITY SWEEP', place: 'ALL OF MIDTOWN · 2 SQ MI',
+    id: 'sweep', kind: 'sweep', map: 'midtown', name: 'CITY SWEEP', place: 'ALL OF MIDTOWN · 2 SQ MI',
     blurb: 'Open world. Clear every hostile strongpoint across the whole map with your fire team. Subway stations are fast travel.',
     sectors: ['bryantPark', 'heraldSquare', 'grandCentral', 'rockefeller', 'pennPlaza', 'hellsKitchen', 'parkAvenue', 'columbusCircle', 'hudsonYards'],
     garrison: 7,
+  },
+  lodge: {
+    id: 'lodge', kind: 'tdm', map: 'lodge', name: 'TEAM DEATHMATCH', place: 'CEDAR LODGE',
+    blurb: '6 v 6 round a timber lodge on a pine lakeshore. First team to 30 eliminations wins.',
+    scoreLimit: 30, timeLimit: 480,
+    bounds: LODGE_DATA.bounds,
+    spawns: LODGE_DATA.spawns,   // [x, z, yaw]
+    hotspots: LODGE_DATA.hotspots,
+    spawnUse: 6, jitter: 0.25,
   },
 };
 
@@ -53,19 +64,15 @@ function allyMarker() {
 }
 
 export class Game {
-  constructor({ view, city, hud, input, audio, settings }) {
+  constructor({ view, map, hud, input, audio, settings }) {
     this.view = view;
     this.scene = view.scene;
     this.camera = view.camera;
-    this.city = city;
-    this.world = city.world;
-    this.nav = city.nav;
     this.hud = hud;
     this.input = input;
     this.audio = audio;
     this.settings = settings;
     this.fx = new FX(this.scene);
-    this.fx.setEmitters(city.ctx.emitters);
     this.actors = [];
     this.grenades = [];
     this.timers = [];
@@ -78,7 +85,17 @@ export class Game {
     this.over = false;
     this.grenadeGeo = new THREE.SphereGeometry(0.075, 8, 6);
     this.grenadeMat = new THREE.MeshLambertMaterial({ color: 0x2c3a22 });
-    this.stations = city.ctx.stations;
+    this.setMap(map);
+  }
+
+  /** Point the match at a map (world, nav, fx anchors). Call it only while no match runs. */
+  setMap(map) {
+    this.map = map;
+    this.city = map;   // older name, still read by the debug hooks
+    this.world = map.world;
+    this.nav = map.nav;
+    this.stations = map.ctx.stations;
+    this.fx.setEmitters(map.ctx.emitters);
   }
 
   // -------------------------------------------------------------------------
@@ -102,7 +119,7 @@ export class Game {
     this.prompt = null;
     this.nearStation = null;
     this.objective = null;
-    if (modeId === 'tdm') this._setupTdm();
+    if (mode.kind === 'tdm') this._setupTdm();
     else this._setupSweep();
     this.hud.begin(this);
     this.audio.startAmbient();
@@ -128,7 +145,7 @@ export class Game {
     for (let i = 0; i < 24; i++) {
       const r = i === 0 ? 0 : radius * Math.sqrt(i / 24), a = i * 2.4;
       const px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
-      if (Math.abs(px) > HALF - 4 || Math.abs(pz) > HALF - 4) continue;
+      if (Math.abs(px) > this.map.half - 4 || Math.abs(pz) > this.map.half - 4) continue;
       if (w.fits(px, w.groundAt(px, pz), pz, 0.55, 1.9)) return { x: px, z: pz };
     }
     return { x, z };
@@ -160,7 +177,7 @@ export class Game {
   _setupTdm() {
     const m = this.mode;
     const s0 = m.spawns[0], s1 = m.spawns[1];
-    this.player.revive(s0[0][0], s0[0][1], 0);
+    this.player.revive(s0[0][0], s0[0][1], s0[0][2] || 0);
     const wander = (bot) => {
       // head for the fighting: a living enemy's rough position, or a hotspot
       const foes = this.actors.filter((a) => a.alive && a.team !== bot.team);
@@ -171,8 +188,9 @@ export class Game {
       const h = pick(m.hotspots);
       return { x: h[0] + rand(-6, 6), z: h[1] + rand(-6, 6) };
     };
-    for (let i = 1; i < 6; i++) this.spawnBot(MARINES, s0[i % 3][0] + rand(-7, 7), s0[i % 3][1] + rand(-5, 5), 0, { wander });
-    for (let i = 0; i < 6; i++) this.spawnBot(HOSTILES, s1[i % 3][0] + rand(-7, 7), s1[i % 3][1] + rand(-5, 5), Math.PI, { wander });
+    const use = m.spawnUse, j = m.jitter;
+    for (let i = 1; i < 6; i++) { const s = s0[i % use]; this.spawnBot(MARINES, s[0] + rand(-7, 7) * j, s[1] + rand(-5, 5) * j, s[2] || 0, { wander }); }
+    for (let i = 0; i < 6; i++) { const s = s1[i % use]; this.spawnBot(HOSTILES, s[0] + rand(-7, 7) * j, s[1] + rand(-5, 5) * j, s[2] === undefined ? Math.PI : s[2], { wander }); }
     this.hud.banner('TEAM DEATHMATCH', 'First to ' + m.scoreLimit + ' eliminations');
   }
 
@@ -185,7 +203,9 @@ export class Game {
       d += rand(0, 25);
       if (d > bd) { bd = d; best = s; }
     }
-    return this.findFree(best[0] + rand(-6, 6), best[1] + rand(-5, 5));
+    const spot = this.findFree(best[0] + rand(-6, 6) * this.mode.jitter, best[1] + rand(-5, 5) * this.mode.jitter);
+    spot.yaw = best[2];   // undefined on Midtown: the caller's default applies
+    return spot;
   }
 
   _updateTdm(dt) {
@@ -196,7 +216,7 @@ export class Game {
       if (a.alive || a.isPlayer) continue;
       if (a.deadT > 4) {
         const s = this._tdmSpawn(a.team);
-        a.revive(s.x, s.z, a.team === MARINES ? 0 : Math.PI);
+        a.revive(s.x, s.z, s.yaw === undefined ? (a.team === MARINES ? 0 : Math.PI) : s.yaw);
       }
     }
     // leaving the combat zone
@@ -240,7 +260,7 @@ export class Game {
   _hiddenSpot(cx, cz, rMin, rMax) {
     for (let k = 0; k < 14; k++) {
       const a = rand(0, 6.283), r = rand(rMin, rMax);
-      const x = clamp(cx + Math.cos(a) * r, -HALF + 6, HALF - 6), z = clamp(cz + Math.sin(a) * r, -HALF + 6, HALF - 6);
+      const H = this.map.half, x = clamp(cx + Math.cos(a) * r, -H + 6, H - 6), z = clamp(cz + Math.sin(a) * r, -H + 6, H - 6);
       if (!this.world.fits(x, this.world.groundAt(x, z), z, 0.6, 1.9)) continue;
       if (k < 10 && this.inPlayerView(x, z)) continue;
       return { x, z };
@@ -396,11 +416,11 @@ export class Game {
       this.respawnT -= dt;
       if (this.respawnT <= 0) this._respawnPlayer();
     }
-    if (this.mode.id === 'tdm') this._updateTdm(dt);
+    if (this.mode.kind === 'tdm') this._updateTdm(dt);
     else this._updateSweep(dt);
 
     this.fx.update(dt, this.camera, this.view.renderer.domElement.height);
-    this.city.update(dt, cam, this.view.quality.draw);
+    this.map.update(dt, cam, this.view.quality.draw);
     this.audio.updateAmbient(dt);
     this.hud.update(this, dt);
   }
@@ -408,7 +428,7 @@ export class Game {
   _respawnPlayer() {
     const p = this.player;
     let s;
-    if (this.mode.id === 'tdm') s = this._tdmSpawn(MARINES);
+    if (this.mode.kind === 'tdm') s = this._tdmSpawn(MARINES);
     else {
       // nearest secured strongpoint, else the Times Square base
       let best = this.base, bd = Math.hypot(p.x - best.x, p.z - best.z);
@@ -421,7 +441,7 @@ export class Game {
       // bots forget about a dead player
       for (const a of this.actors) if (!a.isPlayer && a.target === p) { a.target = null; a.path = null; }
     }
-    p.revive(s.x, s.z, this.mode.id === 'tdm' ? 0 : p.yaw);
+    p.revive(s.x, s.z, this.mode.kind === 'tdm' ? (s.yaw || 0) : p.yaw);
     this.input.ads = false;
     this.hud.respawned();
   }
@@ -433,7 +453,7 @@ export class Game {
     if (d > 420) return false;
     const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw);
     if ((dx * fx + dz * fz) / d < 0.25) return false;
-    return this.world.clear(cam.x, cam.y, cam.z, x, groundAt(x, z) + 1.3, z, F_SEE);
+    return this.world.clear(cam.x, cam.y, cam.z, x, this.map.groundAt(x, z) + 1.3, z, F_SEE);
   }
 
   // -------------------------------------------------------------------------
@@ -608,7 +628,7 @@ export class Game {
     if (attacker && attacker !== victim) attacker.kills++;
     const weapon = def ? def.name : '';
     this.hud.feed(attacker && attacker !== victim ? attacker.name : null, weapon, victim.name, attacker ? attacker.team : victim.team, victim.team, head);
-    if (this.mode.id === 'tdm') {
+    if (this.mode.kind === 'tdm') {
       if (attacker && attacker.team !== victim.team) this.score[attacker.team]++;
       else if (!attacker || attacker === victim) this.score[1 - victim.team]++; // suicide / out of bounds
     } else if (victim.sector && !victim.sector.secured) {
@@ -631,7 +651,7 @@ export class Game {
       if (p.kills % 5 === 0 && p.grenades < 3) { p.grenades++; this.hud.toast('GRENADE +1', null, 'info'); }
     }
     if (victim === p) {
-      this.respawnT = this.mode.id === 'tdm' ? 3.5 : 4.5;
+      this.respawnT = this.mode.kind === 'tdm' ? 3.5 : 4.5;
       this.input.ads = false;
       this.hud.died(attacker && attacker !== p ? attacker.name : null, weapon, this.respawnT);
     }
@@ -644,11 +664,11 @@ export class Game {
     this.result = {
       title: text, mode: this.mode.name,
       win: text === 'VICTORY' || text === 'MISSION COMPLETE',
-      score: this.mode.id === 'tdm' ? this.score.slice() : null,
+      score: this.mode.kind === 'tdm' ? this.score.slice() : null,
       kills: p.kills, deaths: p.deaths,
       accuracy: p.stats.shots ? Math.round((100 * p.stats.hits) / p.stats.shots) : 0,
       headshots: p.stats.headshots,
-      time: this.mode.id === 'tdm' ? this.mode.timeLimit - Math.max(0, this.clock) : this.elapsed,
+      time: this.mode.kind === 'tdm' ? this.mode.timeLimit - Math.max(0, this.clock) : this.elapsed,
     };
     if (this.result.win) this.audio.objective(); else this.audio.defeat();
     this.after(1.6, () => this.hud.results(this.result));
