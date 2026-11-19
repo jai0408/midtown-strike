@@ -34,7 +34,7 @@ SHEET_PATH = os.path.join(ROOT, "docs", "sheet_foliage.png")
 TMP = os.environ.get("FOLIAGE_TMP") or tempfile.mkdtemp(prefix="foliage_")
 NO_PREVIEW = bool(os.environ.get("NO_PREVIEW"))
 SAMPLES = int(os.environ.get("SAMPLES", "32"))
-JPEG_Q = {"bark": 80, "barkN": 76, "leaf": 80, "leafA": 90, "leafN": 74, "imp": 82, "impA": 90}
+JPEG_Q = {"bark": 78, "barkN": 72, "leaf": 78, "leafA": 82, "leafN": 72, "imp": 80, "impA": 82, "pl": 80, "plA": 85, "plN": 72}
 
 ATLAS = 1024  # bark atlas and normal maps
 LEAF = 2048  # leaf colour + alpha atlas (cells of CELL px)
@@ -46,9 +46,12 @@ UP = np.array([0.0, 1.0, 0.0])
 CELLS = {
     "pine_a": 0, "pine_b": 1, "spruce_a": 2, "spruce_b": 3,
     "birch_dense": 4, "birch_sparse": 5, "bush_a": 6, "bush_b": 7,
-    "fern": 8, "grass_a": 9, "grass_b": 10, "spruce_skirt": 11,
-    "birch_blob": 12, "bush_blob": 13, "grass_c": 14, "pine_skirt": 15,
+    "fern": 8, "maple": 9, "bush_blob": 13,
 }
+# plants atlas (1024, 4x4 cells of 256): undergrowth, grass blade variants, rock
+PLW = 1024
+PL = {"fern_b": 0, "blueberry": 1, "clover": 2, "lupine": 3, "fireweed": 4, "reed": 5, "cattail": 6, "rock": 7,
+      "grass_fine": 8, "grass_wide": 9, "grass_dry": 10}
 LOG = lambda *a: print(*a, flush=True)
 
 
@@ -409,9 +412,10 @@ def paint_bush(cl, rng, kind):
         cl.leaf(t[-1], math.atan2(*(t[-1] - t[-2])[::-1]), 0.18 if big else 0.13, 0.1 if big else 0.055, (0.12, 0.3, 0.08), (0.24, 0.46, 0.13), 0.0)
 
 
-def paint_fern(cl, rng):
-    n = 30
-    rach = poly((0.46, 0.0), (0.46, 0.5), (0.6, 0.97), 24)
+def paint_fern(cl, rng, variant=0):
+    n = 30 if variant == 0 else 24
+    rach = poly((0.46, 0.0), (0.46, 0.5), (0.6, 0.97), 24) if variant == 0 else poly((0.5, 0.0), (0.5, 0.55), (0.56, 0.97), 24)
+    lk, wk = (1.0, 1.0) if variant == 0 else (1.3, 1.7)
     for i in range(len(rach) - 1):
         cl.seg(rach[i], rach[i + 1], 0.016 * (1 - i / 30), 0.012, (0.2, 0.32, 0.1), (0.17, 0.3, 0.09), 0.6)
     for k in range(n):
@@ -420,15 +424,15 @@ def paint_fern(cl, rng):
         base = rach[i] + (rach[i + 1] - rach[i]) * (s * (len(rach) - 1) - i)
         tang = rach[i + 1] - rach[i]
         ta = math.atan2(tang[1], tang[0])
-        ln = 0.215 * (1 - s ** 1.5) ** 0.75 * min(1.0, 0.45 + s * 4) + 0.02
+        ln = (0.215 * (1 - s ** 1.5) ** 0.75 * min(1.0, 0.45 + s * 4) + 0.02) * lk
         for side in (-1, 1):
             a2 = ta + side * (1.15 - 0.45 * s) * rng.uniform(0.92, 1.08)
             t = rng.uniform(0, 1) * 0.5 + s * 0.5
-            cl.leaf(base, a2, ln, 0.05 + 0.02 * (1 - s), jit(lerp((0.07, 0.25, 0.06), (0.12, 0.33, 0.08), t), rng), jit(lerp((0.14, 0.38, 0.09), (0.27, 0.52, 0.15), t), rng), 0.18, 0.2)
+            cl.leaf(base, a2, ln, (0.05 + 0.02 * (1 - s)) * wk, jit(lerp((0.07, 0.25, 0.06), (0.12, 0.33, 0.08), t) * (1 + 0.25 * (variant == 1)), rng), jit(lerp((0.14, 0.38, 0.09), (0.27, 0.52, 0.15), t) * (1 + 0.2 * (variant == 1)), rng), 0.18, 0.2)
     cl.leaf(rach[-1], math.atan2(*(rach[-1] - rach[-2])[::-1]), 0.08, 0.04, (0.12, 0.33, 0.08), (0.25, 0.5, 0.14), 0.1)
 
 
-def paint_grass(cl, rng, nb, hmin, hmax, spread, dry, seeds=0, flowers=0):
+def paint_grass(cl, rng, nb, hmin, hmax, spread, dry, seeds=0, flowers=0, wr=(0.02, 0.034)):
     cols = [((0.1, 0.17, 0.07), (0.33, 0.43, 0.17)), ((0.11, 0.18, 0.07), (0.4, 0.46, 0.19)), ((0.09, 0.15, 0.06), (0.27, 0.37, 0.15))]
     for b in range(nb):
         x0 = 0.5 + rng.normal(0, spread)
@@ -438,7 +442,7 @@ def paint_grass(cl, rng, nb, hmin, hmax, spread, dry, seeds=0, flowers=0):
         p = poly((x0, -0.02), (x0 + lean * 0.3, h * 0.55), (x0 + lean + curve, h), 10)
         cb, ct = cols[b % 3]
         ct = lerp(ct, (0.6, 0.54, 0.25), dry * rng.uniform(0, 1))
-        w0 = rng.uniform(0.02, 0.034)
+        w0 = rng.uniform(*wr)
         k = rng.uniform(0.9, 1.15)
         for i in range(len(p) - 1):
             t0, t1 = i / (len(p) - 1), (i + 1) / (len(p) - 1)
@@ -462,52 +466,183 @@ def paint_flowers(cl, rng, n):
         cl.dab(top, 0.011, (0.85, 0.65, 0.1), 0.5)
 
 
-def paint_leaf_atlas(rng):
-    """Returns colour rgb (A,A,3), alpha (A,A), normal (A,A,3), all bottom-up."""
-    cells = {}
-    t0 = time.time()
-    c = Cell(); paint_pine(c, rng, 0); cells["pine_a"] = c.done()
-    c = Cell(); paint_pine(c, rng, 1); cells["pine_b"] = c.done()
-    c = Cell(); paint_spruce(c, rng, 0); cells["spruce_a"] = c.done()
-    c = Cell(); paint_spruce(c, rng, 1); cells["spruce_b"] = c.done()
-    LOG("  conifer cells %.1fs" % (time.time() - t0))
-    c = Cell(); paint_birch(c, rng, "dense"); cells["birch_dense"] = c.done()
-    c = Cell(); paint_birch(c, rng, "droop"); cells["birch_sparse"] = c.done()
-    c = Cell(); paint_bush(c, rng, 0); cells["bush_a"] = c.done()
-    c = Cell(); paint_bush(c, rng, 1); cells["bush_b"] = c.done()
-    c = Cell(); paint_fern(c, rng); cells["fern"] = c.done()
-    c = Cell(); paint_grass(c, rng, 30, 0.55, 0.97, 0.16, 0.1, seeds=2); cells["grass_a"] = c.done()
-    c = Cell(); paint_grass(c, rng, 22, 0.5, 0.95, 0.2, 0.55, seeds=5); cells["grass_b"] = c.done()
-    c = Cell(); paint_grass(c, rng, 34, 0.3, 0.6, 0.2, 0.2); paint_flowers(c, rng, 8); cells["grass_c"] = c.done()
-    LOG("  broadleaf/grass cells %.1fs" % (time.time() - t0))
-    c = Cell(); paint_skirt(c, rng, False); cells["spruce_skirt"] = c.done()
-    c = Cell(); paint_skirt(c, rng, True); cells["pine_skirt"] = c.done()
-    c = Cell(); paint_birch(c, rng, "blob"); cells["birch_blob"] = c.done()
-    c = Cell(); paint_bush(c, rng, 2); cells["bush_blob"] = c.done()
-    LOG("  all cells %.1fs" % (time.time() - t0))
-    rgb = np.zeros((LEAF, LEAF, 3), np.float32)
-    alp = np.zeros((LEAF, LEAF), np.float32)
-    hgt = np.zeros((LEAF, LEAF), np.float32)
-    for name, k in CELLS.items():
+def paint_maple(cl, rng):
+    """Lobed maple / sycamore-like leaves on a twig spray (dark mid-green, a few red-brown)."""
+    tw = [poly((0.5, 0.0), (0.5 + rng.uniform(-0.1, 0.1), 0.4), (0.5 + rng.uniform(-0.2, 0.2), 0.68))]
+    for s in range(6):
+        o = tw[0][int(rng.uniform(3, 8))]
+        a = math.pi / 2 + (1 if s % 2 else -1) * rng.uniform(0.5, 1.1)
+        tw.append(poly(o, o + np.array([math.cos(a), math.sin(a)]) * 0.12, o + np.array([math.cos(a), math.sin(a)]) * rng.uniform(0.22, 0.32)))
+    for t in tw:
+        for i in range(len(t) - 1):
+            cl.seg(t[i], t[i + 1], 0.011, 0.007, (0.3, 0.24, 0.18), (0.26, 0.2, 0.15), 0.5)
+    lobes = ((0.0, 1.0), (0.8, 0.78), (-0.8, 0.78), (1.5, 0.5), (-1.5, 0.5))
+    for i in range(70):
+        t = tw[i % len(tw)]
+        j = min(len(t) - 2, int(rng.uniform(0.2, 1.0) * (len(t) - 1)))
+        tang = t[j + 1] - t[j]
+        ta = math.atan2(tang[1], tang[0]) + (1 if i % 2 else -1) * rng.uniform(0.2, 1.0)
+        red = rng.uniform() < 0.07
+        u = rng.uniform(0, 1)
+        c0 = (0.34, 0.17, 0.09) if red else lerp((0.1, 0.24, 0.07), (0.17, 0.33, 0.09), u)
+        c1 = (0.48, 0.24, 0.12) if red else lerp((0.17, 0.33, 0.09), (0.3, 0.45, 0.13), u)
+        sz = rng.uniform(0.09, 0.125)
+        for da, lf in lobes:
+            cl.leaf(t[j], ta + da, sz * lf, sz * lf * 0.42, jit(c0, rng), jit(c1, rng), 0.1, 0.2)
+
+
+def paint_blueberry(cl, rng):
+    paint_bush(cl, rng, 1)
+    for _ in range(18):
+        p = (0.5 + rng.normal(0, 0.16), rng.uniform(0.3, 0.75))
+        cl.dab(p, rng.uniform(0.013, 0.019), jit((0.2, 0.24, 0.45), rng, 0.1), 0.6)
+        cl.dab((p[0] - 0.004, p[1] + 0.004), 0.005, (0.5, 0.55, 0.75), 0.6)
+
+
+def paint_clover(cl, rng):
+    for _ in range(120):
+        a = rng.uniform(0, 6.283)
+        r = 0.47 * math.sqrt(rng.uniform(0, 1))
+        p = np.array([0.5 + math.cos(a) * r, 0.5 + math.sin(a) * r])
+        base = lerp((0.12, 0.3, 0.09), (0.22, 0.42, 0.13), rng.uniform())
+        rot = rng.uniform(0, 2.09)
+        for k in range(3):
+            q = p + np.array([math.cos(rot + k * 2.094), math.sin(rot + k * 2.094)]) * 0.03
+            cl.dab(q, 0.032, jit(base, rng), 0.5)
+            cl.dab(q, 0.014, jit(base * 1.28, rng), 0.5)
+    for _ in range(18):
+        a = rng.uniform(0, 6.283)
+        r = 0.42 * math.sqrt(rng.uniform(0, 1))
+        p = (0.5 + math.cos(a) * r, 0.5 + math.sin(a) * r)
+        cl.dab(p, 0.026, (0.93, 0.92, 0.88), 0.7)
+        cl.dab(p, 0.009, (0.9, 0.8, 0.5), 0.7)
+
+
+def paint_spike_plant(cl, rng, kind):
+    """kind 'lupine' (blue-violet spires, palmate leaves) or 'fireweed' (magenta spires, lance leaves)."""
+    lup = kind == "lupine"
+    if lup:
+        for k in range(10):
+            x = 0.5 + rng.normal(0, 0.13)
+            for q in range(7):
+                a = math.pi / 2 + (q - 3) * 0.4 + rng.normal(0, 0.08)
+                cl.leaf((x, 0.03), a, rng.uniform(0.17, 0.26), 0.045, jit((0.1, 0.27, 0.09), rng), jit((0.2, 0.4, 0.13), rng), 0.0, 0.2)
+    stems = (0.3, 0.5, 0.7) if lup else (0.36, 0.52, 0.66)
+    for si, sx in enumerate(stems):
+        top = rng.uniform(0.7, 0.97)
+        tx = sx + rng.normal(0, 0.03)
+        cl.seg((sx, 0.05), (tx, top), 0.01, 0.007, (0.14, 0.28, 0.08), (0.2, 0.34, 0.11), 0.6)
+        if not lup:
+            for q in range(9):
+                yy = 0.12 + q * 0.07
+                xx = sx + (tx - sx) * (yy - 0.05) / (top - 0.05)
+                cl.leaf((xx, yy), math.pi / 2 + (1 if q % 2 else -1) * 1.0, 0.15, 0.03, (0.12, 0.3, 0.1), (0.22, 0.42, 0.14), 0.0, 0.2)
+        y0 = top - (0.36 if lup else 0.3)
+        steps = int((top - y0) / 0.016)
+        for q in range(steps):
+            f = q / max(1, steps - 1)
+            yy = y0 + f * (top - y0)
+            xx = sx + (tx - sx) * (yy - 0.05) / (top - 0.05)
+            r = (0.024 if lup else 0.02) * (1 - f * 0.65)
+            for o in (-1, 0, 1) if lup else (-1, 1):
+                if lup:
+                    col = lerp((0.4, 0.3, 0.72), (0.46, 0.52, 0.86), f ** 0.7)
+                    if rng.uniform() < 0.2:
+                        col = (0.9, 0.85, 0.95)
+                else:
+                    col = lerp((0.78, 0.2, 0.5), (0.5, 0.2, 0.38), f) if f > 0.6 else lerp((0.78, 0.22, 0.5), (0.88, 0.42, 0.65), rng.uniform())
+                cl.dab((xx + o * r * 0.9 + rng.normal(0, 0.004), yy + rng.normal(0, 0.004)), r * rng.uniform(0.75, 1.1), jit(col, rng, 0.08), 0.6)
+
+
+def paint_reed(cl, rng, cat):
+    for b in range(22 if cat else 34):
+        x0 = 0.5 + rng.normal(0, 0.15)
+        h = rng.uniform(0.7, 0.98)
+        lean = rng.normal(0, 0.09)
+        p = poly((x0, -0.02), (x0 + lean * 0.3, h * 0.55), (x0 + lean + rng.normal(0, 0.06), h), 12)
+        cb, ct = ((0.14, 0.26, 0.09), (0.4, 0.5, 0.18)) if cat else ((0.16, 0.26, 0.09), (0.52, 0.52, 0.22))
+        w0 = rng.uniform(0.016, 0.026)
+        k = rng.uniform(0.9, 1.12)
+        for i in range(len(p) - 1):
+            t0, t1 = i / (len(p) - 1), (i + 1) / (len(p) - 1)
+            cl.seg(p[i], p[i + 1], w0 * (1 - t0 * 0.9), w0 * (1 - t1 * 0.9), np.clip(lerp(cb, ct, t0) * k, 0, 1), np.clip(lerp(cb, ct, t1) * k, 0, 1), 0.7)
+    if cat:
+        for s in range(5):
+            x0 = 0.5 + rng.normal(0, 0.14)
+            top = (x0 + rng.normal(0, 0.03), rng.uniform(0.74, 0.92))
+            cl.seg((x0, -0.02), top, 0.009, 0.007, (0.2, 0.3, 0.1), (0.3, 0.38, 0.14), 0.6)
+            cl.seg((top[0], top[1] - 0.17), top, 0.042, 0.038, (0.26, 0.15, 0.08), (0.34, 0.2, 0.1), 1.0)
+            cl.seg(top, (top[0], top[1] + 0.07), 0.007, 0.003, (0.5, 0.42, 0.25), (0.55, 0.47, 0.3), 0.5)
+
+
+def paint_rock(rng):
+    N = 256
+    n1, n2, n3 = pnoise(N, N, 9, 9, rng), pnoise(N, N, 3, 3, rng), pnoise(N, N, 26, 26, rng)
+    crack = np.exp(-(pnoise(N, N, 6, 6, rng) / 0.15) ** 2)
+    base = lerp((0.3, 0.29, 0.27), (0.56, 0.54, 0.5), np.clip(0.5 + 0.22 * n1 + 0.14 * n2, 0, 1)[..., None])
+    moss = smooth(n3 + 0.4 * n1, 0.1, 0.9)[..., None]
+    col = lerp(base, np.array((0.2, 0.34, 0.1)) * (0.8 + 0.25 * n2[..., None]), moss * 0.85) * (1 - 0.5 * crack)[..., None]
+    h = np.clip(0.5 + 0.25 * n1 + 0.12 * n2 - 0.6 * crack + 0.12 * moss[..., 0], 0, 1)
+    return np.clip(col, 0, 1).astype(np.float32), np.ones((N, N), np.float32), h.astype(np.float32)
+
+
+def assemble(cells, mapping, size, csz, sig, kscale):
+    """Packs painted cells into an atlas: colour (mean-colour fill), sharpened alpha, normal at half size."""
+    rgb = np.zeros((size, size, 3), np.float32)
+    alp = np.zeros((size, size), np.float32)
+    hgt = np.zeros((size, size), np.float32)
+    for name, k in mapping.items():
         r, a, h = cells[name]
-        cx, cy = (k % 4) * CELL, (k // 4) * CELL
-        rgb[cy:cy + CELL, cx:cx + CELL] = r
-        alp[cy:cy + CELL, cx:cx + CELL] = a
-        hgt[cy:cy + CELL, cx:cx + CELL] = h
-    # transparent texels carry the cell's mean leaf colour (no dark / light halos when filtered)
+        cx, cy = (k % 4) * csz, (k // 4) * csz
+        rgb[cy:cy + csz, cx:cx + csz] = r
+        alp[cy:cy + csz, cx:cx + csz] = a
+        hgt[cy:cy + csz, cx:cx + csz] = h
     out = rgb.copy()
-    for name, k in CELLS.items():
-        cx, cy = (k % 4) * CELL, (k // 4) * CELL
-        sl = (slice(cy, cy + CELL), slice(cx, cx + CELL))
+    for name, k in mapping.items():
+        cx, cy = (k % 4) * csz, (k // 4) * csz
+        sl = (slice(cy, cy + csz), slice(cx, cx + csz))
         a_, r_ = alp[sl], rgb[sl]
         mean = (r_ * a_[..., None]).sum(axis=(0, 1)) / max(float(a_.sum()), 1.0)
         out[sl] = a_[..., None] * r_ + (1 - a_[..., None]) * mean
-    alp = np.clip((alp - 0.5) * 1.35 + 0.5, 0, 1)  # slightly crisper edges for alphaTest
-    nor = normal_from_height(gblur(hgt, 1.2), 7.0, wrap=False)
-    nor[alp < 0.02] = (0.5, 0.5, 1.0)
-    nor = nor.reshape(ATLAS, 2, ATLAS, 2, 3).mean(axis=(1, 3))  # normals ship at 1024
-    nor /= np.maximum(np.linalg.norm(nor * 2 - 1, axis=-1, keepdims=True), 1e-4) * 0 + 1
-    return out, alp, nor
+    a2 = np.clip((alp - 0.5) * 1.35 + 0.5, 0, 1)
+    nor = normal_from_height(gblur(hgt, sig), kscale, wrap=False)
+    nor[a2 < 0.02] = (0.5, 0.5, 1.0)
+    h2 = size // 2
+    nor = nor.reshape(h2, 2, h2, 2, 3).mean(axis=(1, 3))
+    return out, a2, nor
+
+
+def paint_leaf_atlas(rng):
+    """Trees' leaf atlas: returns colour (2048), alpha (2048), normal (1024)."""
+    cells = {}
+    t0 = time.time()
+    for nm, fn in (("pine_a", lambda c: paint_pine(c, rng, 0)), ("pine_b", lambda c: paint_pine(c, rng, 1)),
+                   ("spruce_a", lambda c: paint_spruce(c, rng, 0)), ("spruce_b", lambda c: paint_spruce(c, rng, 1)),
+                   ("birch_dense", lambda c: paint_birch(c, rng, "dense")), ("birch_sparse", lambda c: paint_birch(c, rng, "droop")),
+                   ("bush_a", lambda c: paint_bush(c, rng, 0)), ("bush_b", lambda c: paint_bush(c, rng, 1)), ("bush_blob", lambda c: paint_bush(c, rng, 2)),
+                   ("fern", lambda c: paint_fern(c, rng, 0)), ("maple", lambda c: paint_maple(c, rng))):
+        c = Cell()
+        fn(c)
+        cells[nm] = c.done()
+    LOG("  leaf cells %.1fs" % (time.time() - t0))
+    return assemble(cells, CELLS, LEAF, CELL, 1.2, 7.0)
+
+
+def paint_plants_atlas(rng):
+    cells = {}
+    t0 = time.time()
+    for nm, fn in (("fern_b", lambda c: paint_fern(c, rng, 1)), ("blueberry", lambda c: paint_blueberry(c, rng)), ("clover", lambda c: paint_clover(c, rng)),
+                   ("lupine", lambda c: paint_spike_plant(c, rng, "lupine")), ("fireweed", lambda c: paint_spike_plant(c, rng, "fireweed")),
+                   ("reed", lambda c: paint_reed(c, rng, False)), ("cattail", lambda c: paint_reed(c, rng, True)),
+                   ("grass_fine", lambda c: paint_grass(c, rng, 46, 0.5, 0.97, 0.17, 0.05, wr=(0.011, 0.019))),
+                   ("grass_wide", lambda c: paint_grass(c, rng, 17, 0.4, 0.9, 0.2, 0.15, seeds=4, wr=(0.034, 0.056))),
+                   ("grass_dry", lambda c: (paint_grass(c, rng, 30, 0.3, 0.7, 0.2, 0.95, seeds=1, wr=(0.015, 0.028)), paint_flowers(c, rng, 5)))):
+        c = Cell(256, 3)
+        fn(c)
+        cells[nm] = c.done()
+    cells["rock"] = paint_rock(rng)
+    LOG("  plant cells %.1fs" % (time.time() - t0))
+    return assemble(cells, PL, PLW, 256, 0.8, 5.0)
 
 
 def paint_bark_atlas(rng):
@@ -527,7 +662,7 @@ def paint_bark_atlas(rng):
     base = lerp((0.27, 0.19, 0.14), (0.46, 0.3, 0.2), mot) * plate
     col_p = lerp(np.array((0.055, 0.04, 0.032)), base, smooth(t, 0.05, 0.7))
     col_p = col_p * (0.92 + 0.1 * n4[..., None])
-    nor_p = normal_from_height(gblur(hp * 6.0, 1.2), 1.5)
+    nor_p = normal_from_height(gblur(hp * 10.0, 1.3), 2.8)
     # --- birch bark: white paper-like with dark horizontal lenticels / scars
     m1 = pnoise(W, H, 90, 60, rng)
     m2 = pnoise(W, H, 22, 1.8, rng)
@@ -542,9 +677,13 @@ def paint_bark_atlas(rng):
     peel = smooth(m5, 1.4, 2.2) * 0.35
     col_b = white * (1 - 0.34 * edge[..., None]) * (1 - 0.14 * peel[..., None])
     dark = np.clip(np.maximum(lent, scar), 0, 1)[..., None]
+    fl = pnoise(W, H, 45, 4, rng)
+    flake = smooth(fl, 1.0, 1.5)
+    fedge = smooth(fl, 0.8, 1.05) * (1 - flake)
+    col_b = lerp(col_b, np.array((0.72, 0.6, 0.48)), (fedge * 0.55)[..., None]) * (1 + 0.05 * flake[..., None])
     col_b = lerp(col_b, np.array((0.05, 0.045, 0.04)), dark * 0.96)
-    hb = 0.25 * m4 - 0.8 * dark[..., 0] + 0.4 * peel - 0.25 * lent
-    nor_b = normal_from_height(gblur(hb * 3, 0.9), 1.7)
+    hb = 0.25 * m4 - 0.8 * dark[..., 0] + 0.4 * peel - 0.25 * lent + 0.7 * flake - 0.35 * fedge
+    nor_b = normal_from_height(gblur(hb * 4, 0.9), 2.6)
     col = np.concatenate([col_p, col_b], axis=1)
     nor = np.concatenate([nor_p, nor_b], axis=1)
     return np.clip(col, 0, 1).astype(np.float32), nor.astype(np.float32)
@@ -585,21 +724,22 @@ def cell_uv(k, inset=2.0 / LEAF):
     return (cx / 4 + inset, cy / 4 + inset, (cx + 1) / 4 - inset, (cy + 1) / 4 - inset)
 
 
-IMPW, IMPH, IMPT = 1024, 512, 256
+IMPW, IMPH, TW, TH = 1536, 1152, 192, 384  # impostor atlas and its tile slots
 IMP = {}
 
 
-def imp_rect(tile, top=False):
-    cx, cy = tile % 4, tile // 4
-    e = 1.5 / IMPH
-    if top:  # a flat canopy-top card samples the middle of the tile
-        return (cx / 4 + 0.08, cy / 2 + 0.2, (cx + 1) / 4 - 0.08, (cy + 1) / 2 - 0.2)
-    return (cx / 4 + e, cy / 2 + e, (cx + 1) / 4 - e, (cy + 1) / 2 - e)
+def pl_rect(k, inset=1.5 / PLW):
+    cx, cy = k % 4, k // 4
+    return (cx / 4 + inset, cy / 4 + inset, (cx + 1) / 4 - inset, (cy + 1) / 4 - inset)
+
+
+def rect_of(cell):
+    return pl_rect(cell[1]) if isinstance(cell, tuple) else cell_uv(cell)
 
 
 def card(B, ctr, ux, vx, w, h, cell, ao_fn, nf, sw_fn, flip=False, vb=0.35, rect=None):
     """One leaf card. v axis `vx` runs base -> tip; bottom edge sits `vb*h` behind ctr."""
-    u0, v0, u1, v1 = rect if rect else cell_uv(cell)
+    u0, v0, u1, v1 = rect if rect else rect_of(cell)
     if flip:
         u0, u1 = u1, u0
     ctr = np.asarray(ctr, np.float64)
@@ -676,11 +816,11 @@ def side_of(t):
 # ----------------------------------------------------------------------------------------------
 CONIFERS = {
     "pine0": dict(seed=11, H=15.0, r0=0.30, crown0=0.36, whorls=23, nb=(4.6, 3.2), L=4.4, prof="pine", cells=(CELLS["pine_a"], CELLS["pine_b"]),
-                  stations=(0.45, 0.72, 1.0), clen=2.4, cwid=2.4, vang=0.75, lean=(0.5, 0.2), skirt=CELLS["pine_skirt"], tiers=8, tube_min=2.0, stubs=7, ymid=0.65),
+                  stations=(0.3, 0.5, 0.72, 0.95), clen=1.9, cwid=2.0, vang=0.75, lean=(0.5, 0.2), tube_min=2.0, stubs=7, cones=8, cone_len=0.14, ymid=0.65),
     "pine1": dict(seed=29, H=19.0, r0=0.34, crown0=0.5, whorls=21, nb=(4.5, 3.2), L=4.9, prof="pine", cells=(CELLS["pine_b"], CELLS["pine_a"]),
-                  stations=(0.4, 0.68, 0.95), clen=2.6, cwid=2.5, vang=0.8, lean=(-0.7, 0.5), skirt=CELLS["pine_skirt"], tiers=8, tube_min=2.0, stubs=8, ymid=0.74),
-    "spruce0": dict(seed=47, H=16.0, r0=0.28, crown0=0.14, whorls=15, nb=(6.2, 3.2), L=3.5, prof="spruce", cells=(CELLS["spruce_a"], CELLS["spruce_b"]),
-                    stations=(0.3, 0.55, 0.8, 1.0), clen=1.6, cwid=1.7, vang=0.62, lean=(0.2, -0.1), skirt=CELLS["spruce_skirt"], tiers=10, tube_min=1.3, stubs=0, ymid=0.5),
+                  stations=(0.28, 0.48, 0.7, 0.93), clen=2.1, cwid=2.1, vang=0.8, lean=(-0.7, 0.5), tube_min=2.0, stubs=8, cones=8, cone_len=0.15, ymid=0.74),
+    "spruce0": dict(seed=47, H=16.0, r0=0.28, crown0=0.14, whorls=17, nb=(6.2, 3.2), L=3.5, prof="spruce", cells=(CELLS["spruce_a"], CELLS["spruce_b"]),
+                    stations=(0.2, 0.4, 0.6, 0.8, 1.0), clen=1.3, cwid=1.45, vang=0.62, lean=(0.2, -0.1), tube_min=1.3, stubs=0, cones=11, cone_len=0.27, ymid=0.5),
 }
 
 
@@ -739,46 +879,7 @@ def build_conifer(name, lod):
 
     bark, leaf = MB(), MB()
     if lod == 1:
-        trunk_tubes(bark, spine, radius, H, H / 3.0, 5, CONIFER_RECT, lambda p: 0.7, swb, 0.0, H * 0.97)
-        bark.fix_winding()
-        K = P["tiers"]
-        sides = 8
-        k0 = P["skirt"]
-        u0, v0, u1, v1 = cell_uv(k0)
-        for k in range(K):
-            t = (k + 0.5) / K
-            y = ycs + (ytop - ycs) * (t ** 0.95) - 0.2
-            R = max(0.6, P["L"] * prof(t) * (0.95 if P["prof"] == "spruce" else 0.85) * rng.uniform(0.9, 1.1))
-            hh = max(1.1, (ytop - ycs) / K * 2.1) * (1.15 if P["prof"] == "pine" else 1.0)
-            ytopring = y + hh * 0.62
-            rt = R * 0.22 if k < K - 1 else 0.03
-            sp = spine(y)
-            rings = [(ytopring, rt, 0.55 + 0.1 * t, 0.97), (y - hh * 0.38, R, 1.0, 0.04)]
-            ids = []
-            az0 = rng.uniform(0, 6.28)
-            for (yy, rr, ao, vv) in rings:
-                row = []
-                for s in range(sides + 1):
-                    a = az0 + s / sides * 2 * math.pi
-                    d = np.array([math.cos(a), 0, math.sin(a)])
-                    pos = np.array([sp[0], yy, sp[2]]) + d * rr
-                    n = nrm(d * 0.7 + UP * 0.75)
-                    uu = (u0 + (u1 - u0) * (s / sides))
-                    row.append(leaf.v(pos, n, (uu, v0 + (v1 - v0) * vv), ao * (0.55 + 0.45 * float(smooth(t, 0, 0.5))) if vv > 0.5 else min(1.0, 0.45 + 0.6 * t * 0 + 0.55 * (1 - 0.0)) * (0.75 + 0.25 * t), swl(pos, 0.0 if vv > 0.5 else 1.0)))
-                ids.append(row)
-            for s in range(sides):
-                a, b, c, d = ids[0][s], ids[0][s + 1], ids[1][s + 1], ids[1][s]
-                leaf.i += [a, b, c, a, c, d]
-        # leader cone
-        sp = spine(ytop)
-        row = [leaf.v(np.array([sp[0], H, sp[2]]), UP, ((u0 + u1) / 2, v1), 0.8, 1.0)]
-        for s in range(sides + 1):
-            a = s / sides * 2 * math.pi
-            d = np.array([math.cos(a), 0, math.sin(a)])
-            row.append(leaf.v(np.array([sp[0], ytop - 1.4, sp[2]]) + d * 0.7, nrm(d * 0.6 + UP), (u0 + (u1 - u0) * s / sides, v0 + (v1 - v0) * 0.4), 0.8, 0.9))
-        for s in range(sides):
-            leaf.i += [row[0], row[1 + s], row[2 + s]]
-        return bark, leaf
+        return impostor_cards(name)
 
     # ---- LOD0
     trunk_tubes(bark, spine, radius, H, 1.8, 7, CONIFER_RECT, ao_fn, swb, 0.0, H * 0.985)
@@ -790,6 +891,7 @@ def build_conifer(name, lod):
         pts = branch_curve(o, az, lambda s: 0.1 - 0.15 * s, rng.uniform(0.4, 0.9), 1)
         tube(bark, pts, [0.045, 0.012], 3, CONIFER_RECT, [0.0, 0.3], ao_fn, swb)
     nw = P["whorls"]
+    ends = []
     for w in range(nw):
         t = (w + 0.5) / nw
         y = ycs + (ytop - ycs) * t ** 0.9 + rng.uniform(-0.15, 0.15)
@@ -809,6 +911,7 @@ def build_conifer(name, lod):
             M = 3 if L > 3.2 else 2
             o = spine(y) + np.array([math.cos(az), 0, math.sin(az)]) * radius(y) * 0.5
             pts = branch_curve(o, az, e_fn, L, M)
+            ends.append((pts[-1], L))
             if L > P["tube_min"]:
                 rb = 0.022 + 0.026 * L
                 tube(bark, pts, list(np.linspace(rb, 0.009, M + 1)), 3, CONIFER_RECT,
@@ -826,6 +929,11 @@ def build_conifer(name, lod):
                     vx = nrm(tg + UP * -0.12)
                     card(leaf, p + tg * 0.1, ux, vx, P["cwid"] * f * rng.uniform(0.9, 1.1), P["clen"] * f * rng.uniform(0.9, 1.1), cell,
                          ao_fn, nf, swl, flip=bool(rng.integers(0, 2)))
+    for ci in range(P["cones"]):
+        pe, Le = ends[int(rng.integers(0, len(ends)))]
+        cl_ = P["cone_len"] * rng.uniform(0.85, 1.15)
+        pc = pe - UP * 0.12
+        tube(bark, [pc, pc - UP * cl_ * 0.5, pc - UP * cl_], [0.01, cl_ * 0.3, 0.004], 5, CONIFER_RECT, [0.1, 0.25, 0.4], ao_fn, swb)
     # leader tuft
     sp = spine(H * 0.985)
     for a in (0.0, math.pi / 2, math.pi / 4, 3 * math.pi / 4):
@@ -836,8 +944,9 @@ def build_conifer(name, lod):
 
 
 BIRCHES = {
-    "birch0": dict(seed=61, H=10.5, r0=0.15, limbs=16, L=4.0, cs=1.15, lean=(0.5, 0.3), fork=False, cr=3.4),
-    "birch1": dict(seed=73, H=9.0, r0=0.13, limbs=12, L=4.2, cs=1.2, lean=(-0.9, 0.5), fork=True, cr=3.6),
+    "birch0": dict(seed=61, H=10.5, r0=0.15, limbs=16, L=4.0, cs=1.15, lean=(0.5, 0.3), fork=False, cr=3.4, bark=BIRCH_RECT, cell=CELLS["birch_dense"], hang=True),
+    "birch1": dict(seed=73, H=9.0, r0=0.13, limbs=12, L=4.2, cs=1.2, lean=(-0.9, 0.5), fork=True, cr=3.6, bark=BIRCH_RECT, cell=CELLS["birch_dense"], hang=True),
+    "maple0": dict(seed=151, H=11.0, r0=0.25, limbs=14, L=4.8, cs=1.35, lean=(0.4, -0.3), fork=False, cr=4.6, bark=CONIFER_RECT, cell=CELLS["maple"], hang=False, e0=36),
 }
 
 
@@ -883,13 +992,7 @@ def build_birch(name, lod):
     if P["fork"]:
         stems.append((lambda y: spine(y * 0.88 + 0.5, (0.1, 0.0), 0.0) + np.array([0.28 * y / 3.0 * min(1, y / 1.5) + 0.1 * y, -0.5 * y, 0.0]) * 0 + np.array([0.075 * y * y / 3.0, 0, 0.04 * y]), H * 0.88, r0 * 0.78))
     if lod == 1:
-        trunk_tubes(bark, spine, radius, H, H / 3.0, 5, BIRCH_RECT, lambda p: 0.8, swb, 0.0, H * 0.9)
-        bark.fix_winding()
-        im = IMP[name]
-        for (tile, az) in im["tiles"]:
-            ux = np.cross(-np.array([math.cos(az), 0, math.sin(az)]), UP)
-            card(leaf, im["c"], ux, UP, im["S"], im["S"], None, lambda p: 1.0, nf, swl, vb=0.5, rect=imp_rect(tile))
-        return bark, leaf
+        return impostor_cards(name)
 
     # ---- LOD0
     clusters = []  # (center, size)
@@ -898,19 +1001,19 @@ def build_birch(name, lod):
         n = max(2, int(math.ceil(hh * 0.985 / 1.5)))
         ys = np.linspace(0, hh * 0.985, n + 1)
         for kseg in range(n):
-            tube(bark, [sf(ys[kseg]), sf(ys[kseg + 1])], [radius(ys[kseg], hh) * rs / r0, radius(ys[kseg + 1], hh) * rs / r0], 6, BIRCH_RECT, [0.0, 1.0], ao_fn, swb)
+            tube(bark, [sf(ys[kseg]), sf(ys[kseg + 1])], [radius(ys[kseg], hh) * rs / r0, radius(ys[kseg + 1], hh) * rs / r0], 6, P["bark"], [0.0, 1.0], ao_fn, swb)
         nl = P["limbs"] if si == 0 else P["limbs"] - 3
         for l in range(nl):
             t = (l + 0.5) / nl
             y = hh * (0.3 + 0.62 * t) + rng.uniform(-0.2, 0.2)
             az = l * 2.39996 + si * 1.1 + rng.uniform(-0.25, 0.25)
             L = P["L"] * (1.0 - 0.45 * t) * rng.uniform(0.8, 1.15)
-            e0 = math.radians(46 - 12 * t + rng.uniform(-6, 6))
+            e0 = math.radians(P.get("e0", 46) - 12 * t + rng.uniform(-6, 6))
             e_fn = lambda s, e0=e0: e0 + 0.45 * s - 1.05 * s ** 3
             o = sf(y) + np.array([math.cos(az), 0, math.sin(az)]) * radius(y, hh) * 0.5
             M = 3
             pts = branch_curve(o, az, e_fn, L, M)
-            tube(bark, pts, list(np.linspace(0.02 + 0.012 * L, 0.01, M + 1)), 4 if L > 2.2 else 3, BIRCH_RECT, list(np.linspace(0, 0.4, M + 1)), ao_fn, swb)
+            tube(bark, pts, list(np.linspace(0.02 + 0.012 * L, 0.01, M + 1)), 4 if L > 2.2 else 3, P["bark"], list(np.linspace(0, 0.4, M + 1)), ao_fn, swb)
             clusters.append((pts[-1] + UP * 0.1, rng.uniform(2.1, 2.8)))
             hangers.append(pts[-1])
             p, tg = sample_curve(pts, 0.72)
@@ -921,7 +1024,7 @@ def build_birch(name, lod):
                 el = math.radians(35 + rng.uniform(-10, 15))
                 tl = L * rng.uniform(0.3, 0.42)
                 tp = branch_curve(p, a2, lambda q, el=el: el + 0.3 * q - 0.6 * q * q, tl, 1)
-                tube(bark, tp, [0.012, 0.006], 3, BIRCH_RECT, [0.0, 0.3], ao_fn, swb)
+                tube(bark, tp, [0.012, 0.006], 3, P["bark"], [0.0, 0.3], ao_fn, swb)
                 clusters.append((tp[-1] + UP * 0.15, rng.uniform(1.7, 2.3)))
                 hangers.append(tp[-1])
     for ci, (c, s) in enumerate(clusters):
@@ -931,11 +1034,11 @@ def build_birch(name, lod):
             a = th + j * (1.05 + rng.uniform(-0.25, 0.25))
             ux = np.array([math.cos(a), 0, math.sin(a)])
             vx = nrm(UP + np.array([math.cos(a + 1.57), 0, math.sin(a + 1.57)]) * rng.uniform(-0.25, 0.25))
-            card(leaf, c, ux, vx, s, s, CELLS["birch_dense"], ao_fn, nf, swl, flip=bool((ci + j) % 2), vb=0.5)
+            card(leaf, c, ux, vx, s, s, P["cell"], ao_fn, nf, swl, flip=bool((ci + j) % 2), vb=0.5)
         if True:  # roughly horizontal card for the view from above
             ux = np.array([math.cos(th + 0.8), 0, math.sin(th + 0.8)])
-            card(leaf, c + UP * 0.05, ux, nrm(np.cross(UP, ux) + UP * 0.15), s * 0.9, s * 0.9, CELLS["birch_dense"], ao_fn, nf, swl, vb=0.5)
-    for hp in hangers[::2]:
+            card(leaf, c + UP * 0.05, ux, nrm(np.cross(UP, ux) + UP * 0.15), s * 0.9, s * 0.9, P["cell"], ao_fn, nf, swl, vb=0.5)
+    for hp in (hangers[::2] if P["hang"] else []):
         a = rng.uniform(0, 6.28)
         ux = np.array([math.cos(a), 0, math.sin(a)])
         card(leaf, hp - UP * 0.35, ux, nrm(-UP + ux * 0.0 + np.array([0.3, 0, 0.2])), 1.5, 1.5, CELLS["birch_sparse"], ao_fn, nf, lambda p, tip: 0.3 + 0.5 * (p[1] / H) + 0.45 * tip, vb=0.05)
@@ -946,6 +1049,7 @@ def build_birch(name, lod):
 BUSHES = {
     "bush0": dict(seed=83, R=1.15, Hh=1.35, n=64, cell=CELLS["bush_a"], csz=0.95, stems=7),
     "bush1": dict(seed=97, R=1.0, Hh=1.1, n=70, cell=CELLS["bush_b"], csz=0.8, stems=8),
+    "blueberry0": dict(seed=131, R=0.75, Hh=0.8, n=46, cell=("pl", PL["blueberry"]), csz=0.6, stems=6),
 }
 
 
@@ -1002,12 +1106,19 @@ def build_bush(name, lod):
     return bark, leaf
 
 
+FERNS = {
+    "fern0": dict(seed=101, cell=CELLS["fern"], n=13, L=(1.35, 1.8), w=0.55),
+    "fern1": dict(seed=113, cell=("pl", PL["fern_b"]), n=11, L=(1.1, 1.55), w=0.62),
+}
+
+
 def build_fern(name, lod):
-    rng = np.random.default_rng(101)
+    F = FERNS[name]
+    rng = np.random.default_rng(F["seed"])
     bark, leaf = MB(), MB()
-    nf_fr = 13 if lod == 0 else 6
+    nf_fr = F["n"] if lod == 0 else 6
     segs = 4 if lod == 0 else 2
-    u0, v0, u1, v1 = cell_uv(CELLS["fern"])
+    u0, v0, u1, v1 = rect_of(F["cell"])
 
     def ao_fn(p):
         return 0.45 + 0.55 * float(smooth(math.hypot(p[0], p[2]), 0.0, 0.8))
@@ -1016,8 +1127,8 @@ def build_fern(name, lod):
         a = k / nf_fr * 6.283 + rng.uniform(-0.2, 0.2)
         d = np.array([math.cos(a), 0, math.sin(a)])
         sd = np.array([-d[2], 0, d[0]])
-        Lf = rng.uniform(1.35, 1.8)
-        W = 0.55 * Lf
+        Lf = rng.uniform(*F["L"])
+        W = F["w"] * Lf
         e0 = rng.uniform(1.0, 1.3)
         rows = []
         pos = d * 0.04
@@ -1038,30 +1149,123 @@ def build_fern(name, lod):
     return bark, leaf
 
 
-def build_grass(name, lod):
-    """Three crossed cards (60 degrees apart), 1.0 wide x 0.7 high, each a different tuft cell."""
+def star_cards(cell, n, w, h, H, seed):
+    """n crossed vertical cards forming a clump (flowers, reeds)."""
+    rng = np.random.default_rng(seed)
     bark, leaf = MB(), MB()
-    for k, cell in enumerate((CELLS["grass_a"], CELLS["grass_b"], CELLS["grass_c"])):
+    ao_fn = lambda p: 0.5 + 0.5 * min(1.0, p[1] / H)
+    nf = lambda p: nrm(UP + np.array([p[0], 0, p[2]]) * 0.35)
+    sw = lambda p, tip: min(1.0, p[1] / H) * 0.9 + 0.1 * tip
+    for k in range(n):
+        a = k * math.pi / n * 1.0 + rng.uniform(-0.2, 0.2)
+        ux = np.array([math.cos(a), 0, math.sin(a)])
+        ctr = np.array([rng.normal(0, 0.1), 0, rng.normal(0, 0.1)])
+        vx = nrm(UP + np.array([rng.normal(0, 0.08), 0, rng.normal(0, 0.08)]))
+        card(leaf, ctr, ux, vx, w * rng.uniform(0.85, 1.15), h * rng.uniform(0.85, 1.1), cell, ao_fn, nf, sw, flip=bool(k % 2), vb=0.0)
+    return bark, leaf
+
+
+def build_plant(name, lod):
+    kind = {"lupine0": ("lupine", 5, 0.75, 1.1), "fireweed0": ("fireweed", 5, 0.6, 1.6), "reed0": ("reed", 7, 1.05, 1.9), "cattail0": ("cattail", 7, 0.95, 2.0)}[name]
+    return star_cards(("pl", PL[kind[0]]), kind[1], kind[2], kind[3], kind[3], sum(map(ord, name)))
+
+
+def build_clover(name, lod):
+    leaf = MB()
+    rect = pl_rect(PL["clover"])
+    for k, a in enumerate((0.0, 0.7)):
+        ux = np.array([math.cos(a), 0, math.sin(a)])
+        vx = np.array([-math.sin(a), 0, math.cos(a)])
+        card(leaf, np.array([0, 0.03 + 0.025 * k, 0]), ux, vx, 1.5, 1.5, None, lambda p: 0.85, lambda p: UP, lambda p, t: 0.04, vb=0.5, rect=rect)
+    return MB(), leaf
+
+
+ROCKS = {"rock0": dict(seed=3, size=(0.55, 0.36, 0.45)), "rock1": dict(seed=7, size=(0.95, 0.6, 0.75))}
+
+
+def build_rock(name, lod):
+    R = ROCKS[name]
+    rng = np.random.default_rng(R["seed"])
+    sz = np.array(R["size"])
+    u0, v0, u1, v1 = pl_rect(PL["rock"], 8 / PLW)
+    leaf = MB()
+    segs, rings = 9, 4
+    ph = rng.uniform(0, 6.28)
+
+    def vert(phi, th):
+        d = np.array([math.sin(phi) * math.cos(th), math.cos(phi), math.sin(phi) * math.sin(th)])
+        k = 1 + 0.2 * math.sin(3 * th + 2 * phi + ph) + 0.12 * rng.uniform(-1, 1)
+        p = d * k * sz
+        p[1] = max(p[1], -0.12 * sz[1])
+        n = nrm(d / np.maximum(sz, 1e-3))
+        uv = (u0 + (u1 - u0) * (0.5 + p[0] / (2.2 * sz[0]) * 0.5), v0 + (v1 - v0) * (0.5 + p[2] / (2.2 * sz[2]) * 0.5))
+        return leaf.v(p, n, uv, 0.55 + 0.45 * min(1.0, max(0.0, p[1] / sz[1] + 0.2)), 0.0)
+
+    top = vert(0.0, 0.0)
+    ring = []
+    for r in range(1, rings + 1):
+        phi = r / rings * 1.75
+        ring.append([vert(phi, s / segs * 2 * math.pi) for s in range(segs)])
+    for s in range(segs):
+        leaf.i += [top, ring[0][s], ring[0][(s + 1) % segs]]
+    for r in range(rings - 1):
+        for s in range(segs):
+            a, b, c, d = ring[r][s], ring[r][(s + 1) % segs], ring[r + 1][(s + 1) % segs], ring[r + 1][s]
+            leaf.i += [a, d, c, a, c, b]
+    leaf.fix_winding()
+    return MB(), leaf
+
+
+def build_grass(name, lod):
+    """Three crossed cards (60 degrees apart): fine blades, wide blades with seed heads, dry blades with flowers."""
+    bark, leaf = MB(), MB()
+    for k, (cell, w, h) in enumerate(((PL["grass_fine"], 1.0, 0.72), (PL["grass_wide"], 0.95, 0.66), (PL["grass_dry"], 0.9, 0.55))):
         a = k * math.pi / 3 + 0.2
         ux = np.array([math.cos(a), 0, math.sin(a)])
-        u0, v0, u1, v1 = cell_uv(cell)
-        w, h = 1.0, 0.72 if k != 2 else 0.5
-        for j, (vv, ao) in enumerate(((v0, 0.38), (v1, 1.0))):
-            pass
+        u0, v0, u1, v1 = pl_rect(cell)
         ids = []
-        for (vv, hv, ao) in ((v0, 0.0, 0.34), (v1, h, 1.0)):
+        for (vv, hv, ao) in ((v0, 0.0, 0.3), (v1, h, 1.0)):
             for (uu, sg) in ((u0, -1), (u1, 1)):
-                p = ux * sg * w / 2 + UP * hv
-                ids.append(leaf.v(p, nrm(UP * 1.0 + ux * 0.0), (uu, vv), ao, hv / 0.72))
+                ids.append(leaf.v(ux * sg * w / 2 + UP * hv, UP, (uu, vv), ao, hv / 0.72))
         leaf.i += [ids[0], ids[1], ids[3], ids[0], ids[3], ids[2]]
     return bark, leaf
 
 
+TREE_NAMES = ["pine0", "pine1", "spruce0", "birch0", "birch1", "maple0"]
+CONIFER_NAMES = ("pine0", "pine1", "spruce0")
 MODELS = [
     ("pine0", build_conifer, 2), ("pine1", build_conifer, 2), ("spruce0", build_conifer, 2),
-    ("birch0", build_birch, 2), ("birch1", build_birch, 2),
-    ("bush0", build_bush, 2), ("bush1", build_bush, 2), ("fern0", build_fern, 2), ("grass0", build_grass, 1),
+    ("birch0", build_birch, 2), ("birch1", build_birch, 2), ("maple0", build_birch, 2),
+    ("bush0", build_bush, 2), ("bush1", build_bush, 2), ("blueberry0", build_bush, 1),
+    ("fern0", build_fern, 2), ("fern1", build_fern, 1),
+    ("clover0", build_clover, 1), ("lupine0", build_plant, 1), ("fireweed0", build_plant, 1),
+    ("reed0", build_plant, 1), ("cattail0", build_plant, 1), ("rock0", build_rock, 1), ("rock1", build_rock, 1),
+    ("grass0", build_grass, 1),
 ]
+PL_MODELS = {"fern1", "blueberry0", "clover0", "lupine0", "fireweed0", "reed0", "cattail0", "rock0", "rock1", "grass0"}
+# name -> (height, crown/spread radius, trunk radius, class)
+META = {
+    "pine0": (15.0, 4.6, 0.30, "tree"), "pine1": (19.0, 5.0, 0.34, "tree"), "spruce0": (16.0, 3.8, 0.28, "tree"),
+    "birch0": (10.5, 3.4, 0.15, "tree"), "birch1": (9.0, 3.6, 0.14, "tree"), "maple0": (11.0, 4.8, 0.25, "tree"),
+    "bush0": (1.35, 1.2, 0, "bush"), "bush1": (1.1, 1.05, 0, "bush"), "blueberry0": (0.8, 0.8, 0, "bush"),
+    "fern0": (1.05, 1.4, 0, "fern"), "fern1": (1.0, 1.4, 0, "fern"),
+    "clover0": (0.12, 0.8, 0, "plant"), "lupine0": (1.1, 0.7, 0, "plant"), "fireweed0": (1.6, 0.7, 0, "plant"),
+    "reed0": (1.9, 0.9, 0, "tall"), "cattail0": (2.0, 0.9, 0, "tall"), "rock0": (0.45, 0.6, 0, "rock"), "rock1": (0.7, 1.0, 0, "rock"),
+    "grass0": (0.72, 0.55, 0, "grass"),
+}
+
+
+def impostor_cards(name):
+    """LOD1 of a tree: crossed cards textured with renders of its LOD0 (see render_impostors)."""
+    im = IMP[name]
+    leaf = MB()
+    c = im["c"]
+    nf = lambda p: nrm(nrm((np.asarray(p) - c) * np.array([1.0, 0.35, 1.0])) * 0.7 + UP * 0.65)
+    sw = lambda p, tip: min(1.0, 0.1 + 0.65 * p[1] / im["top"])
+    for rect, az in im["tiles"]:
+        d = np.array([math.cos(az), 0, math.sin(az)])
+        card(leaf, c, nrm(np.cross(-d, UP)), UP, im["w"], im["h"], None, lambda p: 1.0, nf, sw, vb=0.5, rect=rect)
+    return MB(), leaf
 
 
 # ----------------------------------------------------------------------------------------------
@@ -1181,10 +1385,12 @@ def preview_material(name, color_path, nor_path, alpha_path=None):
     return m
 
 
-def render_impostors(paths):
-    """Renders the LOD0 birches from 4 azimuths (flat ambient light, transparent film) into an
-    impostor atlas (8 tiles of 256 px in 1024x512). Fills IMP and returns (rgb, alpha)."""
+def render_impostors(models, paths):
+    """Renders each tree's LOD0 from 4 azimuths (flat ambient light, transparent film) into the
+    impostor atlas (1536x1152): conifers get 192x384 tiles, broadleaf trees 192x192 squares."""
     from mathutils import Vector
+    for ob in list(bpy.data.objects):  # drop the default cube / light / camera
+        bpy.data.objects.remove(ob)
     sc = bpy.context.scene
     sc.render.engine = "CYCLES"
     sc.cycles.samples = 24
@@ -1192,7 +1398,6 @@ def render_impostors(paths):
     sc.cycles.device = "CPU"
     sc.cycles.transparent_max_bounces = 16
     sc.render.film_transparent = True
-    sc.render.resolution_x = sc.render.resolution_y = IMPT
     sc.render.resolution_percentage = 100
     sc.render.image_settings.file_format = "PNG"
     sc.render.image_settings.color_mode = "RGBA"
@@ -1202,7 +1407,8 @@ def render_impostors(paths):
     w.node_tree.nodes["Background"].inputs[0].default_value = (1, 1, 1, 1)
     w.node_tree.nodes["Background"].inputs[1].default_value = 1.0
     sc.world = w
-    mat = preview_material("impleaf", paths["leaf"], None, paths["leafA"])
+    matb = preview_material("impbark", paths["bark"], paths["barkN"])
+    matl = preview_material("impleaf", paths["leaf"], paths["leafN"], paths["leafA"])
     cam = bpy.data.cameras.new("icam")
     cam.type = "ORTHO"
     co = bpy.data.objects.new("icam", cam)
@@ -1210,39 +1416,59 @@ def render_impostors(paths):
     sc.camera = co
     rgb = np.zeros((IMPH, IMPW, 3), np.float32)
     alp = np.zeros((IMPH, IMPW), np.float32)
-    tile = 0
-    for name in ("birch0", "birch1"):
-        _, lf = build_birch(name, 0)
-        P = np.array(lf.p)
+    slot_i = 0
+    broad_i = 0
+    n = 0
+    for name in TREE_NAMES:
+        bk, lf = models[name][0]
+        P = np.array(bk.p + lf.p)
         lo, hi = P.min(axis=0), P.max(axis=0)
         c = (lo + hi) / 2
-        S = float(max(hi[0] - lo[0], hi[2] - lo[2], hi[1] - lo[1])) * 1.04
-        ob = make_obj(name + "_imp", lf, mat, (0, 0, 0))
+        Hc = float(hi[1] - lo[1])
+        Wc = float(max(hi[0] - lo[0], hi[2] - lo[2])) * 1.08
+        tall = name in CONIFER_NAMES
+        if tall:
+            Sh = max(Hc * 1.04, Wc * 2 * 1.04)
+            tw, th, cw, ch = TW, TH, Sh / 2, Sh
+        else:
+            Sh = max(Hc, Wc) * 1.05
+            tw, th, cw, ch = TW, TW, Sh, Sh
+        sc.render.resolution_x, sc.render.resolution_y = tw, th
+        cam.ortho_scale = Sh
+        o1 = make_obj(name + "_ib", bk, matb, (0, 0, 0))
+        o2 = make_obj(name + "_il", lf, matl, (0, 0, 0))
         tiles = []
-        for az in np.radians([0, 45, 90, 135]):
+        for vi, az in enumerate(np.radians([0, 45, 90, 135])):
+            if tall:
+                slot, half = slot_i, 0
+                slot_i += 1
+            else:
+                slot, half = 12 + broad_i // 2, broad_i % 2
+                broad_i += 1
+            x0, y0 = (slot % 8) * TW, (slot // 8) * TH + half * TW
             d = np.array([math.cos(az), 0, math.sin(az)])
-            co.location = to_blender(c + d * 60)
+            co.location = to_blender(c + d * 80)
             co.rotation_euler = Vector(to_blender(-d)).to_track_quat("-Z", "Y").to_euler()
-            cam.ortho_scale = S
-            path = os.path.join(TMP, "imp_%d.png" % tile)
+            path = os.path.join(TMP, "imp_%d.png" % n)
             sc.render.filepath = path
             bpy.ops.render.render(write_still=True)
             img = bpy.data.images.load(path)
             img.colorspace_settings.name = "Non-Color"
-            px = np.array(img.pixels[:], np.float32).reshape(IMPT, IMPT, 4)
+            px = np.array(img.pixels[:], np.float32).reshape(th, tw, 4)
             assert px.max() > 0, "impostor render read back empty"
             a = px[..., 3]
-            col = px[..., :3] / np.maximum(a[..., None], 1e-3)
-            mean = (np.clip(col, 0, 1) * a[..., None]).sum(axis=(0, 1)) / max(float(a.sum()), 1.0)
-            out = np.clip((a[..., None] * np.clip(col, 0, 1) + (1 - a[..., None]) * mean) * 1.3, 0, 1)  # runtime light darkens again
-            x0, y0 = (tile % 4) * IMPT, (tile // 4) * IMPT
-            rgb[y0:y0 + IMPT, x0:x0 + IMPT] = out
-            alp[y0:y0 + IMPT, x0:x0 + IMPT] = np.clip((a - 0.5) * 1.5 + 0.5, 0, 1)
-            tiles.append((tile, float(az)))
-            tile += 1
-        bpy.data.objects.remove(ob)
-        IMP[name] = {"c": c, "S": S, "tiles": tiles}
-        LOG("  impostor %s: crown %.1f m, tiles %s" % (name, S, [t for t, _ in tiles]))
+            col = np.clip(px[..., :3] / np.maximum(a[..., None], 1e-3), 0, 1)
+            mean = (col * a[..., None]).sum(axis=(0, 1)) / max(float(a.sum()), 1.0)
+            out = np.clip((a[..., None] * col + (1 - a[..., None]) * mean) * 1.3, 0, 1)
+            rgb[y0:y0 + th, x0:x0 + tw] = out
+            alp[y0:y0 + th, x0:x0 + tw] = np.clip((a - 0.5) * 1.5 + 0.5, 0, 1)
+            rect = ((x0 + 1) / IMPW, (y0 + 1) / IMPH, (x0 + tw - 1) / IMPW, (y0 + th - 1) / IMPH)
+            tiles.append((rect, float(az)))
+            n += 1
+        bpy.data.objects.remove(o1)
+        bpy.data.objects.remove(o2)
+        IMP[name] = {"c": c, "w": cw, "h": ch, "top": float(hi[1]), "tiles": tiles}
+        LOG("  impostor %s: %.1f x %.1f m" % (name, cw, ch))
     bpy.data.objects.remove(co)
     return rgb, alp
 
@@ -1258,7 +1484,7 @@ def render_sheet(models, paths):
     sc.cycles.max_bounces = 4
     sc.cycles.transparent_max_bounces = 16
     sc.render.film_transparent = False
-    sc.render.resolution_x, sc.render.resolution_y = 1800, 2000
+    sc.render.resolution_x, sc.render.resolution_y = 1900, 2000
     sc.render.image_settings.file_format = "PNG"
     sc.render.image_settings.color_mode = "RGB"
     sc.view_settings.view_transform = "Standard"
@@ -1270,6 +1496,7 @@ def render_sheet(models, paths):
     sc.world = w
     mats = {
         "imp": preview_material("imp", paths["imp"], None, paths["impA"]),
+        "pl": preview_material("pl", paths["pl"], paths["plN"], paths["plA"]),
         "bark": preview_material("bark", paths["bark"], paths["barkN"]),
         "leaf": preview_material("leaf", paths["leaf"], paths["leafN"], paths["leafA"]),
     }
@@ -1279,25 +1506,23 @@ def render_sheet(models, paths):
     gm.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value = (0.16, 0.2, 0.07, 1)
     gm.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value = 1.0
     # layout (blender coords: x right, z up, y depth); rows from the top
-    rows = [("lod0", 0.0, 1.0, ["pine0", "pine1", "spruce0", "birch0", "birch1"]),
-            ("lod1", -23.0, 1.0, ["pine0", "pine1", "spruce0", "birch0", "birch1"]),
-            ("small", -41.0, 5.0, ["bush0", "bush1", "fern0", "grass0", "bush1"])]
+    rows = [("lod0", 0.0, 1.0, TREE_NAMES), ("lod1", -23.0, 1.0, TREE_NAMES),
+            ("small", -42.0, 5.0, ["bush0", "bush1", "fern0", "fern1", "blueberry0", "grass0"]),
+            ("small2", -56.0, 5.0, ["clover0", "lupine0", "fireweed0", "reed0", "cattail0", "rock0"])]
     for ri, (lodn, z0, sc_, names) in enumerate(rows):
         gb = bpy.data.objects.new("g%d" % ri, bpy.data.meshes.new("g%d" % ri))
         bm_v = [(-40, -10, 0), (40, -10, 0), (40, 6, 0), (-40, 6, 0)]
         gb.data.from_pydata(bm_v, [], [(0, 1, 2, 3)])
         gb.data.materials.append(gm)
         bpy.context.collection.objects.link(gb)
-        gb.location = (22, 0, z0 - 0.02)
+        gb.location = (25, 0, z0 - 0.02)
         for ci, nm in enumerate(names):
             lod = 0 if ri != 1 else 1
-            if ri == 2 and ci == 4:
-                lod = 1
             lods = models[nm]
             lod = min(lod, len(lods) - 1)
             bk, lf = lods[lod]
-            leafmat = mats["imp"] if (lod == 1 and nm in IMP) else mats["leaf"]
-            loc = (ci * 11.0, 0, z0)
+            leafmat = mats["imp"] if (lod == 1 and nm in IMP) else (mats["pl"] if nm in PL_MODELS else mats["leaf"])
+            loc = (ci * 10.0, 0, z0)
             if bk.nv:
                 make_obj("%s_%d_b" % (nm, lod), bk, mats["bark"], loc, sc_)
             if lf.nv:
@@ -1310,10 +1535,10 @@ def render_sheet(models, paths):
     so.rotation_euler = (math.radians(48), 0, math.radians(30))
     cam = bpy.data.cameras.new("cam")
     cam.type = "ORTHO"
-    cam.ortho_scale = 66
+    cam.ortho_scale = 82
     co = bpy.data.objects.new("cam", cam)
     bpy.context.collection.objects.link(co)
-    co.location = (22, -100, -11)
+    co.location = (25, -100, -19)
     co.rotation_euler = (math.radians(90), 0, 0)
     sc.camera = co
     os.makedirs(os.path.dirname(SHEET_PATH), exist_ok=True)
@@ -1331,64 +1556,64 @@ def main():
     rng = np.random.default_rng(2024)
     LOG("painting leaf atlas ...")
     leaf_rgb, leaf_a, leaf_n = paint_leaf_atlas(rng)
+    LOG("painting plants atlas ...")
+    pl_rgb, pl_a, pl_n = paint_plants_atlas(rng)
     LOG("painting bark atlas ...")
     bark_rgb, bark_n = paint_bark_atlas(rng)
-    # the bark atlas is 1024 wide (two 512 tiles) x 1024 tall
     files, paths = {}, {}
-    for key, arr, mode in (("bark", bark_rgb, "RGB"), ("barkN", bark_n, "RGB"), ("leaf", leaf_rgb, "RGB"), ("leafA", leaf_a, "BW"), ("leafN", leaf_n, "RGB")):
+
+    def save(key, arr, mode):
         data, path = save_jpeg(arr, key, mode)
         files[key] = data
         paths[key] = path
         LOG("  %-6s %4d KB" % (key, len(data) // 1024))
-    LOG("rendering birch impostors ...")
-    imp_rgb, imp_a = render_impostors(paths)
-    for key, arr, mode in (("imp", imp_rgb, "RGB"), ("impA", imp_a, "BW")):
-        data, path = save_jpeg(arr, key, mode)
-        files[key] = data
-        paths[key] = path
-        LOG("  %-6s %4d KB" % (key, len(data) // 1024))
-    models, out = {}, {}
-    tot = 0
+
+    for key, arr, mode in (("bark", bark_rgb, "RGB"), ("barkN", bark_n, "RGB"), ("leaf", leaf_rgb, "RGB"), ("leafA", leaf_a, "BW"), ("leafN", leaf_n, "RGB"),
+                           ("pl", pl_rgb, "RGB"), ("plA", pl_a, "BW"), ("plN", pl_n, "RGB")):
+        save(key, arr, mode)
+    models = {}
     for name, fn, nlod in MODELS:
-        lods = []
-        entry = {"lod": []}
-        for lod in range(nlod):
-            bk, lf = fn(name, lod)
-            lods.append((bk, lf))
+        models[name] = [fn(name, 0)]
+        if nlod > 1 and name not in TREE_NAMES:
+            models[name].append(fn(name, 1))
+    LOG("rendering tree impostors ...")
+    imp_rgb, imp_a = render_impostors(models, paths)
+    save("imp", imp_rgb, "RGB")
+    save("impA", imp_a, "BW")
+    for name, fn, nlod in MODELS:
+        if name in TREE_NAMES:
+            models[name].append(fn(name, 1))
+    out = {}
+    for name, fn, nlod in MODELS:
+        h, r, tr, cls = META[name]
+        entry = {"h": h, "r": r, "trunk": tr, "cls": cls, "atlas": "pl" if name in PL_MODELS else "leaf", "lod": []}
+        for lod, (bk, lf) in enumerate(models[name]):
             tri = bk.tris + lf.tris
             entry["lod"].append({"bark": encode(bk), "leaf": encode(lf), "tris": tri, **({"imp": True} if (lod == 1 and name in IMP) else {})})
-            LOG("  %-8s LOD%d: %5d tris (bark %4d, leaf %4d), %5d verts" % (name, lod, tri, bk.tris, lf.tris, bk.nv + lf.nv))
-            if lod == 0 and name[:4] in ("pine", "spru", "birc"):
-                assert tri <= 2500, "%s LOD0 too heavy (%d)" % (name, tri)
-            if lod == 1 and name[:4] in ("pine", "spru"):
-                assert 150 <= tri <= 300, "%s LOD1 outside 150..300 (%d)" % (name, tri)
-        models[name] = lods
+            LOG("  %-10s LOD%d: %5d tris (bark %4d, leaf %4d), %5d verts" % (name, lod, tri, bk.tris, lf.tris, bk.nv + lf.nv))
+            if lod == 0 and name in TREE_NAMES:
+                assert tri <= 3000, "%s LOD0 too heavy (%d)" % (name, tri)
         out[name] = entry
-    meta = {
-        "pine0": dict(h=15.0, r=4.6, trunk=0.30), "pine1": dict(h=19.0, r=5.0, trunk=0.34), "spruce0": dict(h=16.0, r=3.8, trunk=0.28),
-        "birch0": dict(h=10.5, r=3.2, trunk=0.15), "birch1": dict(h=9.0, r=3.4, trunk=0.14),
-        "bush0": dict(h=1.35, r=1.2, trunk=0.0), "bush1": dict(h=1.1, r=1.05, trunk=0.0), "fern0": dict(h=1.05, r=1.4, trunk=0.0), "grass0": dict(h=0.72, r=0.55, trunk=0.0),
-    }
-    for k, m in meta.items():
-        out[k].update(m)
     tex = {k: "data:image/jpeg;base64," + base64.b64encode(v).decode("ascii") for k, v in files.items()}
+    sizes = {"bark": [1024, 1024], "barkN": [1024, 1024], "leaf": [LEAF, LEAF], "leafN": [LEAF // 2, LEAF // 2], "pl": [PLW, PLW], "plN": [PLW // 2, PLW // 2], "imp": [IMPW, IMPH]}
     lines = [
         "// Generated by tools/blender/build_foliage.py. Do not edit by hand.",
-        "// FOLIAGE_TEX : JPEG data URIs. bark/barkN = 1024x1024 conifer (left) + birch (right) tiles,",
-        "//               leaf = 2048x2048 4x4 cell atlas, leafA = greyscale alpha of it, leafN = its 1024 normal map.",
-        "// FOLIAGE_MODELS : per model { h, r, trunk, lod: [{ bark, leaf, tris }] }. Each bark/leaf is",
+        "// FOLIAGE_TEX : JPEG data URIs (size = pixel sizes). bark/barkN = conifer (left) + birch (right) bark tiles;",
+        "//   leaf/leafA/leafN = tree leaf atlas (4x4 cells), colour / separate greyscale alpha / normal;",
+        "//   pl/plA/plN = plants atlas (undergrowth, grass blades, rock); imp/impA = tree impostor atlas (LOD1).",
+        "// FOLIAGE_MODELS : per model { h, r, trunk, cls, atlas, lod: [{ bark, leaf, tris, imp? }] }. Each bark/leaf is",
         "//   { v, t, s, d }: v vertices, t triangles, s position scale, d base64 of little-endian",
         "//   int16 pos*3*v | uint16 uv*2*v | uint16 idx*3*t | int8 normal*3*v | uint8 ao*v | uint8 sway*v",
         "// (see decodeFoliageMesh in foliage.js).",
-        "export const FOLIAGE_TEX = " + json.dumps({"size": {"bark": [1024, 1024], "leaf": [2048, 2048], "leafN": [1024, 1024], "imp": [1024, 512]}, **tex}, indent=1) + ";",
+        "export const FOLIAGE_TEX = " + json.dumps({"size": sizes, **tex}, indent=1) + ";",
         "export const FOLIAGE_MODELS = " + json.dumps(out) + ";",
         "",
     ]
     txt = "\n".join(lines)
     with open(OUT_JS, "w") as f:
         f.write(txt)
-    LOG("wrote %s: %.0f KB (limit 2560 KB)" % (OUT_JS, len(txt) / 1024))
-    assert len(txt) <= 2.5 * 1024 * 1024, "foliage_asset.js too large"
+    LOG("wrote %s: %.0f KB (limit 3584 KB)" % (OUT_JS, len(txt) / 1024))
+    assert len(txt) <= 3.5 * 1024 * 1024, "foliage_asset.js too large"
     if not NO_PREVIEW:
         render_sheet(models, paths)
     LOG("done in %.0fs" % (time.time() - t0))

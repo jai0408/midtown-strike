@@ -427,9 +427,9 @@ class GLB:
         self.acc.append(d)
         return len(self.acc) - 1
 
-    def image(self, jpg):
+    def image(self, jpg, mime="image/jpeg"):
         vi = self._view(jpg)
-        self.images.append({"bufferView": vi, "mimeType": "image/jpeg"})
+        self.images.append({"bufferView": vi, "mimeType": mime})
         self.textures.append({"sampler": 0, "source": len(self.images) - 1})
         return len(self.textures) - 1
 
@@ -475,6 +475,7 @@ PADS = [
     (40, 11, 11, 8, 4, 0.15),         # garden
     (46, -28, 4.5, 3.5, 4, 0.2),      # tool shed
     (4, 51, 26, 12, 7, -0.1),         # parking
+    (-20, 29, 10, 13, 4, 0.0),        # pond + buses (engine objects)
     (0, -33, 18, 4, 6, -0.05),        # team B approach
     (44, 27, 7, 6, 4, 0.2),           # tractor field
     (33, 52, 5, 4, 3, -0.1),          # woodshed
@@ -771,7 +772,7 @@ def box(mat, x0, y0, z0, x1, y1, z1, tint="#ffffff", tile=1.0, uvo=(0, 0), botto
             quad(m, a, b, c, d, pj, tt(key), tile, uvo, nu, nv, dirt, var)
 
 
-def cyl(mat, r0, r1, y0, y1, seg=8, tint="#ffffff", tile=1.0, caps=True, uvo=(0, 0), dirt=True, var=0.08, cap_mat=None, circ_tile=None):
+def cyl(mat, r0, r1, y0, y1, seg=8, tint="#ffffff", tile=1.0, caps=True, uvo=(0, 0), dirt=True, var=0.08, cap_mat=None, circ_tile=None, cap_tile=None, cap_uvo=None):
     ang = np.linspace(0, 2 * math.pi, seg + 1)
     ca, sa = np.cos(ang), np.sin(ang)
     P = np.concatenate([np.stack([r0 * ca, np.full_like(ca, y0), r0 * sa], 1), np.stack([r1 * ca, np.full_like(ca, y1), r1 * sa], 1)])
@@ -792,7 +793,7 @@ def cyl(mat, r0, r1, y0, y1, seg=8, tint="#ffffff", tile=1.0, caps=True, uvo=(0,
                 continue
             Pc = np.concatenate([[[0, y, 0]], np.stack([r * ca[:-1], np.full(seg, y), r * sa[:-1]], 1)])
             Nc = np.tile([0, 1.0 if top else -1.0, 0], (seg + 1, 1))
-            UVc = _uvproj(Pc, "y", tile, uvo)
+            UVc = _uvproj(Pc, "y", cap_tile or tile, cap_uvo if cap_uvo is not None else uvo)
             Ic = []
             for i in range(seg):
                 j = 1 + i
@@ -895,6 +896,7 @@ MATS = {
 # ----------------------------------------------------------------------------------------------
 RS = np.random.RandomState(1234)
 LOGTINTS = ["#ffffff", "#e9dccb", "#d7c3a8", "#f3e6d3", "#c9b08f"]
+WALLT = {"N": ["#cdbfa6", "#c2ad90", "#d6c6aa"], "S": ["#f6f2ea", "#ece5d8", "#e2d9c6"], "W": LOGTINTS, "E": LOGTINTS}
 
 
 def hexa(mat, P8, proj_auto=True, tint="#ffffff", tile=1.0, faces="all", tints=None, dirt=True):
@@ -947,7 +949,7 @@ def stone_base_ring(x0, z0, x1, z1, ytop, ops_by_wall, t=0.5, yb=-0.6, tint="#ff
                 box("stone", fixed_lo, yb, lo, fixed_hi, 0.06, hi, tint, 1.5)
 
 
-def log_run(axis, fixed, a0, a1, yc, r, ops, seg=6):
+def log_run(axis, fixed, a0, a1, yc, r, ops, seg=6, tints=None):
     cuts = sorted((o["c"] - o["w"] / 2, o["c"] + o["w"] / 2) for o in ops if o["y0"] < yc + r and o["y1"] > yc - r)
     segs, cur = [], a0
     for lo, hi in cuts:
@@ -960,14 +962,15 @@ def log_run(axis, fixed, a0, a1, yc, r, ops, seg=6):
         if s1 - s0 < 0.08:
             continue
         rr = r * (0.94 + 0.12 * RS.rand())
-        tint = LOGTINTS[RS.randint(len(LOGTINTS))]
+        tt_ = tints or LOGTINTS
+        tint = tt_[RS.randint(len(tt_))]
         uvo = (RS.rand(), RS.rand())
         e0, e1 = abs(s0 - a0) < 1e-6, abs(s1 - a1) < 1e-6
         cp = True if (e0 and e1) else ('top' if e1 else ('bottom' if e0 else False))
         if axis == "x":
-            cylx("log", s0, s1, yc, fixed, rr, seg=seg, tint=tint, uvo=uvo, caps=cp)
+            cylx("log", s0, s1, yc, fixed, rr, seg=seg, tint=tint, uvo=uvo, caps=cp, cap_mat="endgrain", cap_tile=2 * rr, cap_uvo=(0.5, 0.5))
         else:
-            cylz("log", fixed, yc, s0, s1, rr, seg=seg, tint=tint, uvo=uvo, caps=cp)
+            cylz("log", fixed, yc, s0, s1, rr, seg=seg, tint=tint, uvo=uvo, caps=cp, cap_mat="endgrain", cap_tile=2 * rr, cap_uvo=(0.5, 0.5))
 
 
 def log_walls(x0, z0, x1, z1, ybase, ytop, ops, gable=None, r=0.17, inset=0.2, ext=0.32, pitch=0.5):
@@ -978,7 +981,7 @@ def log_walls(x0, z0, x1, z1, ybase, ytop, ops, gable=None, r=0.17, inset=0.2, e
         if yc + r > ytop + 1e-6:
             break
         for wall, fixed in (("N", z0 + inset), ("S", z1 - inset)):
-            log_run("x", fixed, x0 - ext, x1 + ext, yc, r, ops.get(wall, []))
+            log_run("x", fixed, x0 - ext, x1 + ext, yc, r, ops.get(wall, []), tints=WALLT[wall])
         k += 1
     k = 0
     ztop = gable if gable else ytop
@@ -997,7 +1000,7 @@ def log_walls(x0, z0, x1, z1, ybase, ytop, ops, gable=None, r=0.17, inset=0.2, e
         else:
             a0, a1 = z0 - ext, z1 + ext
         for wall, fixed in (("W", x0 + inset), ("E", x1 - inset)):
-            log_run("z", fixed, a0, a1, yc, r, ops.get(wall, []))
+            log_run("z", fixed, a0, a1, yc, r, ops.get(wall, []), tints=WALLT[wall])
         k += 1
 
 
@@ -1728,6 +1731,8 @@ def build_lodge():
     # foundation + logs
     stone_base_ring(X0, Z0, X1, Z1, YB, ops, T)
     log_walls(X0, Z0, X1, Z1, YB, YT, ops, gable=8.75, pitch=math.tan(PITCH))
+    chinking(X0, Z0, X1, Z1, YB, 3.0, ops)
+    chinking(X0, Z0, X1, Z1, 3.0, YT, ops)
     # frames
     for wall, outer in (("N", Z0), ("S", Z1), ("W", X0), ("E", X1)):
         for o in ops[wall]:
@@ -1920,6 +1925,7 @@ def build_cabin():
     YO[0] = y0
     stone_base_ring(X0, Z0, X1, Z1, 0.55, ops, 0.45)
     log_walls(X0, Z0, X1, Z1, 0.55, 2.65, ops, gable=3.9, pitch=math.tan(math.radians(30)))
+    chinking(X0, Z0, X1, Z1, 0.55, 2.65, ops)
     for wall, outer in (("N", Z0), ("S", Z1), ("W", X0), ("E", X1)):
         for o in ops[wall]:
             frame_opening(wall, outer, o["c"], o["w"], o["y0"], o["y1"], o["kind"], "#e4dcc8" if o["kind"] == "win" else "#8a6a48", depth=0.45)
@@ -2231,7 +2237,7 @@ def build_garden():
             box("log", L * i / n - 0.06, -0.1, -0.06, L * i / n + 0.06, 1.25, 0.06, "#8a6a48", 0.6, dirt=False)
         box("planks", 0, 0.35, -0.03, L, 0.42, 0.03, "#8a6a48", 0.6, dirt=False)
         box("planks", 0, 0.85, -0.03, L, 0.92, 0.03, "#8a6a48", 0.6, dirt=False)
-        m = int(L / 0.27)
+        m = int(L / 0.34)
         for i in range(m):
             x = (i + 0.5) * L / m
             box("planks", x - 0.035, 0.0, 0.03, x + 0.035, 1.05 + 0.06 * (i % 2), 0.05, "#d5cdb8" if i % 5 else "#cbbfa5", 0.4, dirt=False, var=0.1, skip=("+y",))
@@ -2346,7 +2352,7 @@ def build_west_props():
     for i, (x, z, r) in enumerate(boulders):
         boulder(x, z, r, 100 + i, rot=RS.rand() * 6)
     # creek bed boulders
-    for i in range(14):
+    for i in range(9):
         z = RS.uniform(-40, 40)
         x = float(creek_cx(z)) + RS.uniform(-3.2, 3.2)
         if abs(z) < 3:
@@ -2415,7 +2421,7 @@ def terrain_region(x0, x1, z0, z1, step, hole=None, splat=True, adapt=False):
                     blk = H[j:j + s_ + 1, i:i + s_ + 1]
                     u = np.linspace(0, 1, s_ + 1)
                     bil = (blk[0, 0] * (1 - u)[None, :] + blk[0, -1] * u[None, :]) * (1 - u)[:, None] + (blk[-1, 0] * (1 - u)[None, :] + blk[-1, -1] * u[None, :]) * u[:, None]
-                    if np.abs(blk - bil).max() < 0.03 and np.abs(blk[1:-1, 1:-1] - np.gradient(blk)[0][1:-1, 1:-1] * 0).max() > -1:
+                    if np.abs(blk - bil).max() < 0.04 and np.abs(blk[1:-1, 1:-1] - np.gradient(blk)[0][1:-1, 1:-1] * 0).max() > -1:
                         quads.append((j, i, s_))
                         cov[j:j + s_, i:i + s_] = True
         for j, i in zip(*np.nonzero(~cov)):
@@ -2570,6 +2576,11 @@ def bake_terrain():
         apron = np.maximum(apron, 1 - smooth(0.0, 2.2, d + (nz1 - 0.5) * 1.0))
         inside = np.maximum(inside, (d < 0).astype(np.float32))
     garden = 1 - smooth(-0.2, 0.6, rect_sdf(X, Z, 30, 3, 48, 19))
+    rut = np.zeros((S, S), np.float32)
+    for off in (-0.95, 0.95):
+        rut = np.maximum(rut, seg_mask(X, Z, [(x + off, z) for (x, z) in PATHS[1][1]], 0.42, 0.28, jit * 0.5))
+    for off in (-0.7, 0.7):
+        rut = np.maximum(rut, seg_mask(X, Z, [(x + off, z) for (x, z) in PATHS[0][1]], 0.36, 0.25, jit * 0.5) * 0.8)
     field = 1 - smooth(2.0, 6.0, np.hypot(X - 46, Z - 26) + (nz1 - 0.5) * 3)
     dc = np.abs(X - creek_cx(Z)).astype(np.float32)
     creek_active = ((Z > -52) & (Z < 55)).astype(np.float32)
@@ -2585,7 +2596,8 @@ def bake_terrain():
     rock = np.maximum(rock, under * 0.5)
     gravel = np.clip(pk + road + paths * 0.85 + apron * 0.35 + wet * 0.15 + (bed * 0.45), 0, 1)
     gravel = gravel * (1 - 0.3 * (nz1 > 0.78) * (pk < 0.5))
-    mud = np.clip(bank * 0.7 + wet * 0.8 + under * 0.6 + (paths * 0.12) * smooth(0.5, 0.8, nz2), 0, 1)
+    gravel = gravel * (1 - 0.75 * rut)
+    mud = np.clip(bank * 0.7 + wet * 0.8 + under * 0.6 + (paths * 0.12) * smooth(0.5, 0.8, nz2) + rut * 0.85, 0, 1)
     soil = np.clip(apron * 0.55 + garden * 0.95 + field * 0.85 + forest * 0.75 + smooth(0.62, 0.82, nz2) * 0.45 + paths * 0.15, 0, 1)
     soil = soil * (1 - np.clip(pk + road * 0.8, 0, 1))
     # weights, priority rock > gravel > mud > soil > grass
@@ -2609,7 +2621,7 @@ def bake_terrain():
     # macro colour variation
     dry = smooth(0.45, 0.75, nz3)[..., None]
     alb = alb * (0.88 + 0.28 * nz2[..., None]) * (1 - 0.1 * dry) + dry * wg[..., None] * np.array([0.05, 0.03, -0.02], np.float32)
-    alb = alb * (1 - 0.25 * np.clip(wet + under, 0, 1))[..., None]
+    alb = alb * (1 - 0.25 * np.clip(wet + under, 0, 1) - 0.22 * rut)[..., None]
     alb = np.clip(alb, 0, 1)
     # normal from composite height (metres)
     hy, hx = np.gradient(hgt, step)
@@ -2700,7 +2712,7 @@ def build_backdrop():
         Iq = np.array([(k, (k + 1) % n_, n_) for k in range(n_)])
         emit("mountain", Pq, Nq, np.zeros((n_ + 1, 2)), Iq, colors=np.clip(cc, 0, 1))
         cnt += 1
-        if cnt >= 380:
+        if cnt >= 260:
             break
 
 
@@ -3036,9 +3048,9 @@ def build_terrain_layers(aux, NOTEX=False):
     for (nm, fn, tile, rough) in HR_LAYERS:
         N = 128 if NOTEX else 1024
         d = fn(N)
-        a = jpeg_bytes(np.clip(d["alb"], 0, 1), 54, "L_" + nm + "_a")
+        a = jpeg_bytes(np.clip(d["alb"], 0, 1), 48, "L_" + nm + "_a")
         nm_ = normal_from_height(d["h"], d["nstr"])
-        n = jpeg_bytes(nm_, 40, "L_" + nm + "_n")
+        n = jpeg_bytes(nm_, 34, "L_" + nm + "_n")
         layers.append(dict(name=nm, tile=tile, albedo=b64(a), normal=b64(n), rough=rough))
         log("  layer", nm, len(a) // 1024, "KB", len(n) // 1024, "KB")
     wg, ws, wv, wm, wr = (aux[k] for k in ("wg", "ws", "wv", "wm", "wr"))
@@ -3101,7 +3113,7 @@ def n3(d, k, s):
 
 def rock(mat, cx, cy, cz, rx, ry, rz, seed=0, rings=5, segs=8, tint="#ffffff", rough=0.28, rot=0.0, tile=2.0, sink=0.0):
     rmax = max(rx, ry, rz)
-    n = 3 if rmax < 1.7 else 4
+    n = 2 if rmax < 0.25 else (3 if rmax < 1.7 else 4)
     D, UVs, I, weld, fid = cube_sphere(n)
     s = (seed % 97) * 0.37
     rad = 1 + rough * 1.6 * (n3(D, 1.3, s) - 0.5) + rough * 0.7 * (n3(D, 3.1, s + 4) - 0.5)
@@ -3144,7 +3156,7 @@ def emit_smooth(mat, P, I, center, tint, uvs=0.5, var=0.04, flat_override=None):
     emit(mat, P, N, uv, I, tint, False, var)
 
 
-def loft(mat, secs, M=22, p=0.55, tint="#ffffff", roof_mat=None, roof_y=None, caps=True, uvs=0.5, var=0.04):
+def loft(mat, secs, M=18, p=0.55, tint="#ffffff", roof_mat=None, roof_y=None, caps=True, uvs=1.6, var=0.04):
     th = np.linspace(0, 2 * math.pi, M, endpoint=False)
     sy, cz = np.sin(th), np.cos(th)
     ry_ = np.sign(sy) * np.abs(sy) ** p
@@ -3246,12 +3258,6 @@ def wheel(x, y, z, side, R=0.38, W=0.24, rim=0.22, seg=16, tint="#161718", lugs=
         a = kk * 2 * math.pi / 5 + 0.3
         push(rotz(a), (0, 0, 0))
         box("metal", 0.05, -0.028, hw * 0.55, rim * 0.84, 0.028, hw * 0.72, rimtint, 0.3, dirt=False, skip=("-y",))
-        pop()
-        cyl_small = None
-        push(None, (0.095 * math.cos(a + 0.3), 0.095 * math.sin(a + 0.3), hw * 0.72))
-        push(rotx(math.pi / 2))
-        cyl("metal", 0.016, 0.016, 0, 0.02, seg=5, tint="#6e7478", caps="top", dirt=False)
-        pop()
         pop()
     pop()
 
@@ -3572,6 +3578,519 @@ def lodge_tweaks_ok():
     return True
 
 # ----------------------------------------------------------------------------------------------
+# ROUND 3: photographic materials, trim/detail geometry, ground detail objects
+# ----------------------------------------------------------------------------------------------
+def gblur(a, s):
+    N = a.shape[0]
+    f = np.fft.fftfreq(N)[:, None]
+    g = np.fft.fftfreq(a.shape[1])[None, :]
+    k = np.exp(-2 * (np.pi * s) ** 2 * (f * f + g * g))
+    return np.real(np.fft.ifft2(np.fft.fft2(a) * k))
+
+
+def cavity_ao(h, s=6.0, k=3.0):
+    return np.clip(1 - k * np.maximum(gblur(h, s) - h, 0), 0.15, 1.0)
+
+
+def _mask_strokes(N, count, seed, L0, L1, angle0, spread, bend):
+    m = np.zeros((N, N))
+    px, py, T, idv = _strokes(N, count, seed, L0, L1, 1.5, angle0, spread, bend)
+    _paint(m, px, py, np.ones(px.shape))
+    return m
+
+
+def tex_log(N=1024):
+    X, Y = grid(N)
+    w1 = fbm(X * 3, Y * 2, 3, 401, (3, 2))
+    w2 = fbm(X * 8, Y * 4, 3, 402, (8, 4))
+    lines = np.sin((X * 22 + 2.4 * w1 + 0.9 * w2) * 2 * math.pi) * 0.5 + 0.5
+    fine = fbm(X * 90, Y * 5, 3, 403, (90, 5))
+    fib = fbm(X * 220, Y * 8, 2, 404, (220, 8))
+    t = 0.42 * lines + 0.36 * fine + 0.22 * fib
+    alb = mix3(hexc("#80502c")[None, None, :] + 0 * t[..., None], hexc("#c8975e"), smooth(0.25, 0.8, t))
+    band = fbm(X * 5, Y * 1, 2, 405, (5, 1))
+    alb = alb * (0.82 + 0.34 * band)[..., None]
+    wg = smooth(0.5, 0.85, fbm(X * 6, Y * 3, 4, 406, (6, 3))) * 0.5
+    alb = mix3(alb, hexc("#a79d8c") * (0.8 + 0.3 * fine)[..., None], wg)
+    # checking cracks (long vertical splits) with lighter lips
+    cm = np.clip(gblur(_mask_strokes(N, 80, 407, 70, 320, math.pi / 2, 0.05, 0.04), 0.9) * 3.0, 0, 1)
+    cm2 = np.clip(gblur(_mask_strokes(N, 140, 408, 25, 90, math.pi / 2, 0.08, 0.05), 0.6) * 2.5, 0, 1)
+    crack = np.maximum(cm, 0.6 * cm2)
+    alb = alb * (1 - 0.8 * crack)[..., None]
+    # knots
+    h = 0.22 * lines + 0.34 * fine + 0.18 * fib
+    rs = np.random.RandomState(409)
+    for k in range(6):
+        cx, cy = rs.uniform(0, 1, 2)
+        dx = ((X - cx + 0.5) % 1.0) - 0.5
+        dy = ((Y - cy + 0.5) % 1.0) - 0.5
+        r = np.sqrt((dx / 0.035) ** 2 + (dy / 0.1) ** 2)
+        m = smooth(1.5, 0.9, r)
+        ring = 0.5 + 0.5 * np.sin(r * 9)
+        alb = mix3(alb, hexc("#4a2c16") * (0.8 + 0.4 * ring)[..., None], m * 0.85)
+        h = h + m * (0.25 * ring - 0.1) + smooth(1.9, 1.4, r) * 0.15
+    h = h - 0.9 * crack
+    ao = cavity_ao(h, 3.0, 2.2) * (1 - 0.7 * crack)
+    return dict(alb=alb, h=h, rough=0.7 + 0.22 * wg + 0.1 * crack, metal=0 * h, ao=ao, nstr=2.4)
+
+
+def tex_endgrain(N=512):
+    X, Y = grid(N)
+    dx, dy = X - 0.5, Y - 0.5
+    r = np.sqrt(dx * dx + dy * dy) * 2.0  # 0 centre .. 1 edge of the log
+    th = np.arctan2(dy, dx)
+    wob = fbm(np.cos(th) * 2 + 3, np.sin(th) * 2 + 3, 3, 421) - 0.5
+    cx = 0.12 * (fbm(X * 3, Y * 3, 2, 422) - 0.5)
+    f = (r + 0.12 * wob + cx) * 34
+    ring = 0.5 + 0.5 * np.sin(f * 2 * math.pi + 1.5 * fbm(X * 9, Y * 9, 2, 423))
+    late = smooth(0.55, 1.0, ring)
+    alb = mix3(hexc("#d2a771")[None, None, :] + 0 * r[..., None], hexc("#9c6a3a"), late * 0.8)
+    alb = alb * (0.86 + 0.28 * fbm(X * 40, Y * 40, 3, 424))[..., None]
+    grey = smooth(0.4, 0.8, fbm(X * 4, Y * 4, 3, 425)) * 0.5 + 0.2
+    alb = mix3(alb, hexc("#a8a092"), grey * 0.55)
+    # radial checks
+    ang = np.sin(th * 9 + 4 * fbm(np.cos(th) * 3 + 9, np.sin(th) * 3 + 9, 2, 426))
+    chk = smooth(0.96, 1.0, np.abs(ang)) * smooth(0.12, 0.35, r) * smooth(0.95, 0.5, r) * smooth(0.45, 0.65, fbm(X * 6, Y * 6, 2, 427))
+    alb = alb * (1 - 0.75 * chk)[..., None]
+    # bark rim
+    bark = smooth(0.9, 0.97, r)
+    alb = mix3(alb, hexc("#4a3a2c") * (0.7 + 0.6 * fbm(X * 30, Y * 30, 2, 428))[..., None], bark)
+    h = 0.3 * ring - 0.6 * chk + 0.3 * bark + 0.1 * fbm(X * 40, Y * 40, 2, 429)
+    return dict(alb=alb, h=h, rough=0.85 + 0 * h, metal=0 * h, ao=1 - 0.7 * chk, nstr=2.0)
+
+
+def tex_stone(N=1024):
+    X, Y = grid(N)
+    f1, f2, v = voronoi(N, 7, 11, 0.8)
+    warp = (fbm(X * 10, Y * 10, 3, 431, (10, 10)) - 0.5) * 0.07
+    edge = (f2 - f1) + warp
+    st = smooth(0.02, 0.1, edge)
+    dome = smooth(0.0, 0.5, edge) ** 0.7
+    chisel = fbm(X * 70, Y * 70, 4, 432, (70, 70))
+    pal = np.array([hexc(c) for c in ("#77736c", "#8b8374", "#5e5d5b", "#9a9080", "#7a7062", "#a39b90", "#6a665e", "#857c6c")])
+    base = pal[(v * 8).astype(int) % 8]
+    vein = 0.5 + 0.5 * np.sin((X * 6 + Y * 3 + v * 5 + 0.6 * fbm(X * 6, Y * 6, 3, 433, (6, 6))) * 2 * math.pi)
+    alb = base * (0.74 + 0.36 * chisel + 0.16 * vein)[..., None] * (0.82 + 0.3 * dome)[..., None]
+    mort = hexc("#a69e8c")[None, None, :] * (0.7 + 0.5 * fbm(X * 120, Y * 120, 2, 434, (120, 120)))[..., None]
+    alb = mix3(mort, alb, st)
+    lich = smooth(0.74, 0.8, fbm(X * 12, Y * 12, 4, 435, (12, 12))) * st
+    alb = mix3(alb, hexc("#c8932e") * (0.8 + 0.4 * chisel)[..., None], lich * 0.85)
+    gl = smooth(0.7, 0.78, fbm(X * 9, Y * 9, 4, 436, (9, 9))) * st
+    alb = mix3(alb, hexc("#9fae82"), gl * 0.7)
+    crev = 1 - smooth(0.03, 0.35, edge)
+    moss = smooth(0.5, 0.78, fbm(X * 4, Y * 4, 4, 437, (4, 4))) * (0.25 + 0.75 * crev)
+    alb = mix3(alb, hexc("#456a26") * (0.7 + 0.6 * chisel)[..., None], moss * 0.8)
+    alb = alb * (1 - 0.45 * crev)[..., None]
+    h = st * (0.5 + 0.42 * dome + 0.14 * chisel) + (1 - st) * 0.04
+    ao = cavity_ao(h, 9.0, 3.2)
+    return dict(alb=alb, h=h, rough=0.88 - 0.2 * moss - 0.05 * (1 - st), metal=0 * h, ao=ao, nstr=3.4)
+
+
+def tex_shingle(N=1024):
+    X, Y = grid(N)
+    rows = 8
+    r = Y * rows
+    ri = np.floor(r).astype(int)
+    fr = r - ri
+    jit = np.floor(_hash(ri, ri * 0 + 3, 9) * 7)
+    xo = X * 7 + jit + 0.5 * (ri % 2)
+    ci = np.floor(xo).astype(int)
+    fc = xo - ci
+    cell = _hash(ci % 7, ri % rows * 5 + 1, 5)
+    cell2 = _hash(ci % 7, ri % rows * 3 + 2, 6)
+    pal = np.array([hexc(c) for c in ("#5b4a3a", "#6a5a48", "#4a4036", "#7a6a58", "#8a8174", "#3f3a34", "#6e5a44")])
+    base = pal[(cell * 7).astype(int) % 7]
+    alb = base * (0.8 + 0.4 * cell2)[..., None]
+    streak = smooth(0.5, 0.85, fbm(X * 70, Y * 3, 4, 441, (70, 3)))
+    alb = alb * (1 - 0.3 * streak)[..., None]
+    silver = smooth(0.45, 0.8, fbm(X * 12, Y * 8, 4, 442, (12, 8))) * 0.4
+    alb = mix3(alb, hexc("#a8a193"), silver * smooth(0.3, 1.0, fr))
+    shade = 0.5 + 0.5 * smooth(0.0, 0.4, fr)
+    alb = alb * shade[..., None]
+    bottom = 0.9 + 0.08 * cell
+    inside = (fr < bottom).astype(float)
+    gapx = np.minimum(smooth(0.0, 0.05, fc), smooth(1.0, 0.95, fc))
+    under = smooth(bottom - 0.02, bottom + 0.06, fr)  # shadowed overlap region
+    cov = gapx * (1 - 0.8 * under)
+    alb = alb * (0.3 + 0.7 * cov)[..., None]
+    gran = fbm(X * 200, Y * 200, 2, 443, (200, 200))
+    alb = alb * (0.85 + 0.3 * gran)[..., None]
+    moss = smooth(0.62, 0.8, fbm(X * 3, Y * 3, 4, 444, (3, 3))) * smooth(0.2, 0.8, 1 - fc) * smooth(0.3, 1.0, fr)
+    alb = mix3(alb, hexc("#4c6428") * (0.7 + 0.6 * gran)[..., None], moss * 0.7)
+    curl = (smooth(0.8, 1.0, fc) + smooth(0.2, 0.0, fc)) * fr * 0.18
+    h = (fr ** 1.5 * 0.7 + curl) * inside * gapx + 0.05 * gran
+    h = h - 0.3 * under
+    ao = cavity_ao(h, 6.0, 2.8) * (0.5 + 0.5 * cov)
+    return dict(alb=alb, h=h, rough=0.86 - 0.1 * moss, metal=0 * h, ao=ao, nstr=3.0)
+
+
+def tex_planks(N=512):
+    X, Y = grid(N)
+    pl = 5
+    r = Y * pl
+    ri = np.floor(r).astype(int)
+    fr = r - ri
+    off = _hash(ri, ri * 0, 2)
+    xs = X + off
+    warp = fbm(xs * 3, Y * 30, 3, 451, (3, 30))
+    lines = 0.5 + 0.5 * np.sin((fr * 16 + 2.0 * warp + 0.6 * fbm(xs * 8, Y * 20, 2, 452, (8, 20))) * math.pi)
+    fine = fbm(xs * 10, Y * 140, 3, 453, (10, 140))
+    t = 0.4 * lines + 0.6 * fine
+    tone = _hash(ri, ri * 0 + 1, 7)
+    alb = mix3(hexc("#6b4b2e")[None, None, :] + 0 * t[..., None], hexc("#9a7650"), smooth(0.2, 0.85, t * 0.7 + tone * 0.4))
+    grey = smooth(0.45, 0.8, fbm(X * 3, Y * 3, 3, 454, (3, 3)))
+    alb = mix3(alb, hexc("#8e8a80"), grey * 0.45)
+    gap = smooth(0.0, 0.05, fr) * smooth(1.0, 0.95, fr)
+    alb = alb * (0.35 + 0.65 * gap)[..., None]
+    # nail heads at two stations per board
+    ns = 0
+    for nx in (0.07, 0.57):
+        dxn = ((X - (nx + 0.0) * 1.0 + 0.5) % 1.0) - 0.5
+        dyn = (fr - 0.25)
+        d1 = np.sqrt((dxn / 0.012) ** 2 + (dyn / 0.06) ** 2)
+        dyn2 = (fr - 0.75)
+        d2 = np.sqrt((dxn / 0.012) ** 2 + (dyn2 / 0.06) ** 2)
+        ns = np.maximum(ns, np.maximum(smooth(1.0, 0.5, d1), smooth(1.0, 0.5, d2)))
+    alb = mix3(alb, hexc("#2a2622"), ns * 0.8)
+    # wear path (polished by feet) across the middle of the tile
+    wear = np.exp(-((X - 0.5) / 0.18) ** 2)
+    alb = alb * (1 + 0.12 * wear)[..., None]
+    # knots
+    h = 0.3 * lines + 0.2 * fine
+    rs = np.random.RandomState(455)
+    for k in range(4):
+        cx, cy = rs.uniform(0, 1, 2)
+        dxk = ((X - cx + 0.5) % 1.0) - 0.5
+        dyk = ((Y - cy + 0.5) % 1.0) - 0.5
+        rk = np.sqrt((dxk / 0.03) ** 2 + (dyk / 0.012) ** 2)
+        mk = smooth(1.2, 0.8, rk)
+        alb = mix3(alb, hexc("#4a2e1a"), mk * 0.45)
+        h = h - 0.15 * mk
+    h = h * gap + 0.0 - 0.3 * (1 - gap) - 0.25 * ns
+    ao = cavity_ao(h, 3.0, 2.5) * (0.5 + 0.5 * gap)
+    return dict(alb=alb, h=h, rough=0.84 - 0.2 * wear, metal=0 * h, ao=ao, nstr=2.2)
+
+
+def tex_paint(N=512):
+    X, Y = grid(N)
+    br = fbm(X * 8, Y * 90, 3, 461, (8, 90))
+    base = hexc("#ece8de")
+    alb = np.ones((N, N, 3)) * base * (0.93 + 0.1 * br)[..., None]
+    flake = smooth(0.66, 0.7, fbm(X * 18, Y * 18, 4, 462, (18, 18)) + 0.1 * fbm(X * 60, Y * 60, 3, 463, (60, 60)))
+    under = hexc("#8a6a4a") * (0.7 + 0.5 * fbm(X * 50, Y * 50, 3, 464, (50, 50)))[..., None]
+    deep = smooth(0.8, 0.84, fbm(X * 18, Y * 18, 4, 462, (18, 18)))
+    alb = mix3(alb, under, flake * 0.55)
+    alb = mix3(alb, hexc("#3a2a1c"), deep * 0.45)
+    dirt = smooth(0.45, 0.85, fbm(X * 3, Y * 14, 4, 465, (3, 14)))
+    alb = alb * (1 - 0.28 * dirt)[..., None]
+    mould = smooth(0.7, 0.85, fbm(X * 5, Y * 12, 4, 466, (5, 12)))
+    alb = mix3(alb, hexc("#5a6a44"), mould * 0.25)
+    h = 0.5 + 0.08 * br - 0.35 * flake - 0.2 * deep
+    return dict(alb=alb, h=h, rough=0.55 + 0.35 * flake + 0.1 * dirt, metal=0 * h, ao=1 - 0.5 * flake, nstr=1.6)
+
+
+def tex_metal(N=512):
+    X, Y = grid(N)
+    wave = 0.5 + 0.5 * np.sin(X * 2 * math.pi * 10)
+    n = fbm(X * 12, Y * 12, 4, 471, (12, 12))
+    rn = fbm(X * 4, Y * 4, 5, 472, (4, 4))
+    edge = smooth(0.8, 1.0, wave)
+    rust = np.clip(smooth(0.5, 0.7, rn * 0.7 + n * 0.3) + 0.5 * edge * smooth(0.4, 0.65, n), 0, 1)
+    base = hexc("#8e969a") * (0.75 + 0.35 * n)[..., None]
+    scratches = _mask_strokes(N, 160, 473, 20, 90, 1.57, 0.5, 0.0)
+    base = base * (1 + 0.2 * gblur(scratches, 0.7) * 4)[..., None]
+    rustc = mix3(hexc("#8a4a22")[None, None, :] + 0 * n[..., None], hexc("#5a2c14"), n)
+    alb = mix3(base, rustc, rust)
+    # bolts along crests
+    bolt = np.zeros((N, N))
+    for bx in np.arange(0.05, 1.0, 0.1):
+        for by in (0.1, 0.6):
+            d = np.hypot((X - bx) * 1, (Y - by) * 1)
+            bolt = np.maximum(bolt, smooth(0.012, 0.006, d))
+    alb = mix3(alb, hexc("#3a3836"), bolt * 0.7)
+    h = wave * 0.55 + 0.1 * n - 0.25 * rust + 0.15 * bolt
+    return dict(alb=alb, h=h, rough=0.4 + 0.5 * rust, metal=(1 - rust) * 0.88, ao=cavity_ao(h, 3.0, 2.0), nstr=2.2)
+
+
+MATS.update({
+    "log": (tex_log, 1024, 512),
+    "endgrain": (tex_endgrain, 512, 256),
+    "stone": (tex_stone, 1024, 1024),
+    "shingle": (tex_shingle, 1024, 512),
+    "planks": (tex_planks, 512, 512),
+    "paint": (tex_paint, 512, 256),
+    "metal": (tex_metal, 512, 256),
+})
+
+
+def litter_png():
+    N = 256
+    rs = np.random.RandomState(481)
+    rgba = np.zeros((N, N, 4), np.float32)
+    # leaves
+    cols = [hexc(c) for c in ("#8a5a22", "#a87a2c", "#6a3a1a", "#b8902f", "#7a4a1e", "#8e3e1e", "#5e5a28")]
+    for k in range(330):
+        cx, cy = rs.uniform(0, N, 2)
+        a = rs.uniform(0, 6.283)
+        lw, ll = rs.uniform(2.0, 3.6), rs.uniform(5, 10)
+        c = cols[rs.randint(len(cols))] * rs.uniform(0.75, 1.1)
+        u = np.arange(-12, 13)
+        gx, gy = np.meshgrid(u, u)
+        lu = gx * math.cos(a) + gy * math.sin(a)
+        lv = -gx * math.sin(a) + gy * math.cos(a)
+        m = (lu / ll) ** 2 + (lv / lw) ** 2 < 1
+        ix = (gx[m] + int(cx)) % N
+        iy = (gy[m] + int(cy)) % N
+        vein = np.abs(lv[m]) < 0.6
+        rgba[iy, ix, :3] = np.where(vein[:, None], c * 0.65, c)
+        rgba[iy, ix, 3] = 1
+    # needles
+    px, py, T, idv = _strokes(N, 900, 482, 6, 15, 1.0, None, 3.14, 0.1)
+    ncol = np.array([hexc("#6a4a26"), hexc("#7a5a30"), hexc("#4a3a20")])[(idv * 3).astype(int) % 3]
+    ix = np.floor(px).astype(int) % N
+    iy = np.floor(py).astype(int) % N
+    rgba[iy.ravel(), ix.ravel(), :3] = ncol.reshape(-1, 3)
+    rgba[iy.ravel(), ix.ravel(), 3] = 1
+    # feather to edges so decals fade out (alpha-tested, so thin the density)
+    dx, dy = (np.arange(N)[None, :] - N / 2) / (N / 2), (np.arange(N)[:, None] - N / 2) / (N / 2)
+    fade = smooth(1.0, 0.7, np.sqrt(dx * dx + dy * dy))
+    keep = (rs.rand(N, N) < fade)
+    rgba[..., 3] *= keep
+    rgba[..., :3] = rgba[..., :3] ** (1 / 1.0)
+    out = np.zeros((N, N, 4), np.uint8)
+    out[..., :3] = np.clip(np.round(rgba[..., :3] * 255), 0, 255)
+    out[..., 3] = (rgba[..., 3] * 255).astype(np.uint8)
+    return png_bytes(out, True)
+
+
+# ----------------------------------------------------------------------------------------------
+# detail geometry
+# ----------------------------------------------------------------------------------------------
+def door_leaf(wall, outer, c, w, h, hinge_side=1, tint="#7a5a3c"):
+    s = {"N": -1, "S": 1, "W": -1, "E": 1}[wall]
+    fx = wall in "NS"
+    off = outer + s * 0.17
+    a0 = c + hinge_side * (w / 2 + 0.12)
+    a1 = a0 + hinge_side * (w - 0.1)
+    lo, hi = min(a0, a1), max(a0, a1)
+
+    def B(a_0, a_1, ya, yb, o0, o1, mat="planks", tn=tint):
+        o_lo, o_hi = min(o0, o1), max(o0, o1)
+        if fx:
+            box(mat, a_0, ya, o_lo, a_1, yb, o_hi, tn, 0.9, dirt=True)
+        else:
+            box(mat, o_lo, ya, a_0, o_hi, yb, a_1, tn, 0.9, dirt=True)
+
+    B(lo, hi, 0.05, h, off - 0.03, off + 0.03)
+    t2 = off + s * 0.03
+    for (ya, yb) in ((0.2, 0.95), (1.08, 1.85)):
+        B(lo + 0.12, hi - 0.12, ya, yb, t2, t2 + s * 0.015, "planks", "#5e4128")
+    hx = lo + 0.11 if hinge_side < 0 else hi - 0.11
+    B(hx - 0.015, hx + 0.015, 0.95, 1.12, t2, t2 + s * 0.05, "metal", "#2a2a2a")
+    for yy in (0.3, 1.7):
+        hh = (hi - 0.02) if hinge_side > 0 else (lo + 0.02)
+        B(hh - 0.02, hh + 0.02, yy, yy + 0.12, t2, t2 + s * 0.02, "metal", "#1c1c1c")
+
+
+def bbox(wall, a0, a1, ya, yb, o0, o1, mat="paint", tn="#ffffff", tile=1.0):
+    lo, hi = min(o0, o1), max(o0, o1)
+    if wall in "NS":
+        box(mat, a0, ya, lo, a1, yb, hi, tn, tile, dirt=True)
+    else:
+        box(mat, lo, ya, a0, hi, yb, a1, tn, tile, dirt=True)
+
+
+def opening_trim(wall, outer, ops, stone_sill=True):
+    s = {"N": -1, "S": 1, "W": -1, "E": 1}[wall]
+    for o in ops:
+        c, hw = o["c"], o["w"] / 2
+        bbox(wall, c - hw - 0.22, c + hw + 0.22, o["y1"] + 0.1, o["y1"] + 0.27, outer, outer + s * 0.11, "log", "#c9ad88", 0.8)
+        if o["kind"] == "win" and stone_sill and o["y0"] < 1.5:
+            bbox(wall, c - hw - 0.14, c + hw + 0.14, o["y0"] - 0.21, o["y0"] - 0.1, outer, outer + s * 0.15, "stone", "#e6ded0", 0.6)
+
+
+def corner_boards(x0, z0, x1, z1, yb, yt, tint="#d8d0be", w=0.13):
+    for (x, z, sx, sz) in ((x0, z0, -1, -1), (x1, z0, 1, -1), (x0, z1, -1, 1), (x1, z1, 1, 1)):
+        box("planks", x - w * 0.5 + sx * 0.02, yb, z - w * 0.5 + sz * 0.02, x + w * 0.5 + sx * 0.02, yt, z + w * 0.5 + sz * 0.02, tint, 0.5, dirt=True)
+
+
+def chinking(x0, z0, x1, z1, ybase, ytop, ops, inset=0.2):
+    for wall in "NSWE":
+        for s0, s1, ya, yb, o in wall_pieces(wall, x0, z0, x1, z1, 0.5, ops.get(wall, []), ybase, ytop):
+            if o is not None:
+                continue
+            if wall in "NS":
+                fz = z0 + inset if wall == "N" else z1 - inset
+                box("paint", s0, ya, fz - 0.07, s1, yb, fz + 0.07, "#cbbd9c", 0.8, dirt=False, skip=("+y", "-y"))
+            else:
+                fx_ = x0 + inset if wall == "W" else x1 - inset
+                box("paint", fx_ - 0.07, ya, s0, fx_ + 0.07, yb, s1, "#cbbd9c", 0.8, dirt=False, skip=("+y", "-y"))
+
+
+def build_lodge_details():
+    X0, X1, Z0, Z1 = -10.0, 10.0, -6.0, 6.0
+    # opening trims: lintel boards + stone sills (rebuild the op lists used by the lodge)
+    GW, UW = (1.0, 2.15), (3.9, 5.2)
+    ops = {
+        "N": [op(-5, 1.4, 0, 2.1, "door")] + [op(c, 1.3, GW[0], GW[1]) for c in (-8.2, -1.8, 2.6, 7.4)] + [op(c, 1.2, UW[0], UW[1]) for c in (-7.5, -2.5, 2.5, 7.5)],
+        "S": [op(-4, 1.4, 0, 2.1, "door"), op(4, 1.4, 0, 2.1, "door"), op(-8.2, 1.3, GW[0], GW[1]), op(0, 2.4, 0.9, 2.2), op(8.2, 1.3, GW[0], GW[1])] + [op(c, 1.2, UW[0], UW[1]) for c in (-8, -4, 0, 4, 8)],
+        "E": [op(0, 1.4, 0, 2.1, "door"), op(-3.6, 1.3, GW[0], GW[1]), op(3.6, 1.3, GW[0], GW[1]), op(-2.6, 1.2, UW[0], UW[1]), op(2.6, 1.2, UW[0], UW[1])],
+        "W": [op(-3.8, 1.3, GW[0], GW[1]), op(3.8, 1.3, GW[0], GW[1]), op(-3.2, 1.2, UW[0], UW[1]), op(3.2, 1.2, UW[0], UW[1])],
+    }
+    for wall, outer in (("N", Z0), ("S", Z1), ("W", X0), ("E", X1)):
+        opening_trim(wall, outer, ops[wall])
+    # foundation plinth ledge (water table)
+    for (a, b, c_, d_) in ((X0 - 0.07, Z0 - 0.07, X1 + 0.07, Z0 + 0.5), (X0 - 0.07, Z1 - 0.5, X1 + 0.07, Z1 + 0.07), (X0 - 0.07, Z0 - 0.07, X0 + 0.5, Z1 + 0.07), (X1 - 0.5, Z0 - 0.07, X1 + 0.07, Z1 + 0.07)):
+        box("stone", a, 0.88, b, c_, 1.02, d_, "#e0d8ca", 1.2)
+    # purlin / ridge beam ends sticking out of the gables
+    tp = math.tan(math.radians(28))
+    for sx in (-1, 1):
+        for zc in (-4.2, -2.1, 2.1, 4.2):
+            yr = 9.0 - abs(zc) * tp - 0.42
+            cylx("log", sx * 10.1, sx * 11.2, yr, zc, 0.1, seg=6, tint="#d2b894", caps=True, cap_mat="endgrain", cap_tile=0.2, cap_uvo=(0.5, 0.5)) if sx > 0 else cylx("log", -11.2, -10.1, yr, zc, 0.1, seg=6, tint="#d2b894", caps=True, cap_mat="endgrain", cap_tile=0.2, cap_uvo=(0.5, 0.5))
+        cylx("log", min(sx * 10.1, sx * 11.35), max(sx * 10.1, sx * 11.35), 8.6, 0.0, 0.15, seg=7, tint="#d2b894", caps=True, cap_mat="endgrain", cap_tile=0.3, cap_uvo=(0.5, 0.5))
+    # floor joist ends on the N/S walls
+    for zz, sg in ():
+        for xx in np.arange(-9.0, 9.1, 1.5):
+            box("log", xx - 0.08, 2.78, zz - 0.0 if sg > 0 else zz - 0.16, xx + 0.08, 3.0, zz + 0.16 if sg > 0 else zz + 0.0, "#d2b894", 0.6, dirt=False, skip=("-y", "+y"))
+    # chimney pots + drip collar
+    for zc in (-0.45, 0.45):
+        cyly("paint", -10.3, 10.55, 11.15, zc, 0.13, r1=0.11, seg=8, tint="#a8532f", dirt=False)
+    box("stone", -10.8, 10.28, -1.0, -9.5, 10.34, 1.0, "#cfc7ba", 1.0)
+    # firewood stack against the east wall
+    firewood(10.45, -5.0, 0.0, 1.8, 3, 6)
+    firewood(10.45, 5.0, 0.0, 1.8, 3, 5)
+    # extra door hardware: porch door numbers skipped; lanterns beside the doors
+    for (lx, lz) in ((-3.2, 6.14), (3.2, 6.14)):
+        lantern_post(lx, lz, hang=True, y=2.15)
+
+
+def build_corner_details():
+    # shed
+    y0 = float(gh(46, -28))
+    corner_boards(44.0, -29.5, 48.0, -26.5, y0 + 0.1, y0 + 2.4)
+    # boathouse
+    corner_boards(12.0, -56.0, 24.0, -46.0, 0.0, 3.2)
+    for (a, b, c_, d_) in ((12.0, -56.0, 24.0, -56.0),):
+        pass
+    # cabin: stone quoins at the corners
+    yc = float(gh(-38, 25))
+    for (x, z, sx, sz) in ((-41.0, 22.5, -1, -1), (-35.0, 22.5, 1, -1), (-41.0, 27.5, -1, 1), (-35.0, 27.5, 1, 1)):
+        for k in range(3):
+            box("stone", x - 0.28 + sx * 0.04, yc + k * 0.2 - 0.2, z - 0.28 + sz * 0.04, x + 0.28 + sx * 0.04, yc + k * 0.2 - 0.02, z + 0.28 + sz * 0.04, "#e6ded0", 0.5)
+    # woodshed + tool-shed roof trim handled by roofs; boathouse fascia lantern
+    # door trims for the boathouse and shed doors (casing already present)
+
+
+# ----------------------------------------------------------------------------------------------
+# ground detail objects
+# ----------------------------------------------------------------------------------------------
+def blocked_xy(x, z, paths=True, pad=0.0):
+    for k in KEEP:
+        if k[0] == "r":
+            if k[1] - pad <= x <= k[3] + pad and k[2] - pad <= z <= k[4] + pad:
+                return True
+        elif math.hypot(x - k[1], z - k[2]) <= k[3] + pad:
+            return True
+    if paths:
+        for (w, pts) in PATHS:
+            for (ax, az), (bx, bz) in zip(pts[:-1], pts[1:]):
+                dx, dz = bx - ax, bz - az
+                t = max(0.0, min(1.0, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz + 1e-9)))
+                if math.hypot(x - (ax + t * dx), z - (az + t * dz)) < w / 2 + 0.6:
+                    return True
+    return False
+
+
+def ground_details(trees):
+    rs = np.random.RandomState(555)
+    nped = 0
+    # pebbles and small rocks along the paths
+    for (w, pts) in PATHS:
+        for (ax, az), (bx, bz) in zip(pts[:-1], pts[1:]):
+            L = math.hypot(bx - ax, bz - az)
+            n = int(L / 8.0)
+            for k in range(n):
+                t = rs.uniform(0, 1)
+                nx_, nz_ = -(bz - az) / L, (bx - ax) / L
+                side = rs.choice([-1, 1])
+                off = side * (w / 2 + rs.uniform(0.15, 1.1))
+                x, z = ax + (bx - ax) * t + nx_ * off, az + (bz - az) * t + nz_ * off
+                if float(gh(x, z)) < -0.3 or blocked_xy(x, z, False, 0.2):
+                    continue
+                for j in range(rs.randint(1, 3)):
+                    r = rs.uniform(0.06, 0.2)
+                    xx, zz = x + rs.uniform(-0.4, 0.4), z + rs.uniform(-0.4, 0.4)
+                    rock("rock", xx, float(gh(xx, zz)) + r * 0.25, zz, r, r * 0.6, r * 0.85, int(rs.randint(1000)), 3, 6, "#b3ac9f", 0.3, rs.uniform(0, 6), 1.0)
+                    nped += 1
+    # fallen logs + stumps at the forest edge
+    cand = [t for t in trees if (abs(t[0]) > 44 or abs(t[2]) > 54)]
+    rs.shuffle(cand)
+    nlog = nstump = 0
+    for t in cand:
+        if nlog >= 9 and nstump >= 12:
+            break
+        a = rs.uniform(0, 6.283)
+        d = rs.uniform(2.5, 4.5)
+        x, z = t[0] + d * math.cos(a), t[2] + d * math.sin(a)
+        if abs(x) > 54 or abs(z) > 64 or blocked_xy(x, z, True, 1.0) or float(gh(x, z)) < -0.2:
+            continue
+        if nlog < 9 and rs.rand() < 0.5:
+            L, r = rs.uniform(3.0, 6.0), rs.uniform(0.18, 0.34)
+            rot = rs.uniform(0, 6.283)
+            ex, ez = math.cos(rot) * L / 2, -math.sin(rot) * L / 2
+            ya, yb = float(gh(x - ex, z - ez)), float(gh(x + ex, z + ez))
+            yc = (ya + yb) / 2 + r * 0.85
+            push(roty(rot), (x, yc, z))
+            cylx("log", -L / 2, L / 2, 0, 0, r, seg=8, tint="#a9a38d", caps=True, cap_mat="endgrain", cap_tile=2 * r, cap_uvo=(0.5, 0.5), r1=r * 0.85)
+            for k in range(2):  # broken branch stubs
+                bx = rs.uniform(-L / 3, L / 3)
+                beam((bx, 0.0, 0.0), (bx + 0.1, r * 1.6, r * 0.7 * (1 if k else -1)), 0.035, "log", "#8c7e66", 0.035)
+            pop()
+            col_rot(x, z, L / 2, r, rot, min(ya, yb), yc + r, F_DEFAULT, S_WOOD) if r > 0.28 else None
+            nlog += 1
+        elif nstump < 12:
+            y = float(gh(x, z))
+            r = rs.uniform(0.22, 0.38)
+            h = rs.uniform(0.45, 0.95)
+            cyly("log", x, y - 0.1, y + h, z, r, r1=r * 0.82, seg=8, tint="#a9a38d", caps="top", cap_mat="endgrain", cap_tile=2 * r * 0.82, cap_uvo=(0.5, 0.5))
+            cyly("log", x, y - 0.15, y + 0.28, z, r * 1.5, r1=r, seg=8, tint="#8c8068", caps=False)
+            col(x - r, y, z - r, x + r, y + h, z + r, F_DEFAULT, S_WOOD)
+            nstump += 1
+    # leaf litter decals around trees (alpha-tested, merged into one primitive)
+    ndec = 0
+    for t in trees:
+        if ndec >= 70:
+            break
+        if rs.rand() > 0.35:
+            continue
+        for _ in range(2):
+            a = rs.uniform(0, 6.283)
+            d = rs.uniform(0.5, 2.6)
+            x, z = t[0] + d * math.cos(a), t[2] + d * math.sin(a)
+            if blocked_xy(x, z, True, 0.3) or float(gh(x, z)) < -0.3:
+                continue
+            S_ = rs.uniform(2.0, 3.4)
+            rot = rs.uniform(0, 6.283)
+            gx, gz = np.meshgrid(np.linspace(-S_ / 2, S_ / 2, 3), np.linspace(-S_ / 2, S_ / 2, 3))
+            c, s = math.cos(rot), math.sin(rot)
+            wx, wz = x + gx * c - gz * s, z + gx * s + gz * c
+            wy = np.array([[float(gh(a_, b_)) + 0.03 for a_, b_ in zip(r1, r2)] for r1, r2 in zip(wx, wz)])
+            P = np.stack([wx.ravel(), wy.ravel(), wz.ravel()], 1)
+            I = []
+            for j in range(2):
+                for i in range(2):
+                    k = j * 3 + i
+                    I.append((k, k + 3, k + 4))
+                    I.append((k, k + 4, k + 1))
+            uv = np.stack([(gx.ravel() / S_ + 0.5), (gz.ravel() / S_ + 0.5)], 1)
+            tintc = [("#d9a85a", 1), ("#c98a46", 1), ("#b9854a", 1), ("#cfb070", 1), ("#9a7a44", 1)][rs.randint(5)][0]
+            tl = hexl(tintc)
+            emit("litter", P, np.tile([0, 1.0, 0], (9, 1)), uv, np.array(I), colors=np.tile(tl, (9, 1)) * np.array([[1.0]]))
+            ndec += 1
+    log("  ground detail: pebbles", nped, "logs", nlog, "stumps", nstump, "decals", ndec)
+
+# ----------------------------------------------------------------------------------------------
 # textures -> JPEG
 # ----------------------------------------------------------------------------------------------
 def down(a, N):
@@ -3594,13 +4113,16 @@ def make_pbr(name, gen, Na, Nn):
     rough = down(np.broadcast_to(t["rough"], t["h"].shape).astype(np.float64), Nn)
     metal = down(np.broadcast_to(t["metal"], t["h"].shape).astype(np.float64), Nn)
     orm = np.stack([0.55 + 0.45 * ao, rough, metal], -1)
-    return (jpeg_bytes(alb, 78, name + "_a"), jpeg_bytes(nrm, 78, name + "_n"), jpeg_bytes(orm, 78, name + "_o"))
+    orm = down(orm, max(256, orm.shape[0] // 2)) if orm.shape[0] > 256 else orm
+    return (jpeg_bytes(alb, QA, name + "_a"), jpeg_bytes(nrm, QN, name + "_n"), jpeg_bytes(orm, 70, name + "_o"))
 
 
 # ----------------------------------------------------------------------------------------------
 # glTF assembly
 # ----------------------------------------------------------------------------------------------
-NOSHADOW = {"terrain", "ground", "glass", "glass_dark", "mountain", "glow"}
+QA, QN = 64, 52
+LITTER_PNG = b""
+NOSHADOW = {"litter", "terrain", "ground", "glass", "glass_dark", "mountain", "glow"}
 NOCOLOR = {"terrain", "glow"}
 
 
@@ -3663,6 +4185,12 @@ def build_glb(tex):
         elif name == "glass":
             pbr = {"baseColorFactor": [0.72, 0.84, 0.9, 0.2], "metallicFactor": 0.0, "roughnessFactor": 0.04}
             mj["alphaMode"] = "BLEND"
+            mj["doubleSided"] = True
+        elif name == "litter":
+            ii = g.image(LITTER_PNG, "image/png")
+            pbr = {"baseColorTexture": {"index": ii}, "metallicFactor": 0.0, "roughnessFactor": 1.0}
+            mj["alphaMode"] = "MASK"
+            mj["alphaCutoff"] = 0.5
             mj["doubleSided"] = True
         elif name == "glass_dark":
             pbr = {"baseColorFactor": [0.03, 0.05, 0.06, 0.72], "metallicFactor": 0.0, "roughnessFactor": 0.06}
@@ -3860,7 +4388,7 @@ def render_all(glb_path, trees, bushes, sun_dir, quick=False):
     outs = {}
     W, Hh = 600, 337
     # minimap (ortho top-down, 140 m square, north up)
-    render_view(sc, os.path.join(TMP, "minimap.png"), (0, 200, 0), (0, 0, 0), (512, 512), ortho=140.0)
+    render_view(sc, os.path.join(TMP, "minimap.png"), (0, 200, 0), (0, 0, 0), (384, 384), ortho=140.0)
     outs["minimap"] = os.path.join(TMP, "minimap.png")
     if quick:
         return outs, None
@@ -3887,7 +4415,7 @@ def render_all(glb_path, trees, bushes, sun_dir, quick=False):
     sheet[0:720, 0:720] = top
     mm = load_png(outs["minimap"])
     mmr = mm[::512 // 360 if False else 1][:360, :360] if False else mm.reshape(360, 512 // 360 if False else 1, 512, 3).mean(1)[:, :360] if False else None
-    ys = (np.arange(360) * 512 / 360).astype(int)
+    ys = (np.arange(360) * mm.shape[0] / 360).astype(int)
     mm2 = mm[ys][:, ys]
     sheet[720:1080, 0:360] = mm2
     for i, (nm, _, _, _) in enumerate(views):
@@ -3912,10 +4440,14 @@ def main():
     global HG
     quick = bool(os.environ.get("LODGE_QUICK"))
     HG = HeightGrid(-160.0, -160.0, 320.0, 321)
+    reserve_c(-18.5, 20.0, 6.5)
+    reserve_c(-24.0, 28.5, 8.5)
+    reserve_c(-16.5, 36.5, 8.5)
     log("height grid", HG.data.shape, float(HG.data.min()), float(HG.data.max()))
     # --- scenery
     build_lodge()
     build_lodge_extra()
+    build_lodge_details()
     log("lodge built; colliders", len(COL))
     build_cabin()
     build_greenhouse()
@@ -3929,10 +4461,11 @@ def main():
     build_east_props()
     build_north_props()
     build_west_props()
+    build_corner_details()
     log("props built; colliders", len(COL))
     # boulders on the slopes and shores
     rs = np.random.RandomState(99)
-    for i in range(50):
+    for i in range(34):
         side = rs.randint(4)
         t = rs.uniform(-1, 1)
         if side == 0:
@@ -3951,7 +4484,7 @@ def main():
         r = rs.uniform(0.7, 2.3)
         boulder(x, z, r, 300 + i, rot=rs.uniform(0, 6), collide=(abs(x) < 56 and abs(z) < 66 and r > 0.8))
     # shore stones
-    for i in range(14):
+    for i in range(8):
         x = rs.uniform(-50, 50)
         z = rs.uniform(-48, -43)
         if abs(x + 20) < 3 or 13 < x < 23:
@@ -3984,6 +4517,9 @@ def main():
     # --- foliage + grass
     trees, bushes = place_foliage()
     log("trees", len(trees), "bushes", len(bushes))
+    ground_details(trees)
+    global LITTER_PNG
+    LITTER_PNG = litter_png()
     gn = 321
     gx = (-80.0 + np.arange(gn) * 0.5)
     ii = np.clip(((gx - SPL_X0) / SPL_SIZE * SPL_N).astype(int), 0, SPL_N - 1)
@@ -4048,7 +4584,7 @@ def main():
     # --- renders + minimap
     outs, sheet = render_all(glb_path, trees, bushes, sd, quick)
     mmi = load_png(outs["minimap"])
-    mmi = np.round(mmi * 10) / 10
+    mmi = np.round(mmi * 7) / 7
     mm = png_bytes(mmi)
     data["minimap"] = dict(png=b64(mm), x0=-70.0, z0=-70.0, size=140.0)
     js = "// Generated by tools/blender/build_lodge.py - do not edit.\nexport const LODGE_GLB = '%s';\nexport const LODGE_DATA = %s;\n" % (b64(glb), json.dumps(data, separators=(",", ":")))
