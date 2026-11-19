@@ -585,6 +585,11 @@ export class Player extends Actor {
       const fwd = 0.1 + Math.max(0, -this.pitch) * 0.3;
       const hx = -Math.sin(this.yaw), hz = -Math.cos(this.yaw);
       cam.position.set(px + hx * fwd, this.camY + 0.03 - Math.max(0, -this.pitch) * 0.06, pz + hz * fwd);
+      // lying down the body stretches out ahead of the hips: put the eyes at the
+      // head (from the chest, which is never hidden), just in front of the face,
+      // so the view is not from inside the shoulders and the hidden head
+      const pk = this.soldier.proneK;
+      if (pk > 0.01) cam.position.lerp(_m.set(0, 0.42, -0.2).applyMatrix4(this.soldier.b.chest.matrixWorld), pk);
     } else {
       cam.position.set(sx - d.x * this.camBack, sy - d.y * this.camBack, sz - d.z * this.camBack);
       const floor = w.groundAt(cam.position.x, cam.position.z) + 0.22;

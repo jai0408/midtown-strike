@@ -134,7 +134,23 @@ export function createScene(canvas, qualityName = 'medium') {
     const rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: q.aa ? 4 : 0 });
     composer = new EffectComposer(renderer, rt);
     composer.addPass(new RenderPass(scene, camera));
-    bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.32, 0.55, 1.0);
+    // Phone GPUs can leave a few NaN / infinite pixels in the half-float buffer
+    // (tiny-roughness sun glints overflow it). The bloom blur would smear each
+    // one into a big black square, so clean them up and cap the range first.
+    composer.addPass(new ShaderPass({
+      uniforms: { tDiffuse: { value: null } },
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+      fragmentShader: `
+        uniform sampler2D tDiffuse; varying vec2 vUv;
+        void main() {
+          vec3 c = texture2D(tDiffuse, vUv).rgb;
+          float s = c.r + c.g + c.b;
+          // written so it holds even where the driver folds isnan() away: NaN fails every comparison
+          if (any(isnan(c)) || any(isinf(c)) || !(s >= 0.0 && s < 60000.0)) c = vec3(0.0);
+          gl_FragColor = vec4(clamp(c, 0.0, 48.0), 1.0);
+        }`,
+    }));
+    bloom =new UnrealBloomPass(new THREE.Vector2(256, 256), 0.32, 0.55, 1.0);
     composer.addPass(bloom);
     composer.addPass(new ShaderPass({
       uniforms: { tDiffuse: { value: null }, exposure: { value: 1.0 } },
