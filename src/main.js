@@ -1,6 +1,6 @@
 // App shell: boot, menus, settings, the frame loop and the Android host hooks.
 import { createScene } from './game/scene.js';
-import { buildCity } from './world/city.js';
+import { MAPS } from './maps/index.js';
 import { Game, MODES } from './game/game.js';
 import { Input } from './game/input.js';
 import { AudioSys } from './game/audio.js';
@@ -9,15 +9,14 @@ import { loadSoldierAssets } from './chars/soldier.js';
 import { loadWeaponAssets } from './game/weapons.js';
 import { WEAPONS, CATEGORIES, DEFAULT_LOADOUT, weaponsIn } from './game/weapons.js';
 import { fmtTime, clamp } from './core/util.js';
-import { HALF, groundAt } from './world/layout.js';
 import * as THREE from 'three';
 
-const VERSION = '1.3.1';
+const VERSION = '1.4.0';
 const STORE = 'midtown-strike-v1';
 // a laptop or desktop: no touch screen, keyboard and mouse / trackpad instead
 const DESKTOP = !('ontouchstart' in window) && !(navigator.maxTouchPoints > 0);
 const DEFAULTS = {
-  difficulty: 'regular', quality: DESKTOP ? 'high' : 'medium', sensitivity: 1, autoFire: false, aimAssist: true,
+  lastMap: 'midtown', difficulty: 'regular', quality: DESKTOP ? 'high' : 'medium', sensitivity: 1, autoFire: false, aimAssist: true,
   holdAds: false, leftFire: false, view: 'tpp', invertY: false, volume: 0.8, showFps: false,
   loadout: { ...DEFAULT_LOADOUT },
 };
@@ -49,7 +48,8 @@ const $ = (sel) => ui.querySelector(sel);
 const menuEl = $('#menu'), overlayEl = $('#overlay'), loadingEl = $('#loading');
 const progress = (p) => { loadingEl.querySelector('i').style.width = Math.round(p * 100) + '%'; };
 
-let view, city, game, hud, input, audio;
+let view, map, game, hud, input, audio;
+let atmoFor = 'midtown';    // the map whose atmosphere the scene currently wears (createScene starts with Midtown's)
 let state = 'loading';     // loading | menu | playing | paused | results | travel | map | photo
 let tab = 'play';
 let lastMode = 'tdm';
@@ -71,12 +71,18 @@ function boot() {
   setTimeout(async () => {
     await loadSoldierAssets();   // Blender-built soldier; falls back to the procedural one
     await loadWeaponAssets();    // glTF weapons (M1911, KSR-29, longsword)
-    city = buildCity({ onProgress: progress });
-    view.scene.add(city.group);
-    shadowCasters();
+    const first = MAPS[settings.lastMap] ? settings.lastMap : 'midtown';
+    loadingEl.querySelector('p').textContent = MAPS[first].deploy;
+    try {
+      map = await MAPS[first].build(progress);
+    } catch (e) {
+      console.warn('map failed, falling back to Midtown', e);
+      map = await MAPS.midtown.build(progress);
+    }
+    installMap(map);
     audio = new AudioSys();
     audio.setVolume(settings.volume);
-    hud = new Hud($('#hud'), city);
+    hud = new Hud($('#hud'), map);
     input = new Input($('#hud'), canvas);
     input.setStickElements(hud.el.stick, hud.el.knob);
     input.holdAds = settings.holdAds;
@@ -90,22 +96,20 @@ function boot() {
       if (state === 'playing') pause(); else if (state === 'paused') resume(); else if (state === 'photo') leavePhoto('paused');
     };
     input.onLockLost = () => { toggledAt = performance.now(); if (state === 'playing') pause(); else if (state === 'photo') leavePhoto('paused'); };
-    game = new Game({ view, city, hud, input, audio, settings });
+    game = new Game({ view, map, hud, input, audio, settings });
     game.onSettings = saveSettings;
-    if (__DEV__) window.__dev = { game, view, city };
+    if (__DEV__) window.__dev = { game, view, city: map, map };
     hud.openTravel = () => openTravel(true);
     hud.results = showResults;
     progress(1);
     // compile shaders / upload textures before the first interactive frame
-    view.camera.position.set(60, 40, 260);
-    view.camera.lookAt(0, 20, 0);
-    view.render();
+    warmUp(map);
     loadingEl.classList.add('hidden');
     showMenu();
     window.addEventListener('resize', () => view.resize());
     // small debug surface, also used by the automated playtests
     window.__game = {
-      get game() { return game; }, view, city, settings, start: startMatch, get state() { return state; },
+      get game() { return game; }, view, get city() { return map; }, get map() { return map; }, settings, start: startMatch, get state() { return state; },
       step(n = 1, dt = 1 / 30) { for (let i = 0; i < n; i++) { game.update(dt); input.endFrame(); } view.render(); },
     };
     requestAnimationFrame(frame);
@@ -133,19 +137,17 @@ function frame(now) {
     updatePhoto(dt);
     input.endFrame();
   } else if (state === 'menu') {
-    // slow flight around the bowtie behind the menu
+    // slow flight round the current map behind the menu
     menuT += dt;
-    const a = menuT * 0.045 + 0.6;
-    view.camera.position.set(Math.sin(a) * 135 + 6, 48 + Math.sin(menuT * 0.11) * 14, Math.cos(a) * 170 + 30);
-    view.camera.lookAt(6, 30, 20);
+    map.flyover(menuT, view.camera);
     if (Math.abs(view.camera.fov - 58) > 0.01) { view.camera.fov = 58; view.camera.updateProjectionMatrix(); }
-    city.update(dt, view.camera.position, view.quality.draw);
+    map.update(dt, view.camera.position, view.quality.draw);
     game.fx.update(dt, view.camera, canvas.height);
   } else if (state === 'results') {
     game.update(dt);
     input.endFrame();
   }
-  if (state !== 'paused' && state !== 'travel' && state !== 'map') view.render();
+  if (state !== 'paused' && state !== 'travel' && state !== 'map' && state !== 'loading') view.render();
 
   // keep the frame rate up on slower phones by trading resolution
   if (state === 'playing') {
@@ -208,17 +210,61 @@ function bindSettings(rootEl, rerender) {
   }));
 }
 
-// Below High only the buildings cast sun shadows: the cars and street props
-// are most of the city's triangles and would be drawn a second time.
-function shadowCasters() {
-  const all = settings.quality === 'high' || settings.quality === 'ultra';
-  city.group.traverse((m) => {
-    if (m.isMesh && (m.material === city.materials.flat || m.userData.shadowHigh)) m.castShadow = all;
-  });
+// ---------------------------------------------------------------------------
+// maps: built lazily on first use (loading screen), then kept for instant switching
+// ---------------------------------------------------------------------------
+/** Put a built map into the scene (and the match / HUD, once they exist). */
+function installMap(next) {
+  if (map && map !== next) view.scene.remove(map.group);
+  map = next;
+  view.scene.add(map.group);
+  if (atmoFor !== map.id) { view.setAtmosphere(map.atmosphere); atmoFor = map.id; }
+  map.setQuality(settings.quality);
+  if (game) { game.stop(); game.setMap(map); }   // a running match holds bodies of the old world
+  if (hud) hud.setMap(map);
+  if (settings.lastMap !== map.id) { settings.lastMap = map.id; saveSettings(); }
+}
+
+/** Compile shaders and upload textures before the first interactive frame on a map. */
+function warmUp(m) {
+  // compile both light-count variants now instead of as a hitch the first time the player walks indoors
+  if (m.setInterior) { m.setInterior(true); view.camera.position.set(0, 2, 8); view.camera.lookAt(0, 2, 0); view.render(); m.setInterior(false); }
+  view.camera.position.set(...m.warmCam[0]);
+  view.camera.lookAt(...m.warmCam[1]);
+  view.render();
+}
+
+/** Make `id` the current map, behind the loading screen the first time. Resolves false if it could not be built. */
+async function switchMap(id) {
+  if (map.id === id) return true;
+  const was = state;
+  state = 'loading';
+  input.enabled = false;
+  loadingEl.querySelector('p').textContent = MAPS[id].deploy;
+  progress(0);
+  loadingEl.classList.remove('hidden');
+  await new Promise((r) => setTimeout(r, 30));   // let the loading screen paint first
+  let next;
+  try {
+    next = await MAPS[id].build(progress);
+  } catch (e) {
+    console.warn('map build failed', e);
+    loadingEl.querySelector('p').textContent = 'COULD NOT LOAD ' + MAPS[id].name;
+    await new Promise((r) => setTimeout(r, 1800));
+    loadingEl.classList.add('hidden');
+    state = was;
+    return false;
+  }
+  installMap(next);
+  warmUp(next);
+  menuT = 0;
+  loadingEl.classList.add('hidden');
+  state = was;
+  return true;
 }
 
 function applySettings(key) {
-  if (key === 'quality') { view.setQuality(settings.quality); shadowCasters(); }
+  if (key === 'quality') { view.setQuality(settings.quality); map.setQuality(settings.quality); }
   if (key === 'view' && game && game.player) game.player.fp = settings.view === 'fpp';
   if (key === 'volume') audio.setVolume(settings.volume);
   if (key === 'holdAds') { input.holdAds = settings.holdAds; input.ads = false; }
@@ -294,7 +340,7 @@ function toggleFullscreen() {
 // ---------------------------------------------------------------------------
 // match flow
 // ---------------------------------------------------------------------------
-function startMatch(modeId) {
+async function startMatch(modeId) {
   lastMode = modeId;
   audio.unlock();
   audio.ui();
@@ -307,6 +353,12 @@ function startMatch(modeId) {
         if (p && p.then) p.then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => {})).catch(() => {});
       } catch (e) { /* not allowed */ }
     }
+  }
+  // another map: build / swap it first (async). Same map: everything below still runs synchronously in the click.
+  if (MODES[modeId].map !== map.id) {
+    const was = state;
+    if (!(await switchMap(MODES[modeId].map))) return;
+    state = was;
   }
   menuEl.classList.add('hidden');
   overlayEl.classList.add('hidden');
@@ -445,13 +497,13 @@ function updatePhoto(dt) {
   const fast = K.has('ShiftLeft') || K.has('ShiftRight'), slow = K.has('AltLeft') || K.has('AltRight');
   _want.multiplyScalar(FLY_SPEED * (fast ? 4 : slow ? 0.25 : 1));
   photo.vel.lerp(_want, 1 - Math.exp(-dt / FLY_EASE));
-  const pos = cam.position, lim = HALF + 60;
+  const pos = cam.position, lim = map.photoLim;
   pos.addScaledVector(photo.vel, dt);
   pos.x = clamp(pos.x, -lim, lim);
   pos.z = clamp(pos.z, -lim, lim);
-  pos.y = clamp(pos.y, groundAt(pos.x, pos.z) + 0.3, 600);
+  pos.y = clamp(pos.y, map.groundAt(pos.x, pos.z) + 0.3, map.photoMaxY);
   if (P.fire || P.shutter) takePhoto();
-  city.update(0, pos, view.quality.draw);
+  map.update(0, pos, view.quality.draw);
   game.fx.update(0, cam, canvas.height);
 }
 
@@ -533,8 +585,8 @@ function openTravel(travel) {
   overlayEl.classList.remove('hidden');
   const stations = game.stations.slice().sort((a, b) => a.name.localeCompare(b.name));
   overlayEl.innerHTML = `<div class="panel"><div class="travel"><canvas width="640" height="640"></canvas>
-    <div class="list"><h2>${travel ? 'SUBWAY · FAST TRAVEL' : 'MIDTOWN'}</h2>
-    ${travel ? stations.map((s, i) => `<button data-i="${i}">${s.name}</button>`).join('') : `<p style="font-size:2.3vh;line-height:1.5;opacity:.85">White arrow: you. Blue: Marines. Green dots: subway entrances${game.sectors ? ' (walk up to one to fast travel). Red circles: hostile strongpoints; blue ones are secured.' : '. The dashed line is the combat zone.'}</p>`}
+    <div class="list"><h2>${travel ? 'SUBWAY · FAST TRAVEL' : map.name}</h2>
+    ${travel ? stations.map((s, i) => `<button data-i="${i}">${s.name}</button>`).join('') : `<p style="font-size:2.3vh;line-height:1.5;opacity:.85">White arrow: you. Blue: Marines.${game.stations.length ? ' Green dots: subway entrances' : ''}${game.sectors ? ' (walk up to one to fast travel). Red circles: hostile strongpoints; blue ones are secured.' : (game.stations.length ? '.' : '') + ' The dashed line is the combat zone.'}</p>`}
     <button class="close" data-a="close">${travel ? 'CANCEL' : 'CLOSE'}</button></div></div></div>`;
   const cv = overlayEl.querySelector('canvas');
   const spots = hud.drawFullMap(cv, game);
