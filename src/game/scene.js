@@ -29,14 +29,14 @@ export const ATMOSPHERES = {
     grade: { sat: 1.02, curve: 0.25, warm: 1.0 },
   },
   // clear sunny afternoon, CoD-Mobile-daytime style: saturated blue zenith, light blue horizon,
-  // soft clouds, strong warm sun, low ambient (dark shadow sides), light blue haze from ~120 m
+  // soft clouds, strong warm sun, rich environment reflections, light blue haze from ~120 m
   lodge: {
     sky: { top: 0x0d47b8, mid: 0x3f8fe6, horizon: 0x9ccbf0, haze: 0x86aed8, sunCol: 0xfff0d0, gain: 1.15, stars: 0, clouds: 0.55 },
-    sunDir: [-0.55, 0.64, 0.53], sunColor: 0xffedcc, sunIntensity: 4.6,
-    hemi: { sky: 0x7fa9e6, ground: 0x4e4a38, intensity: 0.65 },
+    sunDir: [-0.5003, 0.7204, 0.4803], sunColor: 0xffedcc, sunIntensity: 4.6,
+    hemi: { sky: 0x80abf2, ground: 0x464c36, intensity: 0.72 },
     fog: { color: 0x7ea8dc, near: 150, far: 2600, uncapped: true },
-    exposure: 1.0, envIntensity: 0.6, envFloor: 0x4b5638, shadowR: 40, shadowRadius: 1, shadowNormalBias: 0.03,
-    grade: { sat: 1.14, curve: 0.4, warm: 1.0 },
+    exposure: 1.02, envIntensity: 1.12, envFloor: 0x3e4a30, shadowR: 44, shadowRadius: 1.2, shadowNormalBias: 0.03,
+    grade: { sat: 1.08, curve: 0.35, warm: 1.0 },
   },
 };
 
@@ -229,7 +229,7 @@ export function createScene(canvas, qualityName = 'medium') {
           gl_FragColor = vec4(clamp(c, 0.0, 48.0), 1.0);
         }`,
     }));
-    bloom =new UnrealBloomPass(new THREE.Vector2(256, 256), 0.32, 0.55, 1.0);
+    bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.35, 0.52, 0.95);
     composer.addPass(bloom);
     const grade = new ShaderPass({
       uniforms: { tDiffuse: { value: null }, exposure: { value: renderer.toneMappingExposure }, sat: { value: 0.92 }, curve: { value: 0 } },

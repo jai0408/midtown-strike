@@ -43,8 +43,7 @@ function makeGroundAt(h) {
 /** Glass is told apart by mesh extras ({ glass: true }) or, failing that, by the material's name. */
 const extras = (o) => ({ ...(o.parent && o.parent.userData), ...o.userData });
 
-function prepareMaterial(m, glass) {
-  m.envMapIntensity = 1;
+function prepareMaterial(m, glass, matName) {
   const aniso = getMaxAnisotropy();
   for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap']) {
     if (m[k]) m[k].anisotropy = aniso;
@@ -52,8 +51,44 @@ function prepareMaterial(m, glass) {
   if (glass) {
     m.transparent = true;
     m.depthWrite = false;
-    m.roughness = 0.1;   // not lower: sharp sun glints overflow half-float targets on phones
-    if (m.opacity > 0.6) m.opacity = 0.35;
+    m.roughness = 0.08;
+    m.metalness = 0.05;
+    m.envMapIntensity = 2.4;
+    if (m.opacity > 0.6) m.opacity = 0.4;
+    // Architectural glass Fresnel shader: high reflectivity at glancing angles, transparent head-on
+    m.customProgramCacheKey = () => 'lodge-glass-v2';
+    m.onBeforeCompile = (shader) => {
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <opaque_fragment>', `
+          {
+            float NdotV = clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0);
+            float fresnel = 0.04 + 0.96 * pow(1.0 - NdotV, 4.0);
+            outgoingLight += reflectedLight.indirectSpecular * (fresnel * 2.2);
+            gl_FragColor.a = clamp(mix(0.22, 0.92, fresnel), 0.0, 1.0);
+            if (!(dot(outgoingLight, vec3(1.0)) < 20000.0)) outgoingLight = vec3(0.0);
+            outgoingLight = clamp(outgoingLight, 0.0, 24.0);
+          }
+          #include <opaque_fragment>`);
+    };
+  } else {
+    const name = (matName || m.name || '').toLowerCase();
+    if (name.includes('metal')) {
+      m.envMapIntensity = 2.2;
+      m.roughness = Math.min(m.roughness, 0.35);
+      m.metalness = Math.max(m.metalness, 0.85);
+    } else if (name.includes('shingle')) {
+      m.envMapIntensity = 1.3;
+      m.roughness = 0.75;
+    } else if (name.includes('log') || name.includes('planks')) {
+      m.envMapIntensity = 1.15;
+      m.roughness = 0.82;
+    } else if (name.includes('stone') || name.includes('rock')) {
+      m.envMapIntensity = 0.9;
+    } else if (name.includes('glow')) {
+      m.emissiveIntensity = 2.8;
+    } else {
+      m.envMapIntensity = 1.05;
+    }
   }
 }
 
@@ -86,7 +121,7 @@ export async function buildLodge(onProgress = () => {}) {
     const ex = extras(o);
     const mats = Array.isArray(o.material) ? o.material : [o.material];
     const glass = !!ex.glass || mats.some((m) => /glass/i.test(m.name || ''));
-    for (const m of mats) prepareMaterial(m, glass);
+    for (const m of mats) prepareMaterial(m, glass, m.name || o.name);
     o.receiveShadow = !glass;
     casters.push([o, !glass && ex.castShadow !== false]);
   });
@@ -102,7 +137,7 @@ export async function buildLodge(onProgress = () => {}) {
   if (layers && layers.layers[3]) {
     const mm = [];
     scene.traverse((o) => { if (o.isMesh && o.material && o.material.name === 'mountain') mm.push(o.material); });
-    for (const m of new Set(mm)) await applyMountainShader(m, layers.layers[3].albedo);
+    for (const m of new Set(mm)) await applyMountainShader(m, layers.layers[3].albedo, D.sun && D.sun.dir);
   }
   // the baked terrain colour is oversaturated under the strong sun
   scene.traverse((o) => { if (o.isMesh && o.material && o.material.name === 'terrain') o.material.color.set(0xc9d0bd); });
@@ -160,7 +195,7 @@ export async function buildLodge(onProgress = () => {}) {
   await tick();
 
   // -- water, minimap --------------------------------------------------------
-  const water = createWater(D.water, groundAt);
+  const water = createWater(D.water, groundAt, D.sun && D.sun.dir);
   const minimap = await loadMinimap(D.minimap);
 
   const group = new THREE.Group();

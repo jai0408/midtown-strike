@@ -135,11 +135,15 @@ async function loadTextures(aniso) {
 // materials (wind in onBeforeCompile; shared time / wind uniforms)
 // ---------------------------------------------------------------------------------------------
 
+const WIND_DIR = new THREE.Vector2(0.82, 0.57).normalize();
+const SUN_DIR = new THREE.Vector3(-0.5003, 0.7204, 0.4803).normalize();
+
 const SHARED = {
   uTime: { value: 0 },
-  uWind: { value: 0.8 },
-  uWindDir: { value: new THREE.Vector2(0.82, 0.57) },
+  uWind: { value: 0.85 },
+  uWindDir: { value: WIND_DIR },
   uCam: { value: new THREE.Vector3() },
+  uSunDir: { value: SUN_DIR },
 };
 
 const VERT_PARS = `
@@ -153,7 +157,7 @@ uniform vec3 uCam;
 uniform float uFadeR;
 `;
 
-/** Shrinks grass into the ground towards the edge of the field (uFadeR > 0 only for grass). */
+/** Shrinks grass into the ground towards the edge of the field and adds traveling wind waves. */
 const FADE = `
 if (uFadeR > 0.0) {
   #ifdef USE_INSTANCING
@@ -164,10 +168,17 @@ if (uFadeR > 0.0) {
   vec2 gd = gw.xz - uCam.xz;
   float gdist = sqrt(dot(gd, gd));
   transformed *= 1.0 - smoothstep(uFadeR * 0.62, uFadeR, gdist);
+  
+  // Dynamic traveling grass ripple wave aligned with wind direction
+  float gCoord = dot(gw.xz, uWindDir);
+  float gWave = sin(gCoord * 0.28 - uTime * 2.6) * 0.55 + sin(gCoord * 0.62 - uTime * 3.8) * 0.25;
+  float gBend = (0.45 + 0.55 * gWave) * uWind * 0.26 * clamp(transformed.y * 1.5, 0.0, 1.0);
+  transformed.x += uWindDir.x * gBend;
+  transformed.z += uWindDir.y * gBend;
 }
 `;
 
-/** Wind: bend along the wind direction (weighted by aSway squared) plus small leaf flutter. */
+/** Wind: physical traveling gust fronts along uWindDir, hierarchical trunk/branch/leaf sway. */
 const SWAY = `
 {
   vec3 ip = vec3(0.0);
@@ -180,22 +191,34 @@ const SWAY = `
   #endif
   vec3 wd = vec3(uWindDir.x, 0.0, uWindDir.y);
   vec2 wl = vec2(dot(c0, wd) / max(dot(c0, c0), 0.0001), dot(c2, wd) / max(dot(c2, c2), 0.0001));
+  
+  // Physical gust propagation along the wind direction:
+  float wCoord = dot(ip.xz, uWindDir);
+  float gustFront1 = sin(wCoord * 0.032 - uTime * 1.5);
+  float gustFront2 = sin(wCoord * 0.016 - uTime * 0.82 + 1.6);
+  float gust = 0.55 + 0.45 * (gustFront1 * 0.68 + gustFront2 * 0.32);
+  
   float ph = fract(ip.x * 0.0173 + ip.z * 0.0291) * 6.2831853;
   float w = aSway;
-  float gust = 0.55 + 0.45 * sin(uTime * 0.3 + ph * 0.4 + ip.x * 0.02 + ip.z * 0.015);
-  float osc = 0.6 * sin(uTime * 1.3 + ph) + 0.4 * sin(uTime * 2.1 + ph * 1.7);
-  float amp = (0.55 + 0.45 * osc) * gust * uWind * w * w * uAmp;
-  transformed.x += wl.x * amp;
-  transformed.z += wl.y * amp;
-  transformed.y -= abs(amp) * 0.25;
-  float fl = sin(uTime * 5.1 + dot(position, vec3(2.3, 1.7, 2.9)) + ph) * uWind * w * uFlutter;
-  transformed += vec3(fl, 0.5 * fl, -fl);
+  float w2 = w * w;
+  
+  // Hierarchical sway: slow heavy trunk inertia + faster branch oscillations + wind lean
+  float osc = 0.62 * sin(uTime * 1.15 + ph) + 0.38 * sin(uTime * 1.85 + ph * 1.5);
+  float swayAmp = ((0.32 + 0.68 * osc) * gust * uWind + 0.22 * uWind) * w2 * uAmp;
+  transformed.x += wl.x * swayAmp;
+  transformed.z += wl.y * swayAmp;
+  transformed.y -= abs(swayAmp) * 0.22;
+  
+  // High-frequency turbulent leaf/needle flutter:
+  float flPhase = uTime * 4.9 + dot(position, vec3(2.4, 1.8, 3.0)) + ph;
+  float flutter = sin(flPhase) * uWind * (0.35 + 0.65 * gust) * w * uFlutter;
+  transformed += vec3(flutter, 0.4 * flutter, -flutter * 0.75);
 }
 `;
 
 /**
  * Builds a wind material.
- * @param {object} p {map, normalMap, normalScale, side, amp, flutter, fade, alphaTest, roughness, selfLit}
+ * @param {object} p {map, normalMap, normalScale, side, amp, flutter, fade, alphaTest, roughness, selfLit, twoSidedLight}
  */
 function windMaterial(p) {
   const m = new THREE.MeshStandardMaterial({
@@ -211,8 +234,20 @@ function windMaterial(p) {
       .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + FADE + SWAY);
     if (p.twoSidedLight) {
       // leaves are lit like thin shells: no normal flip on the back face (normals are bent already)
-      shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_begin>',
-        THREE.ShaderChunk.normal_fragment_begin.replace('float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;', 'float faceDirection = 1.0;'));
+      // plus subsurface light scattering / canopy translucency when backlit by the sun
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform vec3 uSunDir;')
+        .replace('#include <normal_fragment_begin>',
+          THREE.ShaderChunk.normal_fragment_begin.replace('float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;', 'float faceDirection = 1.0;'))
+        .replace('#include <opaque_fragment>', `
+          {
+            vec3 vDir = normalize(vViewPosition);
+            float backlight = clamp(dot(-vDir, uSunDir), 0.0, 1.0);
+            float sss = pow(backlight, 2.6) * 0.4;
+            vec3 sssCol = diffuseColor.rgb * vec3(1.15, 1.35, 0.75);
+            outgoingLight += sssCol * sss;
+          }
+          #include <opaque_fragment>`);
     }
     if (p.selfLit > 0) {
       shader.fragmentShader = shader.fragmentShader
