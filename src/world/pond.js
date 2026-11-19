@@ -193,6 +193,10 @@ export function createKoiPond({ x: cx = POND.x, z: cz = POND.z, groundAt, world 
       m.position.set(0, 0, 0);
       m.receiveShadow = true;
       m.castShadow = name === 'pond_rock';
+      // the exported factors are metalness 1 / roughness 1: with the ORM maps that made the stones black mirrors
+      m.material.metalness = 0;
+      // the baked AO channel of this ORM averages 0.13 (near black): that was the dark crescents round the rim
+      if (name === 'pond_rock') { m.material.aoMapIntensity = 0.2; m.material.color.setScalar(1.5); }
       owned.geos.push(m.geometry);
       if (name === 'pond_rock') {
         follow(m.geometry, () => 1);

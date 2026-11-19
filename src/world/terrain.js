@@ -141,6 +141,7 @@ export async function applyTerrainSplat(mat, T) {
           vec4 bw = max(hb - (max(max(hb.x, hb.y), max(hb.z, hb.w)) - 0.2), 0.0);
           bw *= step(0.001, sw);
           bw /= (bw.x + bw.y + bw.z + bw.w + 1e-4);
+          a2 *= 0.78;   // gravel's white pebbles are the brightest thing in the scene
           vec3 detail = (a0 * bw.x + a1 * bw.y + a2 * bw.z + a3 * bw.w) * 0.88;
           // the baked colour stays as soft macro variation and ground AO
           vec3 macro = clamp(diffuseColor.rgb * 2.4, 0.35, 1.5);

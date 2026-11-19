@@ -23,10 +23,11 @@ const TIME_WRAP = 20 * Math.PI; // wind frequencies are multiples of 0.1 so the 
 
 /** Per-quality settings. dist/lod0 are metres at drawScale 1; grass is the radius around the camera. */
 const QUALITY = {
-  low: { dist: 70, lod0: 20, grass: 18, spacing: 0.78, shadow: false },
-  medium: { dist: 100, lod0: 28, grass: 30, spacing: 0.62, shadow: false },
-  high: { dist: 135, lod0: 36, grass: 44, spacing: 0.48, shadow: true },
-  ultra: { dist: 175, lod0: 48, grass: 56, spacing: 0.40, shadow: true },
+  // grass blades ~ pi * grass^2 / spacing^2: low 0.8k, medium 3.4k, high 13k, ultra 29k
+  low: { dist: 70, lod0: 20, grass: 14, spacing: 0.86, shadow: false },
+  medium: { dist: 100, lod0: 28, grass: 24, spacing: 0.72, shadow: false },
+  high: { dist: 135, lod0: 36, grass: 36, spacing: 0.54, shadow: true },
+  ultra: { dist: 175, lod0: 48, grass: 46, spacing: 0.46, shadow: true },
 };
 
 /** Draw / LOD0 distance multipliers per model class. */

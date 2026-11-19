@@ -3,6 +3,7 @@
 // baked PBR atlas (albedo / normal / ORM) with road grime, sun fade, rust and dirt streaks.
 // bus_clean = lightly weathered; bus_old = dusty, rusty, two flat tyres and a sag (its own atlas, same UV layout).
 // Cost: 2 draw calls per bus (body atlas + glass), ~20k triangles each.
+import { smoothPaint } from './paint.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { F_DEFAULT, S_METAL } from '../core/physics.js';
@@ -86,6 +87,7 @@ export function buildSchoolBuses(groundAt, world) {
           o.renderOrder = 2;
         } else {
           m.envMapIntensity = 1.0;
+          smoothPaint(m, 0.55);   // the baked paint dirt reads as blotches
         }
         owned.push(o);
       });

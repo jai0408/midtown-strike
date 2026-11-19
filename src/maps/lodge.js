@@ -5,6 +5,8 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { LODGE_GLB, LODGE_DATA as D } from './lodge_asset.js';
 import { buildFoliage } from '../world/foliage.js';
 import { createWater } from '../world/water.js';
+import { smoothPaint } from '../world/paint.js';
+import { scatterPlants } from './lodge_scatter.js';
 import { buildGridNav } from '../world/gridnav.js';
 import { applyTerrainSplat, testTerrainLayers } from '../world/terrain.js';
 import { applyMountainShader } from '../world/mountain.js';
@@ -88,6 +90,10 @@ function prepareMaterial(m, glass, matName) {
       m.roughness = 0.82;
     } else if (name.includes('stone') || name.includes('rock')) {
       m.envMapIntensity = 0.9;
+    } else if (name.includes('paint')) {
+      m.envMapIntensity = 1.3;
+      smoothPaint(m, 0.85);
+      m.normalScale.multiplyScalar(0.4);   // the grunge normals read as camouflage too
     } else if (name.includes('glow')) {
       m.emissiveIntensity = 2.8;
     } else {
@@ -169,7 +175,8 @@ export async function buildLodge(onProgress = () => {}) {
   // -- foliage ---------------------------------------------------------------
   // nothing grows in the pond: drop trees and bushes inside its rim (grass via the exclude test)
   const dry = (list) => (list || []).filter((t) => !inPond(t[0], t[2], -0.6));
-  const plants = { ...D.foliage, trees: dry(D.foliage.trees), bushes: dry(D.foliage.bushes) };
+  const extra = scatterPlants(D, groundAt, world);   // reeds, lupine, clover, maples ... (fixed seed)
+  const plants = { ...D.foliage, trees: dry(D.foliage.trees).concat(extra.trees), bushes: dry(D.foliage.bushes).concat(extra.bushes) };
   const foliage = await buildFoliage({ foliage: plants, heightAt: groundAt, quality: 'medium', exclude: (x, z) => inPond(x, z, -0.4) });
   for (const c of foliage.colliders) world.addBox(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]);
   // foliage reacts to sun / hemi like everything else (no extra self-lit glow). Its colours come
@@ -178,6 +185,11 @@ export async function buildLodge(onProgress = () => {}) {
   foliage.group.traverse((o) => {
     const m = o.material;
     if (m && m.userData && m.userData.uniforms && m.userData.uniforms.uSelfLit) m.userData.uniforms.uSelfLit.value = 0;
+    if (!o.isMesh) return;
+    // bush leaves have a material of their own: calm the bright green to olive. Bark is shared by all
+    // trees: a slight dim keeps the white birch trunks from clipping in the sun.
+    if (/^bush\d.*leaf/.test(o.name)) m.color.set(0xa4ad7c);
+    else if (/_bark$/.test(o.name)) m.color.set(0xa8a8a8);
   });
 
   // -- school buses & koi pond ----------------------------------------------
