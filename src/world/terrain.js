@@ -10,6 +10,7 @@
 // The baked terrain colour stays on as soft macro colour / AO, and the detail fades out with distance.
 import * as THREE from 'three';
 import { makeCanvas, getMaxAnisotropy } from './textures.js';
+import { POND_GLSL } from './pond_shape.js';
 
 const LAYER = 512;   // texels per layer side
 
@@ -21,18 +22,22 @@ function blobOf(s) {
   return new Blob([u8], { type: png ? 'image/png' : 'image/jpeg' });
 }
 
-/** Four images (base64 or ready canvases) -> one RGBA8 texture array. */
+/** Four images (base64 or ready canvases / elements) -> one RGBA8 texture array. */
 async function arrayOf(images, srgb) {
   const data = new Uint8Array(LAYER * LAYER * 4 * images.length);
   const c = makeCanvas(LAYER, LAYER), g = c.getContext('2d', { willReadFrequently: true });
   for (let i = 0; i < images.length; i++) {
-    const src = images[i];
+    let src = images[i];
     g.clearRect(0, 0, LAYER, LAYER);
     if (typeof src === 'string') {
-      const bmp = await createImageBitmap(blobOf(src));
-      g.drawImage(bmp, 0, 0, LAYER, LAYER);
-      if (bmp.close) bmp.close();
-    } else g.drawImage(src, 0, 0, LAYER, LAYER);
+      src = await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = src.startsWith('data:') ? src : 'data:image/png;base64,' + (src.indexOf(',') >= 0 ? src.slice(src.indexOf(',') + 1) : src);
+      });
+    }
+    g.drawImage(src, 0, 0, LAYER, LAYER);
     data.set(g.getImageData(0, 0, LAYER, LAYER).data, i * LAYER * LAYER * 4);
   }
   const t = new THREE.DataArrayTexture(data, LAYER, LAYER, images.length);
@@ -49,9 +54,22 @@ async function arrayOf(images, srgb) {
 }
 
 async function splatTexture(png) {
-  // premultiplyAlpha none: the alpha channel is the rock weight, not transparency
-  const bmp = await createImageBitmap(typeof png === 'string' ? blobOf(png) : png, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
-  const t = new THREE.Texture(bmp);
+  let source = png;
+  // createImageBitmap with premultiplyAlpha 'none': alpha is the rock weight, not transparency,
+  // so where it is 0 (most of the map) a premultiplied decode would wipe the other three weights.
+  // The <img> path is only a fallback for WebViews without createImageBitmap options.
+  if (typeof png === 'string' && typeof createImageBitmap === 'function') {
+    try { source = await createImageBitmap(blobOf(png), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' }); } catch (e) { source = png; }
+  }
+  if (typeof source === 'string') {
+    source = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = png.startsWith('data:') ? png : 'data:image/png;base64,' + (png.indexOf(',') >= 0 ? png.slice(png.indexOf(',') + 1) : png);
+    });
+  }
+  const t = new THREE.Texture(source);
   t.flipY = false;   // image row 0 is z0
   t.premultiplyAlpha = false;
   t.colorSpace = THREE.NoColorSpace;
@@ -91,8 +109,15 @@ export async function applyTerrainSplat(mat, T) {
         uniform sampler2D uSplat;
         uniform sampler2DArray uAlb, uNrm;
         uniform vec4 uRect, uTile, uRough;
-        uniform vec2 uFade;`)
+        uniform vec2 uFade;
+        ${POND_GLSL}`)
       .replace('#include <map_fragment>', `#include <map_fragment>
+        // the koi pond basin: no terrain surface over it (shape from world/pond_shape.js)
+        {
+          vec2 pPond = vWPos.xz - POND_C;
+          float pD = length(pPond);
+          if (pD < 2.5 || pD < pondRadiusGL(atan(pPond.x, pPond.y + 1e-4)) - 0.15) discard;   // atan(0, 0) is undefined
+        }
         vec2 dnTotal = vec2(0.0);
         float dRough = 1.0, dFade = 1.0 - smoothstep(uFade.x, uFade.y, length(vViewPosition));
         vec2 p = vWPos.xz;
@@ -117,6 +142,7 @@ export async function applyTerrainSplat(mat, T) {
           vec4 bw = max(hb - (max(max(hb.x, hb.y), max(hb.z, hb.w)) - 0.2), 0.0);
           bw *= step(0.001, sw);
           bw /= (bw.x + bw.y + bw.z + bw.w + 1e-4);
+          a2 *= 0.78;   // gravel's white pebbles are the brightest thing in the scene
           vec3 detail = (a0 * bw.x + a1 * bw.y + a2 * bw.z + a3 * bw.w) * 0.88;
           // the baked colour stays as soft macro variation and ground AO
           vec3 macro = clamp(diffuseColor.rgb * 2.4, 0.35, 1.5);

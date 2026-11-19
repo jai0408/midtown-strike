@@ -73,25 +73,32 @@ function depthMap(level, rect, heightAt) {
 /**
  * @param {{y:number,x0:number,z0:number,x1:number,z1:number}} water lake plane in game space
  * @param {(x:number,z:number)=>number} heightAt terrain height, for the shoreline fade
+ * @param {number[]} [sunDir] optional sun direction [x, y, z]
  */
-export function createWater(water, heightAt) {
+export function createWater(water, heightAt, sunDir = [-0.5003, 0.7204, 0.4803]) {
   const { y, x0, z0, x1, z1 } = water;
   const normals = rippleNormals();
   const depth = depthMap(y, water, heightAt);
+  const wDir = new THREE.Vector2(0.82, 0.57).normalize();
+  const sDir = new THREE.Vector3(sunDir[0], sunDir[1], sunDir[2]).normalize();
   const uniforms = {
     uTime: { value: 0 },
     uNormalMap: { value: normals },
     uDepthMap: { value: depth.texture },
     uRect: { value: depth.rect },
-    uDeep: { value: new THREE.Color(0x041d2b) },
-    uShallow: { value: new THREE.Color(0x2c6468) },
+    uDeep: { value: new THREE.Color(0x021624) },
+    uMid: { value: new THREE.Color(0x072b38) },
+    uShallow: { value: new THREE.Color(0x1e5a5c) },
+    uWindDir: { value: wDir },
+    uSunDir: { value: sDir },
+    uSunColor: { value: new THREE.Color(0xffedcc) },
   };
   // roughness stays well above ~0.1: a mirror-sharp sun glint overflows half-float
   // targets on phones (NaN squares through bloom). The shader also clamps its output.
   const material = new THREE.MeshStandardMaterial({
-    color: 0x0b3a4a, roughness: 0.3, metalness: 0, transparent: true, opacity: 0.95, depthWrite: false, envMapIntensity: 1.3,
+    color: 0x0a3442, roughness: 0.24, metalness: 0.05, transparent: true, opacity: 0.98, depthWrite: false, envMapIntensity: 1.8,
   });
-  material.customProgramCacheKey = () => 'lodge-water';
+  material.customProgramCacheKey = () => 'lodge-water-v2';
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
@@ -103,34 +110,71 @@ export function createWater(water, heightAt) {
         uniform float uTime;
         uniform sampler2D uNormalMap, uDepthMap;
         uniform vec4 uRect;
-        uniform vec3 uDeep, uShallow;`)
+        uniform vec3 uDeep, uMid, uShallow;
+        uniform vec2 uWindDir;
+        uniform vec3 uSunDir, uSunColor;`)
       .replace('#include <color_fragment>', `#include <color_fragment>
         vec2 dUv = (vWPos.xz - uRect.xy) * uRect.zw;
         vec2 inside = step(vec2(0.0), dUv) * step(dUv, vec2(1.0));
         float depth = mix(1.0, texture2D(uDepthMap, clamp(dUv, 0.0, 1.0)).r, inside.x * inside.y);
-        diffuseColor.rgb = mix(uShallow, uDeep, smoothstep(0.05, 0.8, depth));
-        // soft shoreline: the surface fades out over the last ~0.6 m of depth
-        diffuseColor.a *= smoothstep(0.0, 0.12, depth);
-        float wFoam = smoothstep(0.0, 0.025, depth) * (1.0 - smoothstep(0.025, 0.1, depth));`)
+        
+        // Multi-stop alpine water color gradient: shallow emerald -> deep navy
+        vec3 wBody = mix(uShallow, uMid, smoothstep(0.02, 0.32, depth));
+        wBody = mix(wBody, uDeep, smoothstep(0.32, 0.85, depth));
+        diffuseColor.rgb = wBody;
+        
+        // Soft shoreline: natural shoreline fade over shallow water
+        diffuseColor.a *= smoothstep(0.0, 0.07, depth);
+        
+        // Dynamic shoreline wave lap & foam
+        float waveLap = sin(uTime * 2.2 - depth * 26.0);
+        float wFoam = smoothstep(0.003, 0.028, depth) * (1.0 - smoothstep(0.028, 0.11, depth)) * (0.5 + 0.5 * waveLap);`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         {
           vec2 p = vWPos.xz;
-          vec3 n1 = texture2D(uNormalMap, p * 0.045 + uTime * vec2(0.010, 0.006)).xyz * 2.0 - 1.0;
-          vec3 n2 = texture2D(uNormalMap, p * 0.13 + uTime * vec2(-0.012, 0.017)).xyz * 2.0 - 1.0;
-          vec2 sl = (n1.xy + n2.xy) * mix(0.3, 0.65, smoothstep(0.0, 0.3, depth));
+          // Physically wind-aligned waves:
+          // Octave 1: primary swell along wind direction
+          vec2 flow1 = uWindDir * (uTime * 0.018);
+          // Octave 2: angled chop (+24 deg)
+          vec2 wRot1 = vec2(uWindDir.x * 0.91 - uWindDir.y * 0.41, uWindDir.y * 0.91 + uWindDir.x * 0.41);
+          vec2 flow2 = wRot1 * (uTime * 0.028);
+          // Octave 3: fine capillary ripples (-20 deg)
+          vec2 wRot2 = vec2(uWindDir.x * 0.94 + uWindDir.y * 0.34, uWindDir.y * 0.94 - uWindDir.x * 0.34);
+          vec2 flow3 = wRot2 * (uTime * 0.042);
+          
+          vec3 n1 = texture2D(uNormalMap, p * 0.038 + flow1).xyz * 2.0 - 1.0;
+          vec3 n2 = texture2D(uNormalMap, p * 0.095 + flow2).xyz * 2.0 - 1.0;
+          vec3 n3 = texture2D(uNormalMap, p * 0.22 - flow3).xyz * 2.0 - 1.0;
+          
+          // Slope dampens in very shallow water
+          vec2 sl = (n1.xy * 0.52 + n2.xy * 0.33 + n3.xy * 0.15) * mix(0.2, 0.7, smoothstep(0.0, 0.25, depth));
           vec3 wn = normalize(vec3(sl.x, 1.0, sl.y));
           normal = normalize((viewMatrix * vec4(wn, 0.0)).xyz);
-          wFoam *= 0.5 + 0.5 * n2.x + 0.3 * sin(uTime * 0.8 + p.x * 0.7 + p.y * 0.5);
+          wFoam *= 0.6 + 0.4 * n2.x;
         }`)
       .replace('#include <opaque_fragment>', `
         {
-          // Fresnel: more of the sky at grazing angles, the deep colour looking down
-          float fr = pow(1.0 - clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0), 4.0);
-          outgoingLight += reflectedLight.indirectSpecular * (fr * 1.2);
-          outgoingLight += vec3(0.55 * clamp(wFoam, 0.0, 1.0));
-          // no NaN / Inf / half-float overflow may leave this shader (a failed compare catches NaN too)
+          vec3 vDir = normalize(vViewPosition);
+          float NdotV = clamp(dot(normal, vDir), 0.0, 1.0);
+          
+          // Physically-based Fresnel reflection (water IOR 1.333, F0 = 0.02)
+          float fresnel = 0.02 + 0.98 * pow(1.0 - NdotV, 5.0);
+          outgoingLight += reflectedLight.indirectSpecular * (fresnel * 2.0);
+          
+          // Sun specular glint track across the waves (Call of Duty Mobile style sun glints)
+          vec3 sunV = normalize((viewMatrix * vec4(uSunDir, 0.0)).xyz);
+          vec3 hv = sunV + vDir;
+          vec3 halfVec = hv / max(length(hv), 1e-4);   // zero when looking straight against the sun
+          float NdotH = max(dot(normal, halfVec), 0.0);
+          float sunGlint = pow(NdotH, 160.0) * 7.0 + pow(NdotH, 24.0) * 1.2;
+          outgoingLight += uSunColor * (sunGlint * fresnel * 0.45);
+          
+          // Shoreline foam highlight
+          outgoingLight += vec3(0.65, 0.75, 0.78) * clamp(wFoam, 0.0, 1.0);
+          
+          // Safe half-float clamping to prevent GPU bloom artifacts
           if (!(dot(outgoingLight, vec3(1.0)) < 20000.0)) outgoingLight = vec3(0.0);
-          outgoingLight = clamp(outgoingLight, 0.0, 16.0);
+          outgoingLight = clamp(outgoingLight, 0.0, 24.0);
         }
         #include <opaque_fragment>`);
   };

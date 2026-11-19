@@ -4,13 +4,17 @@
 import * as THREE from 'three';
 import { getMaxAnisotropy } from './textures.js';
 
-export async function applyMountainShader(mat, rockImageB64) {
+export async function applyMountainShader(mat, rockImageB64, sunDir = [-0.5003, 0.7204, 0.4803]) {
   let rock = null;
   try {
-    const bin = atob(rockImageB64), u8 = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
-    const bmp = await createImageBitmap(new Blob([u8], { type: u8[0] === 0x89 ? 'image/png' : 'image/jpeg' }));
-    rock = new THREE.Texture(bmp);
+    const src = rockImageB64.startsWith('data:') ? rockImageB64 : 'data:image/png;base64,' + (rockImageB64.indexOf(',') >= 0 ? rockImageB64.slice(rockImageB64.indexOf(',') + 1) : rockImageB64);
+    const img = await new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = reject;
+      im.src = src;
+    });
+    rock = new THREE.Texture(img);
     rock.colorSpace = THREE.SRGBColorSpace;
     rock.wrapS = rock.wrapT = THREE.RepeatWrapping;
     rock.anisotropy = getMaxAnisotropy();
@@ -18,7 +22,8 @@ export async function applyMountainShader(mat, rockImageB64) {
     rock.flipY = false;
     rock.needsUpdate = true;
   } catch (e) { console.warn('mountain rock texture failed', e); return mat; }
-  const uniforms = { uRock: { value: rock } };
+  const sDir = new THREE.Vector3(sunDir[0], sunDir[1], sunDir[2]).normalize();
+  const uniforms = { uRock: { value: rock }, uSunDir: { value: sDir } };
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
@@ -29,6 +34,7 @@ export async function applyMountainShader(mat, rockImageB64) {
         varying vec3 vWPos;
         varying vec3 vWN;
         uniform sampler2D uRock;
+        uniform vec3 uSunDir;
         float mhash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
         float mnoise(vec2 p) {
           vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -54,8 +60,8 @@ export async function applyMountainShader(mat, rockImageB64) {
           // snow: high, and only where the slope is gentle
           float snow = smoothstep(250.0 + nz * 90.0, 330.0 + nz * 90.0, h) * smoothstep(0.42, 0.7, up + (nz - 0.5) * 0.2);
           vec3 c = mix(rockC, forestC, forest);
-          c = mix(c, vec3(0.72, 0.76, 0.82), snow);
-          diffuseColor.rgb = c * 0.85;
+          c = mix(c, vec3(0.78, 0.82, 0.88), snow);
+          diffuseColor.rgb = c * 0.88;
         }`);
   };
   mat.vertexColors = true;

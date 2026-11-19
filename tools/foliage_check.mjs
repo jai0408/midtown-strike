@@ -11,7 +11,7 @@ const kb = (n) => (n / 1024).toFixed(0) + ' KB';
 let bad = 0;
 const fail = (m) => { bad++; console.log('FAIL', m); };
 
-console.log('asset size', kb(statSync(file).size), '(limit 2560 KB)');
+console.log('asset size', kb(statSync(file).size), '(limit 3584 KB)');
 for (const [k, uri] of Object.entries(FOLIAGE_TEX)) {
   if (typeof uri !== 'string') continue;
   const b = Buffer.from(uri.split(',')[1], 'base64');
@@ -38,17 +38,18 @@ for (const [name, m] of Object.entries(FOLIAGE_MODELS)) {
 const trees = [], bushes = [];
 for (let i = 0; i < 400; i++) {
   const x = ((i * 37) % 200) - 100, z = ((i * 91) % 200) - 100;
-  trees.push([x, 0, z, 0.8 + (i % 5) * 0.1, i, ['pine', 'spruce', 'birch'][i % 3]]);
-  bushes.push([x + 3, 0, z + 2, 1, i, ['bush', 'fern', 'hedge'][i % 3]]);
+  trees.push([x, 0, z, 0.8 + (i % 5) * 0.1, i, ['pine', 'spruce', 'birch', 'maple'][i % 4]]);
+  bushes.push([x + 3, 0, z + 2, 1, i, ['bush', 'fern', 'hedge', 'fern2', 'blueberry', 'clover', 'lupine', 'fireweed', 'reed', 'cattail', 'rock'][i % 11]]);
 }
 const n = 65, grid = Buffer.alloc(n * n, 180).toString('base64');
-const fol = await buildFoliage({ foliage: { trees, bushes, grass: { n, x0: -100, z0: -100, size: 200, data: grid } }, heightAt: () => 0, quality: 'high' });
+const fol = await buildFoliage({ foliage: { trees, bushes, grass: { n, x0: -100, z0: -100, size: 200, data: grid } }, heightAt: () => 0, quality: 'high', exclude: (x, z) => x > 50 });
 const cam = { x: 0, y: 1.7, z: 0, copy() { return this; } };
 const v = { x: 0, y: 1.7, z: 0 };
 for (let f = 0; f < 30; f++) fol.update(0.016, v, 1);
 let drawn = 0, tris = 0;
 fol.group.traverse((o) => { if (o.isInstancedMesh && o.count) { drawn++; tris += o.count * (o.geometry.index.count / 3); } });
 console.log(`smoke: ${fol.colliders.length} colliders, ${drawn} instanced draws, ${tris} triangles around the origin`);
+fol.setFocus(1, 0, 1);
 fol.setQuality('low');
 fol.update(0.016, v, 1);
 fol.dispose();

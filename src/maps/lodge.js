@@ -5,11 +5,17 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { LODGE_GLB, LODGE_DATA as D } from './lodge_asset.js';
 import { buildFoliage } from '../world/foliage.js';
 import { createWater } from '../world/water.js';
+import { smoothPaint } from '../world/paint.js';
+import { scatterPlants } from './lodge_scatter.js';
 import { buildGridNav } from '../world/gridnav.js';
 import { applyTerrainSplat, testTerrainLayers } from '../world/terrain.js';
 import { applyMountainShader } from '../world/mountain.js';
 import { World } from '../core/physics.js';
 import { getMaxAnisotropy, makeCanvas } from '../world/textures.js';
+import { createKoiPond } from '../world/pond.js';
+import { POND, inPond, pondDrop } from '../world/pond_shape.js';
+import { buildSchoolBuses } from '../world/school_bus.js';
+import { createPhoenix } from '../world/phoenix.js';
 
 // let the loading screen repaint between the heavy steps
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -43,8 +49,7 @@ function makeGroundAt(h) {
 /** Glass is told apart by mesh extras ({ glass: true }) or, failing that, by the material's name. */
 const extras = (o) => ({ ...(o.parent && o.parent.userData), ...o.userData });
 
-function prepareMaterial(m, glass) {
-  m.envMapIntensity = 1;
+function prepareMaterial(m, glass, matName) {
   const aniso = getMaxAnisotropy();
   for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap']) {
     if (m[k]) m[k].anisotropy = aniso;
@@ -53,7 +58,47 @@ function prepareMaterial(m, glass) {
     m.transparent = true;
     m.depthWrite = false;
     m.roughness = 0.1;   // not lower: sharp sun glints overflow half-float targets on phones
-    if (m.opacity > 0.6) m.opacity = 0.35;
+    m.metalness = 0.05;
+    m.envMapIntensity = 2.4;
+    if (m.opacity > 0.6) m.opacity = 0.4;
+    // Architectural glass Fresnel shader: high reflectivity at glancing angles, transparent head-on
+    m.customProgramCacheKey = () => 'lodge-glass-v2';
+    m.onBeforeCompile = (shader) => {
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <opaque_fragment>', `
+          {
+            float NdotV = clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0);
+            float fresnel = 0.04 + 0.96 * pow(1.0 - NdotV, 4.0);
+            outgoingLight += reflectedLight.indirectSpecular * (fresnel * 2.2);
+            diffuseColor.a = clamp(mix(0.22, 0.92, fresnel), 0.0, 1.0);   // opaque_fragment writes gl_FragColor from it
+            if (!(dot(outgoingLight, vec3(1.0)) < 20000.0)) outgoingLight = vec3(0.0);
+            outgoingLight = clamp(outgoingLight, 0.0, 24.0);
+          }
+          #include <opaque_fragment>`);
+    };
+  } else {
+    const name = (matName || m.name || '').toLowerCase();
+    if (name.includes('metal')) {
+      m.envMapIntensity = 2.2;
+      m.roughness = Math.min(Math.max(m.roughness, 0.22), 0.35);   // >= 0.22: see the glass note above
+      m.metalness = Math.max(m.metalness, 0.85);
+    } else if (name.includes('shingle')) {
+      m.envMapIntensity = 1.3;
+      m.roughness = 0.75;
+    } else if (name.includes('log') || name.includes('planks')) {
+      m.envMapIntensity = 1.15;
+      m.roughness = 0.82;
+    } else if (name.includes('stone') || name.includes('rock')) {
+      m.envMapIntensity = 0.9;
+    } else if (name.includes('paint')) {
+      m.envMapIntensity = 1.3;
+      smoothPaint(m, 0.85);
+      m.normalScale.multiplyScalar(0.4);   // the grunge normals read as camouflage too
+    } else if (name.includes('glow')) {
+      m.emissiveIntensity = 2.8;
+    } else {
+      m.envMapIntensity = 1.05;
+    }
   }
 }
 
@@ -86,7 +131,7 @@ export async function buildLodge(onProgress = () => {}) {
     const ex = extras(o);
     const mats = Array.isArray(o.material) ? o.material : [o.material];
     const glass = !!ex.glass || mats.some((m) => /glass/i.test(m.name || ''));
-    for (const m of mats) prepareMaterial(m, glass);
+    for (const m of mats) prepareMaterial(m, glass, m.name || o.name);
     o.receiveShadow = !glass;
     casters.push([o, !glass && ex.castShadow !== false]);
   });
@@ -102,16 +147,24 @@ export async function buildLodge(onProgress = () => {}) {
   if (layers && layers.layers[3]) {
     const mm = [];
     scene.traverse((o) => { if (o.isMesh && o.material && o.material.name === 'mountain') mm.push(o.material); });
-    for (const m of new Set(mm)) await applyMountainShader(m, layers.layers[3].albedo);
+    for (const m of new Set(mm)) await applyMountainShader(m, layers.layers[3].albedo, D.sun && D.sun.dir);
   }
   // the baked terrain colour is oversaturated under the strong sun
-  scene.traverse((o) => { if (o.isMesh && o.material && o.material.name === 'terrain') o.material.color.set(0xc9d0bd); });
+  scene.traverse((o) => {
+    if (o.isMesh && o.material && o.material.name === 'terrain') {
+      // (the pond hole is cut in the splat shader itself, src/world/terrain.js: patching
+      // the shader a second time here redeclared vWPos and the terrain failed to compile)
+      o.material.color.set(0xc9d0bd);
+    }
+  });
   // static: skip the per-frame matrix updates
   scene.updateMatrixWorld(true);
   scene.traverse((o) => { o.matrixAutoUpdate = false; });
 
   // -- physics ---------------------------------------------------------------
-  const groundAt = makeGroundAt(D.height);
+  const rawGroundAt = makeGroundAt(D.height);
+  // the koi pond basin is dug into the ground (shape shared via world/pond_shape.js)
+  const groundAt = (x, z) => rawGroundAt(x, z) - pondDrop(x, z);
   const world = new World(D.half, 8);
   world.groundAt = groundAt;
   world.rough = true;   // terrain dips below 0 at the creek and the shore
@@ -120,33 +173,35 @@ export async function buildLodge(onProgress = () => {}) {
   await tick();
 
   // -- foliage ---------------------------------------------------------------
-  const foliage = await buildFoliage({ foliage: D.foliage, heightAt: groundAt, quality: 'medium' });
+  // nothing grows in the pond: drop trees and bushes inside its rim (grass via the exclude test)
+  const dry = (list) => (list || []).filter((t) => !inPond(t[0], t[2], -0.6));
+  const extra = scatterPlants(D, groundAt, world);   // reeds, lupine, clover, maples ... (fixed seed)
+  const plants = { ...D.foliage, trees: dry(D.foliage.trees).concat(extra.trees), bushes: dry(D.foliage.bushes).concat(extra.bushes) };
+  const foliage = await buildFoliage({ foliage: plants, heightAt: groundAt, quality: 'medium', exclude: (x, z) => inPond(x, z, -0.4) });
   for (const c of foliage.colliders) world.addBox(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]);
-  // foliage reacts to sun / hemi like everything else: no extra self-lit glow, leaves tamed from lime
+  // foliage reacts to sun / hemi like everything else (no extra self-lit glow). Its colours come
+  // from the foliage textures: don't recolour here, the bark and leaf materials are shared by
+  // every tree kind, so tinting by mesh name changed other trees too.
   foliage.group.traverse((o) => {
     const m = o.material;
-    if (!m || !m.userData) return;
-    if (m.userData.uniforms && m.userData.uniforms.uSelfLit) m.userData.uniforms.uSelfLit.value = 0;
-    if (m.alphaTest > 0 && m.color) m.color.set(0xdde6d2);
+    if (m && m.userData && m.userData.uniforms && m.userData.uniforms.uSelfLit) m.userData.uniforms.uSelfLit.value = 0;
+    if (!o.isMesh) return;
+    // bush leaves have a material of their own: calm the bright green to olive. Bark is shared by all
+    // trees: a slight dim keeps the white birch trunks from clipping in the sun.
+    if (/^bush\d.*leaf/.test(o.name)) m.color.set(0xa4ad7c);
+    else if (/_bark$/.test(o.name)) m.color.set(0xa8a8a8);
   });
-  // bushes: natural dark olive instead of neon (their material is shared by bush meshes only)
-  const birchMats = new Map();
-  foliage.group.traverse((o) => {
-    if (!o.isMesh || !o.material.color) return;
-    if (/^bush.*leaf/.test(o.name)) o.material.color.set(0x8f9a64);
-    else if (/^birch.*leaf/.test(o.name)) {
-      // birches share the pines' leaf material: give them an olive copy (same program, own colour)
-      let bm = birchMats.get(o.material);
-      if (!bm) {
-        const src = o.material;
-        bm = src.clone();
-        bm.onBeforeCompile = src.onBeforeCompile; bm.customProgramCacheKey = src.customProgramCacheKey; bm.userData = src.userData;
-        bm.color.set(0x929c68);
-        birchMats.set(src, bm);
-      }
-      o.material = bm;
-    }
-  });
+
+  // -- school buses & koi pond ----------------------------------------------
+  // Two American School Buses positioned between the lodges
+  const buses = buildSchoolBuses(groundAt, world);
+
+  // Natural uneven Koi Pond left side of the south yard lodge (~8m diameter, 5ft deep, 10 colorful Koi fish)
+  const pond = createKoiPond({ x: POND.x, z: POND.z, groundAt, world });
+
+  // Mythical Phoenix Bird soaring across the skies above the lodge and lake
+  const phoenix = createPhoenix();
+
   world.finalize();
   onProgress(0.75);
   await tick();
@@ -160,12 +215,12 @@ export async function buildLodge(onProgress = () => {}) {
   await tick();
 
   // -- water, minimap --------------------------------------------------------
-  const water = createWater(D.water, groundAt);
+  const water = createWater(D.water, groundAt, D.sun && D.sun.dir);
   const minimap = await loadMinimap(D.minimap);
 
   const group = new THREE.Group();
   group.name = 'lodge';
-  group.add(scene, foliage.group, water.mesh);
+  group.add(scene, foliage.group, water.mesh, pond.group, buses.group, phoenix.group);
 
   // the lodge interior gets almost no sky light: a few warm point lights, no shadows.
   // They are only switched on near the lodge (every lit pixel pays for each light).
@@ -180,8 +235,13 @@ export async function buildLodge(onProgress = () => {}) {
   const setInterior = (on) => { lit = on; for (const l of inside) l.visible = on; };
   onProgress(1);
 
-  // smallest zone containing the point
-  const zones = D.zones.map((z) => ({ ...z, area: (z.x1 - z.x0) * (z.z1 - z.z0) }));
+  // smallest zone containing the point (including Koi Pond and School Buses)
+  const allZones = [
+    { name: 'KOI POND', x0: -23.5, z0: 15.5, x1: -13.5, z1: 24.5 },
+    { name: 'SCHOOL BUSES', x0: -28.0, z0: 25.0, x1: -12.0, z1: 42.0 },
+    ...D.zones,
+  ];
+  const zones = allZones.map((z) => ({ ...z, area: (z.x1 - z.x0) * (z.z1 - z.z0) }));
   const zoneName = (x, z) => {
     let best = null;
     for (const q of zones) if (x >= q.x0 && x <= q.x1 && z >= q.z0 && z <= q.z1 && (!best || q.area < best.area)) best = q;
@@ -200,7 +260,11 @@ export async function buildLodge(onProgress = () => {}) {
       if (!lit && d < 30) setInterior(true); else if (lit && d > 36) setInterior(false);
       foliage.update(dt, camPos, drawScale, camera);
       water.update(dt);
+      pond.update(dt);
+      phoenix.update(dt);
     },
+    /** Where the player stands: grass and shrubs part around it (foliage.setFocus when present). */
+    setFocus(x, y, z) { if (foliage.setFocus) foliage.setFocus(x, y, z); },
     half: D.half,
     bounds: D.bounds,
     groundAt,
@@ -222,6 +286,6 @@ export async function buildLodge(onProgress = () => {}) {
       for (const [m, wants] of casters) m.castShadow = on && wants;
       foliage.setQuality(name);
     },
-    dispose() { foliage.dispose(); water.dispose(); },
+    dispose() { foliage.dispose(); water.dispose(); pond.dispose(); buses.dispose(); phoenix.dispose(); },
   };
 }
