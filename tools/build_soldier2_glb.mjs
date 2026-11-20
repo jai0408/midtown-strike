@@ -370,16 +370,16 @@ function buildSoldierMesh(lod) {
   // ---- TORSO (hips -> spine -> chest -> collar) ----------------------------
   const torsoRows = [
     // [y, cz, rx, rFront, rBack]
-    [0.84,  0.004, 0.115, 0.088, 0.095],
-    [0.89,  0.005, 0.155, 0.102, 0.112],
-    [0.95,  0.005, 0.168, 0.108, 0.118],
-    [1.02,  0.003, 0.158, 0.102, 0.108],
-    [1.09,  0.000, 0.148, 0.096, 0.100],
-    [1.18, -0.002, 0.158, 0.104, 0.105],
-    [1.28, -0.004, 0.176, 0.114, 0.110],
-    [1.38, -0.005, 0.194, 0.118, 0.110],
-    [1.46, -0.002, 0.198, 0.106, 0.102],
-    [1.51,  0.000, 0.145, 0.082, 0.082],
+    [0.84,  0.004, 0.122, 0.092, 0.098],
+    [0.89,  0.005, 0.160, 0.106, 0.114],
+    [0.95,  0.005, 0.172, 0.110, 0.118],
+    [1.02,  0.003, 0.166, 0.106, 0.110],
+    [1.09,  0.000, 0.162, 0.104, 0.106],
+    [1.18, -0.002, 0.168, 0.108, 0.108],
+    [1.28, -0.004, 0.180, 0.115, 0.112],
+    [1.38, -0.005, 0.196, 0.118, 0.112],
+    [1.46, -0.002, 0.200, 0.108, 0.104],
+    [1.51,  0.000, 0.150, 0.084, 0.084],
     [1.545, 0.002, 0.078, 0.068, 0.070],
   ];
   const torsoW = (x, y) => {
@@ -409,10 +409,8 @@ function buildSoldierMesh(lod) {
     [1.790,  0.008, 0.052, 0.058, 0.074],
     [1.805,  0.010, 0.022, 0.024, 0.036],
   ];
-  const headW = (x, y) => {
-    const wh = sstep(1.54, 1.61, y);
-    return [[BI.head, wh], [BI.neck, (1 - wh) * sstep(1.50, 1.55, y)], [BI.chest, (1 - wh) * (1 - sstep(1.50, 1.55, y))]];
-  };
+  // Rigid split at collar (1.535m) so 1P head-hide (head.scale = 0.001) never stretches neck triangles
+  const headW = (x, y) => (y > 1.535 ? [[BI.head, 1]] : [[BI.chest, 1]]);
   addTube(
     mb,
     headRows.map((r) => [0, r[0], r[1]]),
@@ -479,45 +477,45 @@ function buildSoldierMesh(lod) {
   }
 
   // ---- PLATE CARRIER, POUCHES, BATTLE BELT ---------------------------------
-  // Front & back plate bags
-  addRoundedBox(mb, [0.305, 0.315, 0.065], [0, 1.335, -0.132], [0.04, 0, 0], bseg(3), 3.4, 'gear', rigidW('chest'));
-  addRoundedBox(mb, [0.300, 0.310, 0.065], [0, 1.335,  0.132], [-0.03, 0, 0], bseg(3), 3.4, 'gear', rigidW('chest'));
+  // Front & back plate bags (crisp beveled Cordura silhouettes)
+  addRoundedBox(mb, [0.305, 0.315, 0.060], [0, 1.335, -0.128], [0.04, 0, 0], bseg(3), 5.6, 'gear', rigidW('chest'));
+  addRoundedBox(mb, [0.300, 0.310, 0.060], [0, 1.335,  0.128], [-0.03, 0, 0], bseg(3), 5.6, 'gear', rigidW('chest'));
   // Cummerbund wrapping lower ribs
-  addTube(mb, [[0, 1.14, 0], [0, 1.22, 0], [0, 1.30, 0]], [0.184, 0.190, 0.186], [0.128, 0.134, 0.130], seg(20), 2.6, [1, 0, 0], 'gear', (x, y) => {
+  addTube(mb, [[0, 1.14, 0], [0, 1.22, 0], [0, 1.30, 0]], [0.184, 0.190, 0.186], [0.128, 0.134, 0.130], seg(20), 2.8, [1, 0, 0], 'gearDark', (x, y) => {
     const wc = sstep(1.13, 1.24, y);
     return [[BI.chest, wc], [BI.spine, 1 - wc]];
   });
   // Padded shoulder straps
   for (const s of [-1, 1]) {
     addTube(mb, [
-      [s * 0.092, 1.475, -0.148], [s * 0.098, 1.522, -0.085],
-      [s * 0.106, 1.545,  0.000], [s * 0.098, 1.522,  0.085], [s * 0.092, 1.475,  0.148],
-    ], 0.034, 0.012, seg(8), 3.2, [1, 0, 0], 'gear', rigidW('chest'));
+      [s * 0.092, 1.475, -0.144], [s * 0.098, 1.522, -0.085],
+      [s * 0.106, 1.545,  0.000], [s * 0.098, 1.522,  0.085], [s * 0.092, 1.475,  0.144],
+    ], 0.034, 0.012, seg(8), 3.6, [1, 0, 0], 'gear', rigidW('chest'));
   }
   // 3 front M4 magazine pouches + admin pouch + name tape
-  for (const mx of [-0.090, 0.0, 0.090]) {
-    addRoundedBox(mb, [0.078, 0.138, 0.048], [mx, 1.255, -0.182], [0, 0, 0], bseg(2), 3.0, 'gearDark', rigidW('chest'));
+  for (const mx of [-0.088, 0.0, 0.088]) {
+    addRoundedBox(mb, [0.076, 0.136, 0.044], [mx, 1.255, -0.174], [0, 0, 0], bseg(2), 5.8, 'gearDark', rigidW('chest'));
     if (lod === 0) {
-      addRoundedBox(mb, [0.080, 0.042, 0.052], [mx, 1.308, -0.184], [0, 0, 0], 1, 2.8, 'gear', rigidW('chest'));
+      addRoundedBox(mb, [0.078, 0.038, 0.048], [mx, 1.308, -0.176], [0, 0, 0], 1, 5.5, 'gear', rigidW('chest'));
     }
   }
-  addRoundedBox(mb, [0.140, 0.072, 0.030], [0.02, 1.398, -0.175], [0, 0, 0], bseg(2), 3.0, 'gearDark', rigidW('chest'));
+  addRoundedBox(mb, [0.140, 0.068, 0.026], [0.02, 1.398, -0.168], [0, 0, 0], bseg(2), 5.6, 'gearDark', rigidW('chest'));
   // Chest name tape
-  addRoundedBox(mb, [0.155, 0.034, 0.008], [0, 1.458, -0.166], [0, 0, 0], 1, 4.0, 'tape', rigidW('chest'));
+  addRoundedBox(mb, [0.155, 0.034, 0.008], [0, 1.458, -0.160], [0, 0, 0], 1, 5.0, 'tape', rigidW('chest'));
   // Left side radio + whip antenna
-  addRoundedBox(mb, [0.056, 0.145, 0.072], [-0.205, 1.215, -0.01], [0, 0, 0], bseg(2), 2.8, 'gearDark', rigidW('chest'));
+  addRoundedBox(mb, [0.052, 0.142, 0.068], [-0.198, 1.215, -0.01], [0, 0, 0], bseg(2), 5.6, 'gearDark', rigidW('chest'));
   if (lod === 0) {
-    addTube(mb, [[-0.205, 1.29, 0.015], [-0.210, 1.45, 0.04], [-0.215, 1.62, 0.065]], 0.005, 0.005, 6, 2, [1, 0, 0], 'pads', rigidW('chest'));
+    addTube(mb, [[-0.198, 1.29, 0.015], [-0.205, 1.45, 0.04], [-0.210, 1.62, 0.065]], 0.005, 0.005, 6, 2, [1, 0, 0], 'pads', rigidW('chest'));
   }
   // Back hydration pack + IFAK pouch
-  addRoundedBox(mb, [0.220, 0.275, 0.072], [0, 1.355, 0.195], [0, 0, 0], bseg(2), 2.8, 'gearDark', rigidW('chest'));
-  addRoundedBox(mb, [0.125, 0.105, 0.055], [0.065, 1.210, 0.190], [0, 0, 0], bseg(2), 2.8, 'gear', rigidW('chest'));
+  addRoundedBox(mb, [0.220, 0.275, 0.066], [0, 1.355, 0.186], [0, 0, 0], bseg(2), 5.5, 'gearDark', rigidW('chest'));
+  addRoundedBox(mb, [0.125, 0.105, 0.050], [0.065, 1.210, 0.182], [0, 0, 0], bseg(2), 5.5, 'gear', rigidW('chest'));
 
   // Battle belt + cobra buckle + right holster + left dump pouch
-  addTube(mb, [[0, 1.005, 0], [0, 1.035, 0], [0, 1.065, 0]], [0.172, 0.176, 0.170], [0.118, 0.122, 0.116], seg(20), 2.5, [1, 0, 0], 'gear', rigidW('hips'));
-  addRoundedBox(mb, [0.056, 0.038, 0.014], [0, 1.035, -0.124], [0, 0, 0], 1, 3.0, 'metal', rigidW('hips'));
-  addRoundedBox(mb, [0.058, 0.185, 0.095], [0.190, 0.945, 0.015], [0, 0, 0], bseg(2), 2.6, 'gearDark', rigidW('hips'));
-  addRoundedBox(mb, [0.058, 0.135, 0.108], [-0.192, 0.965, 0.040], [0, 0, 0], bseg(2), 2.6, 'gearDark', rigidW('hips'));
+  addTube(mb, [[0, 1.005, 0], [0, 1.035, 0], [0, 1.065, 0]], [0.174, 0.178, 0.172], [0.118, 0.122, 0.116], seg(20), 2.8, [1, 0, 0], 'gearDark', rigidW('hips'));
+  addRoundedBox(mb, [0.056, 0.038, 0.014], [0, 1.035, -0.124], [0, 0, 0], 1, 5.0, 'metal', rigidW('hips'));
+  addRoundedBox(mb, [0.048, 0.178, 0.088], [0.182, 0.945, 0.015], [0, 0, 0], bseg(2), 5.6, 'gearDark', rigidW('hips'));
+  addRoundedBox(mb, [0.048, 0.130, 0.098], [-0.184, 0.965, 0.036], [0, 0, 0], bseg(2), 5.6, 'gearDark', rigidW('hips'));
 
   // ---- ARMS (A-pose along clavicle -> upperArm -> forearm -> hand) ---------
   for (const side of ['L', 'R']) {
@@ -531,11 +529,14 @@ function buildSoldierMesh(lod) {
     const lenU  = vlen(sub(jFore, jUp));
     const lenF  = vlen(sub(jHand, jFore));
 
-    const armPath = [];
-    const armRa = [], armRb = [];
-    // Shoulder cap -> bicep -> elbow -> forearm -> wrist cuff
-    const samplesU = [0.0, 0.12, 0.30, 0.55, 0.78, 0.92, 1.0];
-    const radsU    = [0.068, 0.072, 0.066, 0.061, 0.056, 0.053, 0.052];
+    const armPath = [
+      [s * 0.145, 1.462, 0.002],
+      [s * 0.178, 1.474, 0.002],
+    ];
+    const armRa = [0.058, 0.072], armRb = [0.062, 0.074];
+    // Shoulder deltoid -> bicep -> elbow -> forearm -> wrist cuff
+    const samplesU = [0.02, 0.14, 0.32, 0.56, 0.78, 0.92, 1.0];
+    const radsU    = [0.074, 0.072, 0.065, 0.060, 0.056, 0.053, 0.052];
     for (let i = 0; i < samplesU.length; i++) {
       armPath.push(add(jUp, mul(dirU, samplesU[i] * lenU)));
       armRa.push(radsU[i]); armRb.push(radsU[i] * 0.95);
@@ -552,6 +553,11 @@ function buildSoldierMesh(lod) {
       [0.055, 0.055, 0.032]
     );
     addTube(mb, armPath, armRa, armRb, seg(16), 2.1, [0, 0, 1], 'camo', armW);
+    // Rounded deltoid cap overlapping shoulder joint seamlessly
+    addRoundedBox(mb, [0.135, 0.138, 0.142], [s * 0.190, 1.458, 0.002], [0, 0, s * -0.25], bseg(2), 2.1, 'camo', (x) => {
+      const wu = sstep(0.155, 0.215, Math.abs(x));
+      return [[BI['upperArm' + side], wu], [BI['clavicle' + side], 1 - wu]];
+    });
 
     // Shoulder flag patch on upper arm
     const flagP = add(jUp, mul(dirU, lenU * 0.28));
@@ -644,40 +650,40 @@ function buildSoldierMesh(lod) {
       seg(16), 2.2, [1, 0, 0], 'camo', legW
     );
 
-    // Thigh cargo pocket
-    addRoundedBox(mb, [0.044, 0.168, 0.125], [lxAt(0.74) + s * 0.092, 0.74, lzAt(0.74)], [0, 0, 0], bseg(2), 2.8, 'camo', rigidW('thigh' + side));
+    // Thigh cargo pocket (snug crisp flap pocket)
+    addRoundedBox(mb, [0.036, 0.162, 0.118], [lxAt(0.74) + s * 0.084, 0.74, lzAt(0.74)], [0, 0, 0], bseg(2), 5.6, 'camo', rigidW('thigh' + side));
     // Contoured tactical knee pad + hard cap
-    addRoundedBox(mb, [0.098, 0.128, 0.042], [lxAt(0.495), 0.495, lzAt(0.495) - 0.070], [0.10, 0, 0], bseg(2), 2.4, 'pads', rigidW('shin' + side));
+    addRoundedBox(mb, [0.098, 0.128, 0.042], [lxAt(0.495), 0.495, lzAt(0.495) - 0.070], [0.10, 0, 0], bseg(2), 3.2, 'pads', rigidW('shin' + side));
     if (lod === 0) {
-      addRoundedBox(mb, [0.066, 0.074, 0.018], [lxAt(0.495), 0.495, lzAt(0.495) - 0.088], [0.10, 0, 0], 1, 2.4, 'metal', rigidW('shin' + side));
+      addRoundedBox(mb, [0.066, 0.074, 0.018], [lxAt(0.495), 0.495, lzAt(0.495) - 0.088], [0.10, 0, 0], 1, 3.2, 'metal', rigidW('shin' + side));
     }
 
-    // Combat boot shaft (ankle -> lower shin)
+    // Combat boot shaft (ankle -> lower shin, extends cleanly into heel)
     const shaftW = (x, y) => {
       const ws = sstep(0.075, 0.155, y);
       return [[BI['shin' + side], ws], [BI['foot' + side], 1 - ws]];
     };
     addTube(
       mb,
-      [[jAnk[0], 0.055, jAnk[2]], [jAnk[0], 0.115, jAnk[2]], [jAnk[0], 0.180, jAnk[2]], [jAnk[0], 0.235, jAnk[2]]],
-      [0.056, 0.055, 0.058, 0.062], [0.058, 0.057, 0.059, 0.061], seg(14), 2.2, [1, 0, 0], 'boot', shaftW
+      [[jAnk[0], 0.036, jAnk[2] + 0.008], [jAnk[0], 0.085, jAnk[2]], [jAnk[0], 0.155, jAnk[2]], [jAnk[0], 0.235, jAnk[2]]],
+      [0.052, 0.055, 0.058, 0.062], [0.058, 0.057, 0.059, 0.061], seg(14), 2.2, [1, 0, 0], 'boot', shaftW
     );
 
-    // Combat boot upper foot + toe box (smooth weight between foot & toe at ball of foot z = -0.105)
+    // Combat boot upper foot + toe box (smooth tapered heel -> rounded toe)
     const footW = (x, y, z) => {
       const wt = sstep(-0.085, -0.145, z);
       return [[BI['toe' + side], wt], [BI['foot' + side], 1 - wt]];
     };
-    const fz = [0.085, 0.045, -0.010, -0.070, -0.130, -0.185, -0.220];
-    const fy = [0.066, 0.064,  0.058,  0.050,  0.042,  0.034,  0.026];
-    const frx = [0.044, 0.048, 0.049, 0.051, 0.050, 0.040, 0.022];
-    const fry = [0.048, 0.046, 0.041, 0.035, 0.028, 0.021, 0.014];
+    const fz  = [0.084, 0.066, 0.030, -0.020, -0.075, -0.135, -0.188, -0.220];
+    const fy  = [0.054, 0.062, 0.063,  0.058,  0.050,  0.042,  0.034,  0.026];
+    const frx = [0.024, 0.044, 0.048,  0.049,  0.051,  0.050,  0.040,  0.022];
+    const fry = [0.034, 0.045, 0.046,  0.041,  0.035,  0.028,  0.021,  0.014];
     addTube(mb, fz.map((z, i) => [jAnk[0], fy[i], z]), frx, fry, seg(14), 2.4, [1, 0, 0], 'boot', footW);
 
     // Lugged rubber sole (bottom strictly at y = 0.000)
-    const sy = [0.015, 0.013, 0.013, 0.013, 0.013, 0.013, 0.012];
-    const srx = [0.047, 0.051, 0.052, 0.054, 0.053, 0.043, 0.025];
-    const sry = [0.015, 0.013, 0.013, 0.013, 0.013, 0.013, 0.012];
+    const sy  = [0.014, 0.014, 0.013, 0.013, 0.013, 0.013, 0.013, 0.012];
+    const srx = [0.028, 0.047, 0.051, 0.052, 0.054, 0.053, 0.043, 0.025];
+    const sry = [0.014, 0.014, 0.013, 0.013, 0.013, 0.013, 0.013, 0.012];
     addTube(mb, fz.map((z, i) => [jAnk[0], sy[i], z]), srx, sry, seg(12), 3.0, [1, 0, 0], 'sole', footW);
   }
 
@@ -1012,40 +1018,85 @@ function solveLegIK(side, ankleModel, footPitch, footYaw, toePitch, hipsPos, hip
   return { qThigh, qShin, qFoot, qToe };
 }
 
-// Compute weapon-ready ("rifle low ready") arm rotations from A-pose rest
-// In A-pose, upperArmL points (-0.82, -0.57, 0.05), upperArmR points (+0.82, -0.57, 0.05)
+// Aim a bone from restDir -> targetDir while twisting restRef -> targetRef
+function aimBoneWithRef(restDir, targetDir, restRef, targetRef) {
+  const rd = norm(restDir), td = norm(targetDir);
+  const q0 = qFromUnitVectors(rd, td);
+  const cur = qApply(q0, restRef);
+  const f1 = sub(cur, mul(td, dot(cur, td)));
+  const f2 = sub(targetRef, mul(td, dot(targetRef, td)));
+  if (vlen(f1) < 1e-4 || vlen(f2) < 1e-4) return q0;
+  const n1 = norm(f1), n2 = norm(f2);
+  const c = clamp(dot(n1, n2), -1, 1);
+  const s = dot(td, cross(n1, n2));
+  return qNorm(qMul(qAxisAngle(td, Math.atan2(s, c)), q0));
+}
+
+// Analytical 2-bone arm IK in chest-local space (A-pose rest -> exact rifle grip pose)
+function solveArmIK(side, handTargetChest, elbowPoleChest, palmInChest) {
+  const s = side === 'L' ? -1 : 1;
+  const clavOff = REST_L[BI['clavicle' + side]];
+  const upOff   = REST_L[BI['upperArm' + side]];
+  const uRest   = REST_L[BI['forearm' + side]];
+  const fRest   = REST_L[BI['hand' + side]];
+  const lenU = vlen(uRest), lenF = vlen(fRest);
+  const qClav = qEulerYXZ(0, s * -0.06, 0);
+  const shoulderPos = add(clavOff, qApply(qClav, upOff));
+
+  const rel = sub(handTargetChest, shoulderPos);
+  let d = vlen(rel);
+  const dir = d > 1e-5 ? mul(rel, 1 / d) : [0, 0, -1];
+  d = clamp(d, 0.14, lenU + lenF - 0.008);
+  const cosA = clamp((lenU * lenU + d * d - lenF * lenF) / (2 * lenU * d), -1, 1);
+  const sinA = Math.sqrt(Math.max(0, 1 - cosA * cosA));
+
+  let pole = sub(elbowPoleChest, mul(dir, dot(elbowPoleChest, dir)));
+  pole = vlen(pole) > 1e-4 ? norm(pole) : [s * 0.7, -0.7, 0.2];
+
+  const uDir = add(mul(dir, cosA), mul(pole, sinA));
+  const elbowPos = add(shoulderPos, mul(uDir, lenU));
+  const fDir = norm(sub(add(shoulderPos, mul(dir, d)), elbowPos));
+
+  // +Z is the back of the elbow in rest pose -> align +Z toward elbowPole
+  const qUpW   = aimBoneWithRef(uRest, uDir, [0, 0, 1], pole);
+  const qForeW = aimBoneWithRef(fRest, fDir, [0, 0, 1], pole);
+  const qUp    = qNorm(qMul(qConj(qClav), qUpW));
+  const qFore  = qNorm(qMul(qConj(qUpW), qForeW));
+
+  // Align hand so palm faces inward toward weapon grip/handguard
+  const hRestBack = mul(norm(cross(norm(fRest), [0, 0, -1])), -s);
+  const qHandW = aimBoneWithRef(fRest, fDir, hRestBack, palmInChest);
+  const qHand  = qNorm(qMul(qConj(qForeW), qHandW));
+  return { qClav, qUp, qFore, qHand };
+}
+
+// Compute weapon-ready ("rifle low ready") arm rotations via 2-bone IK in chest space
 function makeReadyArms(pose, sway = 0, bob = 0) {
-  // Returns local rotations for clavicleL/R, upperArmL/R, forearmL/R, handL/R, thumbL/R, fingersL/R
   const out = {};
+  let tgtL, tgtR, poleL, poleR;
   if (pose === 'sprint') {
-    out.clavicleL = qEulerYXZ(0.05, 0.18, 0.08);
-    out.upperArmL = qEulerYXZ(0.75 + bob * 0.12, 0.35, 0.55);
-    out.forearmL  = qEulerYXZ(0.25, 1.15, 0.25);
-    out.handL     = qEulerYXZ(0.0, 0.15, -0.3);
-    out.clavicleR = qEulerYXZ(0.05, -0.15, -0.08);
-    out.upperArmR = qEulerYXZ(0.65 - bob * 0.12, -0.25, -0.62);
-    out.forearmR  = qEulerYXZ(0.30, -1.25, -0.20);
-    out.handR     = qEulerYXZ(0.0, -0.15, 0.3);
+    // Tactical high-port / across-chest rifle carry
+    tgtR  = [ 0.04 + sway * 0.015, 0.06 + bob * 0.025, -0.26];
+    tgtL  = [-0.14 + sway * 0.020, 0.14 - bob * 0.020, -0.34];
+    poleL = [-0.85, -0.50, 0.20];
+    poleR = [ 0.85, -0.55, 0.25];
   } else if (pose === 'prone') {
-    out.clavicleL = qEulerYXZ(0.18, 0.25, 0.12);
-    out.upperArmL = qEulerYXZ(1.15, 0.30, 0.48);
-    out.forearmL  = qEulerYXZ(0.35, 1.05, 0.10);
-    out.handL     = qEulerYXZ(-0.2, 0.1, -0.2);
-    out.clavicleR = qEulerYXZ(0.18, -0.22, -0.12);
-    out.upperArmR = qEulerYXZ(1.05, -0.25, -0.52);
-    out.forearmR  = qEulerYXZ(0.30, -1.10, -0.10);
-    out.handR     = qEulerYXZ(-0.2, -0.1, 0.2);
+    // Elbows braced forward on ground, hands holding rifle ahead of chest
+    tgtR  = [ 0.07, 0.10 + bob * 0.01, -0.34];
+    tgtL  = [-0.05, 0.12 - bob * 0.01, -0.48];
+    poleL = [-0.75, -0.60, -0.15];
+    poleR = [ 0.75, -0.60, -0.15];
   } else {
-    // Low-ready tactical rifle hold
-    out.clavicleL = qEulerYXZ(0.02, 0.12, 0.06);
-    out.upperArmL = qEulerYXZ(0.62 + bob * 0.06, 0.42 + sway * 0.05, 0.58);
-    out.forearmL  = qEulerYXZ(0.18, 0.92, 0.15);
-    out.handL     = qEulerYXZ(0.05, 0.1, -0.25);
-    out.clavicleR = qEulerYXZ(0.02, -0.08, -0.06);
-    out.upperArmR = qEulerYXZ(0.50 - bob * 0.05, -0.22 + sway * 0.04, -0.72);
-    out.forearmR  = qEulerYXZ(0.22, -1.08, -0.15);
-    out.handR     = qEulerYXZ(0.05, -0.1, 0.25);
+    // Low-ready tactical rifle hold: right hand on pistol grip, left hand forward on handguard
+    tgtR  = [ 0.08 + sway * 0.008, 0.02 + bob * 0.012, -0.30];
+    tgtL  = [-0.03 + sway * 0.010, 0.05 + bob * 0.010, -0.48];
+    poleL = [-0.70, -0.68, 0.22];
+    poleR = [ 0.72, -0.65, 0.28];
   }
+  const ikL = solveArmIK('L', tgtL, poleL, [-0.5, -0.8, 0.1]);
+  const ikR = solveArmIK('R', tgtR, poleR, [ 0.8,  0.4, 0.2]);
+  out.clavicleL = ikL.qClav; out.upperArmL = ikL.qUp; out.forearmL = ikL.qFore; out.handL = ikL.qHand;
+  out.clavicleR = ikR.qClav; out.upperArmR = ikR.qUp; out.forearmR = ikR.qFore; out.handR = ikR.qHand;
   // Natural relaxed grip curl on finger groups
   out.thumbL = qEulerYXZ(0.15, -0.25, 0.2);
   out.fingersL = qEulerYXZ(0.0, 0.0, -0.35);
