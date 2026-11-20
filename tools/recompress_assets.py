@@ -43,6 +43,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parent.parent
 FILES = [
     'src/chars/soldier_asset.js',
+    'src/chars/soldier2_asset.js',
     'src/world/foliage_asset.js',
     'src/world/vehicles_asset.js',
     'src/world/lodge_props_asset.js',

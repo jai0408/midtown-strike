@@ -6,17 +6,18 @@ import { Input } from './game/input.js';
 import { AudioSys } from './game/audio.js';
 import { Hud } from './ui/hud.js';
 import { loadSoldierAssets } from './chars/soldier.js';
+import { loadSoldier2Assets } from './chars/soldier2.js';
 import { loadWeaponAssets } from './game/weapons.js';
 import { WEAPONS, CATEGORIES, DEFAULT_LOADOUT, weaponsIn } from './game/weapons.js';
 import { fmtTime, clamp } from './core/util.js';
 import * as THREE from 'three';
 
-const VERSION = '1.5.2';
+const VERSION = '1.6.0';
 const STORE = 'midtown-strike-v1';
 // a laptop or desktop: no touch screen, keyboard and mouse / trackpad instead
 const DESKTOP = !('ontouchstart' in window) && !(navigator.maxTouchPoints > 0);
 const DEFAULTS = {
-  lastMap: 'midtown', difficulty: 'regular', quality: DESKTOP ? 'high' : 'medium', sensitivity: 1, autoFire: false, aimAssist: true,
+  lastMap: 'midtown', difficulty: 'regular', quality: DESKTOP ? 'high' : 'medium', soldierModel: 'new', sensitivity: 1, autoFire: false, aimAssist: true,
   holdAds: false, leftFire: false, view: 'tpp', invertY: false, volume: 0.8, showFps: false,
   loadout: { ...DEFAULT_LOADOUT },
 };
@@ -69,7 +70,7 @@ function boot() {
   }
   progress(0.08);
   setTimeout(async () => {
-    await loadSoldierAssets();   // Blender-built soldier; falls back to the procedural one
+    await Promise.all([loadSoldierAssets(), loadSoldier2Assets()]);   // Classic + New soldier assets
     await loadWeaponAssets();    // glTF weapons (M1911, KSR-29, longsword)
     const first = MAPS[settings.lastMap] ? settings.lastMap : 'midtown';
     loadingEl.querySelector('p').textContent = MAPS[first].deploy;
@@ -181,6 +182,7 @@ const settingsHtml = (full) => `
   <div class="settings">
     ${full ? `<div class="set"><label>Difficulty<small>Enemy accuracy and reactions</small></label>${seg('difficulty', [['recruit', 'Recruit'], ['regular', 'Regular'], ['hardened', 'Hardened'], ['veteran', 'Veteran']])}</div>` : ''}
     <div class="set"><label>Graphics<small>Resolution and draw distance</small></label>${seg('quality', DESKTOP ? [['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['ultra', 'Ultra']] : [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']])}</div>
+    <div class="set"><label>Soldier model<small>New animated rig or classic model</small></label>${seg('soldierModel', [['new', 'New'], ['classic', 'Classic']])}</div>
     <div class="set"><label>Look sensitivity</label><input type="range" min="0.4" max="2.2" step="0.05" value="${settings.sensitivity}" data-key="sensitivity"></div>
     <div class="set"><label>Camera<small>Switch any time in a match with ${DESKTOP ? 'V' : 'the TPP / FPP button'}</small></label>${seg('view', [['tpp', 'Third person'], ['fpp', 'First person']])}</div>
     <div class="set"><label>Fire mode<small>Auto fires when the crosshair is on a hostile</small></label>${seg('autoFire', [[false, 'Manual'], [true, 'Auto']])}</div>
@@ -265,6 +267,7 @@ async function switchMap(id) {
 
 function applySettings(key) {
   if (key === 'quality') { view.setQuality(settings.quality); map.setQuality(settings.quality); }
+  if (key === 'soldierModel' && game) { for (const a of game.actors) a.setSoldierModel(settings.soldierModel); }
   if (key === 'view' && game && game.player) game.player.fp = settings.view === 'fpp';
   if (key === 'volume') audio.setVolume(settings.volume);
   if (key === 'holdAds') { input.holdAds = settings.holdAds; input.ads = false; }

@@ -11,6 +11,7 @@ added) by `tools/blender/import_weapons.py`; the results are embedded in `src/ga
 | Longsword | "Magic sword." | Biomoloko | https://sketchfab.com/3d-models/magic-sword-2e0ae41235364282b34e735e6161fc16 | CC-BY-4.0 | modified (re-baked textures, emissive map dropped) |
 | Koi (Cedar Lodge pond) | "Koi Fish" | 7PLUS | https://sketchfab.com/3d-models/koi-fish-236859b809984f52b70c94fd040b9c59 | CC-BY-4.0 | modified (re-tinted per variety, animated) |
 | Phoenix (Cedar Lodge sky) | "phoenix bird" | NORBERTO-3D | https://sketchfab.com/3d-models/phoenix-bird-844ba0cf144a413ea92c779f18912042 | CC-BY-4.0 | modified (scaled, flight path) |
+| Soldier (New, v1.6.0) | Procedural Modern Infantry Soldier | Midtown Strike (original) | `tools/build_soldier2_glb.mjs` | CC0 / Project original | procedurally generated mesh (LOD0/LOD1), 2048 PBR maps, 25-bone rig, 23 animations |
 
 Licences: CC-BY-4.0 https://creativecommons.org/licenses/by/4.0/ and CC-BY-NC-4.0
 https://creativecommons.org/licenses/by-nc/4.0/.
