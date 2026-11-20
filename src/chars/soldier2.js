@@ -39,33 +39,31 @@ const UPPER_BODY_BONES = new Set([
 ]);
 const UPPER_ONLY_CLIPS = new Set(['reload', 'melee', 'grenade', 'hit_flinch']);
 
-function makeTintedColorMap(baseTex, kind) {
-  const img = baseTex && baseTex.image;
-  if (!img || typeof document === 'undefined') return baseTex;
-  const w = img.width || 2048, h = img.height || 2048;
-  const c = document.createElement('canvas');
-  c.width = w; c.height = h;
-  const ctx = c.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(img, 0, 0, w, h);
-  const id = ctx.getImageData(0, 0, w, h);
-  const d = id.data;
+// Phone-safe GPU team tinting: shares the single 2048 albedo texture across both teams
+// (halves soldier GPU texture RAM and avoids a 2x2048^2 main-thread canvas pixel loop).
+function applyTeamTint(mat, kind) {
   const look = TEAM_TINT[kind] || TEAM_TINT.marine;
-  const [mr, mg, mb] = look.mul, sat = look.sat;
-  for (let i = 0, n = w * h; i < n; i++) {
-    const o = i * 4;
-    const r = d[o], g = d[o + 1], b = d[o + 2];
-    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-    d[o]     = Math.min(255, Math.max(0, (lum + (r - lum) * sat) * mr));
-    d[o + 1] = Math.min(255, Math.max(0, (lum + (g - lum) * sat) * mg));
-    d[o + 2] = Math.min(255, Math.max(0, (lum + (b - lum) * sat) * mb));
-  }
-  ctx.putImageData(id, 0, 0);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.flipY = false;
-  t.anisotropy = 4;
-  t.needsUpdate = true;
-  return t;
+  const sat = look.sat;
+  const mul = new THREE.Vector3(look.mul[0], look.mul[1], look.mul[2]);
+  mat.customProgramCacheKey = () => `soldier2_tint_${kind}`;
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTeamSat = { value: sat };
+    shader.uniforms.uTeamMul = { value: mul };
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        '#include <common>\nuniform float uTeamSat;\nuniform vec3 uTeamMul;'
+      )
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+        {
+          float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+          vec3 tinted = (vec3(lum) + (diffuseColor.rgb - vec3(lum)) * uTeamSat) * uTeamMul;
+          diffuseColor.rgb = clamp(tinted, 0.0, 1.0);
+        }`
+      );
+  };
 }
 
 export async function loadSoldier2Assets() {
@@ -79,14 +77,13 @@ export async function loadSoldier2Assets() {
     gltf.scene.traverse((o) => {
       if (o.isSkinnedMesh && !baseMat) baseMat = o.material;
     });
+    if (baseMat && baseMat.map) baseMat.map.anisotropy = 4;
+    if (baseMat && baseMat.normalMap) baseMat.normalMap.anisotropy = 4;
+    if (baseMat && baseMat.roughnessMap) baseMat.roughnessMap.anisotropy = 4;
     const materials = {};
     for (const kind of ['marine', 'enemy']) {
       const m = baseMat ? baseMat.clone() : new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0 });
-      if (baseMat && baseMat.map) {
-        m.map = makeTintedColorMap(baseMat.map, kind);
-      }
-      if (m.normalMap) m.normalMap.anisotropy = 4;
-      if (m.roughnessMap) m.roughnessMap.anisotropy = 4;
+      applyTeamTint(m, kind);
       m.roughness = 1.0;
       m.metalness = 1.0;
       m.envMapIntensity = 0.7;
@@ -185,6 +182,15 @@ const HOLD = {
   },
 };
 HOLD.sniper = HOLD.rifle;
+
+// First person only: the camera sits just above the shoulders, so a straight arm
+// out to the handguard points away from the eye and reads as a pipe. Bring the
+// shoulders forward and down so the elbow bends and the forearm rises from below,
+// and keep the support wrist inside a natural bend so the cuff does not twist.
+const FP_SHOULDER = { L: [0.0, -0.08, -0.13], R: [0.0, -0.03, -0.06] };
+const NO_SHIFT = [0, 0, 0];
+const FP_WRIST_MAX = 0.35;    // rad (~20 deg) of left-wrist bend away from the forearm
+const FP_WRIST_PASSES = 2;    // re-solve the arm after limiting the wrist
 
 const HAND_FREE = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.25, 0, 0));
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _v4 = new THREE.Vector3();
@@ -313,7 +319,11 @@ export class Soldier {
     this._w = Object.fromEntries(LOOP_CLIPS.map((n) => [n, n === 'idle' ? 1 : 0]));
     this._tgt = Object.fromEntries(LOOP_CLIPS.map((n) => [n, 0]));
     this._posture = 0;       // continuous 0=stand -> 1=crouch -> 2=prone (passes smoothly through crouch)
+    this._smMoveX = 0;
+    this._smMoveZ = 0;
+    this._smSpeed = 0;
     this._prevYaw = 0;
+    this._turnRateFilt = 0;
     this._turnRate = 0;
     this._prevMoveX = 0;
     this._prevMoveZ = 0;
@@ -376,16 +386,18 @@ export class Soldier {
     const restU = side === 'L' ? UPPER_DIR_L : UPPER_DIR_R;
     const restF = side === 'L' ? FORE_DIR_L : FORE_DIR_R;
     const cOff = clav ? clav.position : _v4.set(0, 0, 0);
-    const Sx = cOff.x + arm.userData.rest.x;
-    const Sy = cOff.y + arm.userData.rest.y;
-    const Sz = cOff.z + arm.userData.rest.z;
+    const sh = this._fpLongGun ? FP_SHOULDER[side] : NO_SHIFT;
+    const rest = arm.userData.rest;
+    const Sx = cOff.x + rest.x + sh[0];
+    const Sy = cOff.y + rest.y + sh[1];
+    const Sz = cOff.z + rest.z + sh[2];
 
     _v1.set(tx - Sx, ty - Sy, tz - Sz);
     let d = _v1.length();
     _v1.divideScalar(d || 1);
     const reach = UPPER_LEN + FORE_LEN - 0.005;
     const slack = clamp(d - reach, 0, 0.075);
-    arm.position.copy(arm.userData.rest).addScaledVector(_v1, slack);
+    arm.position.set(rest.x + sh[0], rest.y + sh[1], rest.z + sh[2]).addScaledVector(_v1, slack);
     d = clamp(d - slack, 0.08, reach);
 
     const cosA = clamp((UPPER_LEN * UPPER_LEN + d * d - FORE_LEN * FORE_LEN) / (2 * UPPER_LEN * d), -1, 1);
@@ -407,7 +419,10 @@ export class Soldier {
   /** Places both hands on the weapon grips (3P or 1P), with reload choreography. */
   gripWeapon(reload = -1) {
     const def = this.weaponDef, pts = this.points, w = this.weapon;
+    this._fpLongGun = false;
     if (!def || !pts || !w || def.pose === 'melee') return;
+    // pistols already sit close to the chest in first person; only long guns need the reach fix
+    this._fpLongGun = !!this.fpCam && def.pose !== 'pistol';
     const H = HOLD[def.pose] || HOLD.rifle, sc = w.scale.x, gm = this.gunMount, m = gm.matrix;
     _qR.copy(gm.quaternion).multiply(H.R);
     _qL.copy(gm.quaternion).multiply(H.L);
@@ -438,7 +453,30 @@ export class Soldier {
     b.handR.quaternion.copy(_qA).multiply(_qR);
     _qA.copy(b.armL.quaternion).multiply(b.foreL.quaternion).invert();
     b.handL.quaternion.copy(_qA).multiply(_qL);
+    if (this.fpCam) this._limitSupportWrist(lx + _g3.x, ly + _g3.y, lz + _g3.z, -out);
     if (onGun < 1) b.handL.quaternion.slerp(HAND_FREE, 1 - onGun);
+  }
+
+  /**
+   * First person: cap the left wrist bend, then re-aim the arm so the palm
+   * (not the wrist) stays on the grip point (gx, gy, gz, chest space).
+   */
+  _limitSupportWrist(gx, gy, gz, pole) {
+    const b = this.b, hand = b.handL.quaternion;
+    for (let i = 0; i < FP_WRIST_PASSES; i++) {
+      const bend = 2 * Math.acos(clamp(Math.abs(hand.w), 0, 1));
+      if (bend <= FP_WRIST_MAX) return;
+      _q1.identity().slerp(hand, FP_WRIST_MAX / bend);
+      // world (chest-space) orientation the hand will have after the limit
+      _qA.copy(b.armL.quaternion).multiply(b.foreL.quaternion).multiply(_q1);
+      _g3.copy(GRIP_L_LOCAL).applyQuaternion(_qA);
+      this._ik('L', gx - _g3.x, gy - _g3.y, gz - _g3.z, pole);
+      // keep that orientation under the re-solved forearm
+      hand.copy(b.armL.quaternion).multiply(b.foreL.quaternion).invert().multiply(_qA);
+    }
+    // the last re-solve can move the forearm again: hard-cap the bend that is left
+    const bend = 2 * Math.acos(clamp(Math.abs(hand.w), 0, 1));
+    if (bend > FP_WRIST_MAX) hand.copy(_q1.identity().slerp(hand, FP_WRIST_MAX / bend));
   }
 
   _playOnce(name, fadeIn = 0.08, timeScale = 1.0) {
@@ -466,24 +504,37 @@ export class Soldier {
     this.flinch  = damp(this.flinch,  0, 9, dt);
     this.pitch   = damp(this.pitch,   s.pitch || 0, 22, dt);
 
-    const speed = s.speed || 0;
-    const moving = speed > 0.16;
+    // Smooth locomotion inputs to eliminate directional blend kinks & frame-rate jitter
+    const rawSpeed = s.speed || 0;
+    const rawMx = s.moveX || 0, rawMz = s.moveZ || 0;
+    this._smMoveX = damp(this._smMoveX, rawMx, 14, dt);
+    this._smMoveZ = damp(this._smMoveZ, rawMz, 14, dt);
+    this._smSpeed = damp(this._smSpeed, rawSpeed, 14, dt);
+    const speed = this._smSpeed;
+    const mx = this._smMoveX, mz = this._smMoveZ;
+    const moving = speed > 0.14;
     this.moveK = damp(this.moveK, moving ? 1 : 0, 10, dt);
 
-    // Track yaw turn rate & horizontal acceleration for subtle inertial banking/lean
+    // Double-filtered yaw turn rate & horizontal acceleration (ignore dt > 0.08s spikes)
     const curYaw = this.root.rotation.y || 0;
     let dYaw = curYaw - this._prevYaw;
     while (dYaw > Math.PI) dYaw -= Math.PI * 2;
     while (dYaw < -Math.PI) dYaw += Math.PI * 2;
     this._prevYaw = curYaw;
-    const safeDt = Math.max(dt, 0.004);
-    this._turnRate = damp(this._turnRate, clamp(dYaw / safeDt, -5, 5), 10, dt);
-    const mx = s.moveX || 0, mz = s.moveZ || 0;
-    const accX = clamp((mx - this._prevMoveX) / safeDt, -18, 18);
-    const accZ = clamp((mz - this._prevMoveZ) / safeDt, -18, 18);
+    if (dt > 0.001 && dt <= 0.08) {
+      const instTurn = clamp(dYaw / dt, -4.5, 4.5);
+      this._turnRateFilt = damp(this._turnRateFilt, instTurn, 12, dt);
+      const accX = clamp((mx - this._prevMoveX) / dt, -14, 14);
+      const accZ = clamp((mz - this._prevMoveZ) / dt, -14, 14);
+      this._leanX = damp(this._leanX, clamp(accZ * 0.007, -0.085, 0.085), 7, dt);
+      this._leanZ = damp(this._leanZ, clamp(-accX * 0.008 - this._turnRate * 0.020 * this.moveK, -0.10, 0.10), 7, dt);
+    } else {
+      this._turnRateFilt = damp(this._turnRateFilt, 0, 8, dt);
+      this._leanX = damp(this._leanX, 0, 7, dt);
+      this._leanZ = damp(this._leanZ, 0, 7, dt);
+    }
+    this._turnRate = damp(this._turnRate, this._turnRateFilt, 9, dt);
     this._prevMoveX = mx; this._prevMoveZ = mz;
-    this._leanX = damp(this._leanX, clamp(accZ * 0.008, -0.10, 0.10), 8, dt);
-    this._leanZ = damp(this._leanZ, clamp(-accX * 0.009 - this._turnRate * 0.022 * this.moveK, -0.12, 0.12), 8, dt);
 
     // Staged continuous posture (0=stand -> 1=crouch -> 2=prone) so lay-down/stand-up passes
     // naturally through crouch/kneel instead of snapping flat through the floor
@@ -544,14 +595,15 @@ export class Soldier {
           if (speed < 0.14) {
             tgt.idle = standW;
           } else {
-            // Smooth directional weights from model-space velocity (-Z forward, +X right)
+            // Squared directional weights from smoothed velocity (-Z forward, +X right) for kink-free blending
             const invS = 1 / (speed || 1);
             const fx = clamp(-mz * invS, 0, 1);
             const bx = clamp( mz * invS, 0, 1);
             const lx = clamp(-mx * invS, 0, 1);
             const rx = clamp( mx * invS, 0, 1);
-            const dSum = fx + bx + lx + rx || 1;
-            const wF = fx / dSum, wB = bx / dSum, wL = lx / dSum, wR = rx / dSum;
+            const f2 = fx * fx, b2 = bx * bx, l2 = lx * lx, r2 = rx * rx;
+            const dSum = f2 + b2 + l2 + r2 || 1;
+            const wF = f2 / dSum, wB = b2 / dSum, wL = l2 / dSum, wR = r2 / dSum;
 
             // Smooth speed tier blending: idle (0) -> walk (1.5) -> run (4.7) -> sprint (6.7)
             const wWalkTier = speed < 1.5
@@ -653,18 +705,18 @@ export class Soldier {
       this.mixer.update(dt);
     }
 
-    // --- Post-mixer upper-body aim pitch, inertial lean & slide pose --------
+    // --- Post-mixer upper-body aim pitch, inertial lean, ADS cheek-weld & slide pose ---
     const aim = this.pitch * (1 - deadE);
     const aliveLean = (1 - deadE) * (1 - pK * 0.85);
-    const turnLead = clamp(this._turnRate * 0.045, -0.18, 0.18) * aliveLean;
+    const turnLead = clamp(this._turnRate * 0.040, -0.16, 0.16) * aliveLean;
     if (b.spine) {
-      _qPitch.setFromAxisAngle(X_AXIS, aim * 0.42 - slK * 0.35 + this._leanX * 0.55 * aliveLean);
+      _qPitch.setFromAxisAngle(X_AXIS, aim * 0.42 - slK * 0.28 + this._leanX * 0.55 * aliveLean);
       b.spine.quaternion.multiply(_qPitch);
       _qRoll.setFromAxisAngle(Z_AXIS, this._leanZ * 0.55 * aliveLean);
       b.spine.quaternion.multiply(_qRoll);
     }
     if (b.chest) {
-      _qPitch.setFromAxisAngle(X_AXIS, aim * 0.46 + this.kick * 0.05 - slK * 0.22 + this._leanX * 0.45 * aliveLean);
+      _qPitch.setFromAxisAngle(X_AXIS, aim * 0.46 + this.kick * 0.05 - slK * 0.16 + this._leanX * 0.45 * aliveLean);
       b.chest.quaternion.multiply(_qPitch);
       _qYaw.setFromAxisAngle(Y_AXIS, turnLead * 0.45);
       b.chest.quaternion.multiply(_qYaw);
@@ -679,10 +731,25 @@ export class Soldier {
       b.head.quaternion.multiply(_qPitch);
       _qYaw.setFromAxisAngle(Y_AXIS, turnLead * 0.55);
       b.head.quaternion.multiply(_qYaw);
+      const cheekTilt = -0.08 * this.adsK * (1 - deadE);
+      if (Math.abs(cheekTilt) > 0.002) {
+        _qRoll.setFromAxisAngle(Z_AXIS, cheekTilt);
+        b.head.quaternion.multiply(_qRoll);
+      }
     }
-    if (slK > 0.01 && b.hips) {
-      _qPitch.setFromAxisAngle(X_AXIS, slK * 0.55);
+    // Athletic knee/baseball slide pose (lower hips, lead leg extended, trailing leg tucked)
+    if (slK > 0.01 && dead <= 0.01 && b.hips) {
+      b.hips.position.y = lerp(b.hips.position.y, 0.43, slK);
+      _qPitch.setFromAxisAngle(X_AXIS, slK * 0.34);
       b.hips.quaternion.multiply(_qPitch);
+      _qYaw.setFromAxisAngle(Y_AXIS, -slK * 0.24);
+      b.hips.quaternion.multiply(_qYaw);
+      if (b.thighL) { _qPitch.setFromAxisAngle(X_AXIS, -slK * 0.72); b.thighL.quaternion.multiply(_qPitch); }
+      if (b.shinL)  { _qPitch.setFromAxisAngle(X_AXIS, -slK * 0.55); b.shinL.quaternion.multiply(_qPitch); }
+      if (b.footL)  { _qPitch.setFromAxisAngle(X_AXIS,  slK * 0.30); b.footL.quaternion.multiply(_qPitch); }
+      if (b.thighR) { _qPitch.setFromAxisAngle(X_AXIS,  slK * 0.65); b.thighR.quaternion.multiply(_qPitch); }
+      if (b.shinR)  { _qPitch.setFromAxisAngle(X_AXIS,  slK * 0.75); b.shinR.quaternion.multiply(_qPitch); }
+      if (b.footR)  { _qPitch.setFromAxisAngle(X_AXIS, -slK * 0.45); b.footR.quaternion.multiply(_qPitch); }
     }
 
     // --- Weapon mount & arm IK onto grips -----------------------------------
@@ -704,7 +771,21 @@ export class Soldier {
       mix(Pz.ads, ads);
       mix(Pz.sprint, sp);
       mix(Pz.reload, this.reloadK);
-      if (pK > 0.01) { ty = lerp(ty, 0.2, pK); tz = lerp(tz, pose === 'pistol' ? -0.5 : -0.24, pK); ry = lerp(ry, 0.03, pK); }
+      // Prone weapon leveling: compensate ~-0.96 rad chest forward pitch so rifle aims level ahead
+      if (pK > 0.01) {
+        tx = lerp(tx, 0.06, pK);
+        ty = lerp(ty, 0.24, pK);
+        tz = lerp(tz, pose === 'pistol' ? -0.44 : -0.22, pK);
+        rx = rx + 0.88 * pK;
+        ry = lerp(ry, 0.03, pK);
+      }
+      // Tactical slide rifle cant
+      if (slK > 0.01) {
+        const slCant = slK * (1 - ads);
+        tx += 0.03 * slCant;
+        ty -= 0.02 * slCant;
+        rz = lerp(rz, 0.42, slCant);
+      }
       mp.set(damp(mp.x, tx, 18, dt), damp(mp.y, ty, 18, dt), damp(mp.z, tz, 18, dt));
       mr.set(damp(mr.x, rx, 18, dt), damp(mr.y, ry, 18, dt), damp(mr.z, rz, 18, dt));
       const carry = clamp(speed / 4.8, 0, 1.2) * this.moveK * (1 - ads);
