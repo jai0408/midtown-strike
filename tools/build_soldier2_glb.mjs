@@ -556,8 +556,9 @@ function buildSoldierMesh(lod) {
       armPath.push(add(jUp, mul(dirU, samplesU[i] * lenU)));
       armRa.push(radsU[i]); armRb.push(radsU[i] * 0.95);
     }
-    const samplesF = [0.12, 0.32, 0.58, 0.82, 0.96, 1.0];
-    const radsF    = [0.055, 0.054, 0.049, 0.044, 0.042, 0.040];
+    // Sleeve tapers and stops 1.8cm before jHand with NO end cap, tucked cleanly inside the glove cuff
+    const samplesF = [0.12, 0.32, 0.58, 0.80, 0.90, 0.93];
+    const radsF    = [0.055, 0.054, 0.048, 0.042, 0.036, 0.031];
     for (let i = 0; i < samplesF.length; i++) {
       armPath.push(add(jFore, mul(dirF, samplesF[i] * lenF)));
       armRa.push(radsF[i]); armRb.push(radsF[i] * 0.94);
@@ -567,7 +568,7 @@ function buildSoldierMesh(lod) {
       [BI['clavicle' + side], BI['upperArm' + side], BI['forearm' + side], BI['hand' + side]],
       [0.055, 0.055, 0.032]
     );
-    addTube(mb, armPath, armRa, armRb, seg(16), 2.1, [0, 0, 1], 'camo', armW);
+    addTube(mb, armPath, armRa, armRb, seg(16), 2.1, [0, 0, 1], 'camo', armW, [false, false]);
     // Rounded deltoid cap overlapping shoulder joint seamlessly
     addRoundedBox(mb, [0.135, 0.138, 0.142], [s * 0.190, 1.458, 0.002], [0, 0, s * -0.25], bseg(2), 2.1, 'camo', (x) => {
       const wu = sstep(0.155, 0.215, Math.abs(x));
@@ -582,48 +583,53 @@ function buildSoldierMesh(lod) {
     // Low-profile contoured elbow pad sitting flush on outer/back forearm surface (100% forearm weight)
     addRoundedBox(mb, [0.064, 0.046, 0.018], add(jFore, add(mul(dirF, 0.032), [0, -0.008, 0.034])), [0, 0, s * -0.58], bseg(2), 3.4, 'pads', rigidW('forearm' + side));
 
-    // ---- GLOVED HAND (relaxed grip pose: palm faces inward/down, fingers curved) ----
-    // Local hand basis: H_along = dirF (wrist -> knuckles), H_front = -Z (thumb side), H_back = cross(H_front, H_along)*s
+    // ---- GLOVED HAND (substantial tactical glove hiding sleeve end, 100% hand/finger/thumb skinned) ----
+    // Local hand basis: H_along = dirF (wrist -> knuckles), H_front = -Z (thumb side), H_back = cross(H_along, H_front)*(-s)
     const hAlong = dirF;
     const hFwd = [0, 0, -1];
-    const hOut = norm(cross(hAlong, hFwd)); // points up/back-of-hand for L, down/palm for R -> multiply by -s for back-of-hand
+    const hOut = norm(cross(hAlong, hFwd));
     const hBack = mul(hOut, -s);
     const hPt = (al, bk, fw) => add(jHand, add(mul(hAlong, al), add(mul(hBack, bk), mul(hFwd, fw))));
 
-    // Wrist cuff + Palm
-    addTube(mb, [hPt(-0.025, 0, 0), hPt(0.0, 0, 0), hPt(0.035, 0, 0), hPt(0.072, 0, 0), hPt(0.088, -0.005, 0)],
-      [0.036, 0.038, 0.041, 0.043, 0.038], [0.030, 0.026, 0.021, 0.018, 0.014], seg(12), 2.5, hFwd, 'glove', rigidW('hand' + side));
-    // Knuckle guard plate on back of hand
-    addRoundedBox(mb, [0.028, 0.014, 0.072], hPt(0.074, 0.018, 0.0), [0, 0, s * -0.58], 1, 2.5, 'pads', rigidW('hand' + side));
+    // Flared glove cuff (-4.6cm overlaps & hides sleeve end) -> chunky contoured palm block
+    addTube(
+      mb,
+      [hPt(-0.046, 0, 0), hPt(-0.018, 0, 0), hPt(0.010, 0, 0), hPt(0.045, 0, 0), hPt(0.078, -0.003, 0), hPt(0.094, -0.006, 0)],
+      [0.045, 0.043, 0.042, 0.046, 0.047, 0.040],
+      [0.043, 0.038, 0.032, 0.028, 0.025, 0.018],
+      seg(12), 2.8, hFwd, 'glove', rigidW('hand' + side), [false, true]
+    );
+    // Raised hard-shell knuckle guard plate on back of glove
+    addRoundedBox(mb, [0.034, 0.018, 0.082], hPt(0.076, 0.025, 0.0), [0, 0, s * -0.58], 1, 3.0, 'pads', rigidW('hand' + side));
 
-    // Relaxed-grip curved fingers (4 individual fingers on LOD0, 2 grouped mittens on LOD1)
+    // Sturdy relaxed-grip curved fingers (4 individual fingers on LOD0, 2 grouped blocks on LOD1)
     const fingerSpecs = lod === 0
-      ? [[0.028, 0.010, [0.032, 0.022, 0.018], [0.40, 0.85, 1.25]],
-         [0.010, 0.0105, [0.036, 0.024, 0.019], [0.55, 1.05, 1.50]],
-         [-0.009, 0.0098, [0.033, 0.022, 0.018], [0.65, 1.15, 1.60]],
-         [-0.027, 0.0086, [0.028, 0.018, 0.016], [0.72, 1.22, 1.65]]]
-      : [[0.018, 0.016, [0.034, 0.024, 0.018], [0.48, 0.95, 1.38]],
-         [-0.016, 0.015, [0.031, 0.020, 0.017], [0.68, 1.18, 1.62]]];
+      ? [[0.030, 0.0125, [0.034, 0.024, 0.020], [0.42, 0.90, 1.32]],
+         [0.010, 0.0130, [0.038, 0.026, 0.021], [0.55, 1.08, 1.52]],
+         [-0.010, 0.0122, [0.035, 0.024, 0.020], [0.64, 1.16, 1.62]],
+         [-0.029, 0.0108, [0.030, 0.020, 0.018], [0.72, 1.24, 1.68]]]
+      : [[0.019, 0.0195, [0.036, 0.025, 0.020], [0.48, 0.98, 1.42]],
+         [-0.018, 0.0185, [0.032, 0.022, 0.019], [0.68, 1.20, 1.64]]];
     const fingW = (x, y, z) => {
-      const d = vlen(sub([x, y, z], hPt(0.085, 0, 0)));
+      const d = vlen(sub([x, y, z], hPt(0.086, 0, 0)));
       const wf = sstep(0.005, 0.025, d);
       return [[BI['fingers' + side], wf], [BI['hand' + side], 1 - wf]];
     };
     for (const [fwOff, rad, lens, angs] of fingerSpecs) {
-      let al = 0.084, bk = -0.004;
+      let al = 0.086, bk = -0.004;
       const fpts = [hPt(al, bk, fwOff)];
       const frads = [rad];
       for (let k = 0; k < lens.length; k++) {
         al += Math.cos(angs[k]) * lens[k];
         bk -= Math.sin(angs[k]) * lens[k];
         fpts.push(hPt(al, bk, fwOff));
-        frads.push(rad * (1 - 0.14 * (k + 1)));
+        frads.push(rad * (1 - 0.13 * (k + 1)));
       }
-      addTube(mb, fpts, frads, frads, lod === 0 ? 7 : 6, 2.0, hFwd, 'glove', fingW);
+      addTube(mb, fpts, frads, frads, lod === 0 ? 7 : 6, 2.2, hFwd, 'glove', fingW);
     }
-    // Thumb opposing the fingers
-    const tpts = [hPt(0.018, -0.010, 0.034), hPt(0.044, -0.024, 0.048), hPt(0.070, -0.036, 0.046), hPt(0.090, -0.042, 0.036)];
-    addTube(mb, tpts, [0.014, 0.0125, 0.011, 0.009], [0.014, 0.0125, 0.011, 0.009], 7, 2.0, hBack, 'glove', rigidW('thumb' + side));
+    // Solid opposing thumb wrapping visibly around handguard/grip
+    const tpts = [hPt(0.016, -0.010, 0.038), hPt(0.046, -0.024, 0.054), hPt(0.076, -0.034, 0.052), hPt(0.098, -0.038, 0.040)];
+    addTube(mb, tpts, [0.0165, 0.0150, 0.0135, 0.0110], [0.0165, 0.0150, 0.0135, 0.0110], 7, 2.2, hBack, 'glove', rigidW('thumb' + side));
   }
 
   // ---- LEGS (trousers, cargo pockets, knee pads, combat boots) -------------
