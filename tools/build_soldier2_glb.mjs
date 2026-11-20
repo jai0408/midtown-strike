@@ -367,16 +367,16 @@ function buildSoldierMesh(lod) {
   const seg = (n) => Math.max(6, Math.round(n * S));
   const bseg = (n) => Math.max(1, Math.round(n * (lod === 0 ? 2.0 : 0.75)));
 
-  // ---- TORSO (hips -> spine -> chest -> collar) ----------------------------
+  // ---- TORSO (hips -> spine -> chest -> collar, no internal end caps) ------
   const torsoRows = [
     // [y, cz, rx, rFront, rBack]
-    [0.84,  0.004, 0.122, 0.092, 0.098],
-    [0.89,  0.005, 0.160, 0.106, 0.114],
-    [0.95,  0.005, 0.172, 0.110, 0.118],
-    [1.02,  0.003, 0.166, 0.106, 0.110],
-    [1.09,  0.000, 0.162, 0.104, 0.106],
-    [1.18, -0.002, 0.168, 0.108, 0.108],
-    [1.28, -0.004, 0.180, 0.115, 0.112],
+    [0.80,  0.006, 0.148, 0.104, 0.114],
+    [0.86,  0.006, 0.172, 0.114, 0.122],
+    [0.93,  0.005, 0.180, 0.118, 0.126],
+    [1.00,  0.003, 0.174, 0.112, 0.116],
+    [1.09,  0.000, 0.166, 0.106, 0.108],
+    [1.18, -0.002, 0.170, 0.110, 0.110],
+    [1.28, -0.004, 0.182, 0.116, 0.112],
     [1.38, -0.005, 0.196, 0.118, 0.112],
     [1.46, -0.002, 0.200, 0.108, 0.104],
     [1.51,  0.000, 0.150, 0.084, 0.084],
@@ -385,7 +385,7 @@ function buildSoldierMesh(lod) {
   const torsoW = (x, y) => {
     const wNeck = sstep(1.48, 1.54, y);
     const wChest = sstep(1.17, 1.32, y) * (1 - wNeck);
-    const wSpine = sstep(0.99, 1.11, y) * (1 - wChest) * (1 - wNeck);
+    const wSpine = sstep(1.01, 1.13, y) * (1 - wChest) * (1 - wNeck);
     const wHips = Math.max(0, 1 - wNeck - wChest - wSpine);
     return [[BI.hips, wHips], [BI.spine, wSpine], [BI.chest, wChest], [BI.neck, wNeck]];
   };
@@ -394,7 +394,22 @@ function buildSoldierMesh(lod) {
     torsoRows.map((r) => [0, r[0], r[1]]),
     torsoRows.map((r) => r[2]),
     torsoRows.map((r) => [r[4], r[3]]),
-    seg(22), 2.35, [1, 0, 0], 'camo', torsoW
+    seg(22), 2.35, [1, 0, 0], 'camo', torsoW, [false, false]
+  );
+  // Solid pelvis / combat trouser seat extending 7cm below thigh joint (0.935) & overlapping torso/belt
+  const pelvisRows = [
+    [0.79, 0.006, 0.112, 0.090, 0.098],
+    [0.84, 0.006, 0.168, 0.112, 0.120],
+    [0.91, 0.005, 0.184, 0.122, 0.130],
+    [0.98, 0.004, 0.182, 0.120, 0.126],
+    [1.06, 0.002, 0.172, 0.112, 0.116],
+  ];
+  addTube(
+    mb,
+    pelvisRows.map((r) => [0, r[0], r[1]]),
+    pelvisRows.map((r) => r[2]),
+    pelvisRows.map((r) => [r[4], r[3]]),
+    seg(20), 2.4, [1, 0, 0], 'camo', rigidW('hips'), [true, false]
   );
 
   // ---- NECK & BALACLAVA HEAD (1.52m -> 1.80m) ------------------------------
@@ -511,9 +526,9 @@ function buildSoldierMesh(lod) {
   addRoundedBox(mb, [0.220, 0.275, 0.066], [0, 1.355, 0.186], [0, 0, 0], bseg(2), 5.5, 'gearDark', rigidW('chest'));
   addRoundedBox(mb, [0.125, 0.105, 0.050], [0.065, 1.210, 0.182], [0, 0, 0], bseg(2), 5.5, 'gear', rigidW('chest'));
 
-  // Battle belt + cobra buckle + right holster + left dump pouch
-  addTube(mb, [[0, 1.005, 0], [0, 1.035, 0], [0, 1.065, 0]], [0.174, 0.178, 0.172], [0.118, 0.122, 0.116], seg(20), 2.8, [1, 0, 0], 'gearDark', rigidW('hips'));
-  addRoundedBox(mb, [0.056, 0.038, 0.014], [0, 1.035, -0.124], [0, 0, 0], 1, 5.0, 'metal', rigidW('hips'));
+  // Battle belt + cobra buckle + right holster + left dump pouch (bridges torso & pelvis cleanly)
+  addTube(mb, [[0, 0.990, 0.002], [0, 1.035, 0.002], [0, 1.080, 0.001]], [0.186, 0.190, 0.182], [0.126, 0.130, 0.124], seg(20), 2.8, [1, 0, 0], 'gearDark', rigidW('hips'), [false, false]);
+  addRoundedBox(mb, [0.056, 0.038, 0.014], [0, 1.035, -0.132], [0, 0, 0], 1, 5.0, 'metal', rigidW('hips'));
   addRoundedBox(mb, [0.048, 0.178, 0.088], [0.182, 0.945, 0.015], [0, 0, 0], bseg(2), 5.6, 'gearDark', rigidW('hips'));
   addRoundedBox(mb, [0.048, 0.130, 0.098], [-0.184, 0.965, 0.036], [0, 0, 0], bseg(2), 5.6, 'gearDark', rigidW('hips'));
 
@@ -564,8 +579,8 @@ function buildSoldierMesh(lod) {
     const flagRot = [0, 0, s * -0.60];
     addRoundedBox(mb, [0.068, 0.012, 0.046], add(flagP, [0, 0.056, 0]), flagRot, 1, 3.5, 'flag', rigidW('upperArm' + side));
 
-    // Elbow pad (on back/outer side of elbow)
-    addRoundedBox(mb, [0.078, 0.065, 0.042], add(jFore, [0, -0.022, 0.048]), [0, 0, s * -0.58], bseg(2), 2.4, 'pads', rigidW('forearm' + side));
+    // Low-profile contoured elbow pad sitting flush on outer/back forearm surface (100% forearm weight)
+    addRoundedBox(mb, [0.064, 0.046, 0.018], add(jFore, add(mul(dirF, 0.032), [0, -0.008, 0.034])), [0, 0, s * -0.58], bseg(2), 3.4, 'pads', rigidW('forearm' + side));
 
     // ---- GLOVED HAND (relaxed grip pose: palm faces inward/down, fingers curved) ----
     // Local hand basis: H_along = dirF (wrist -> knuckles), H_front = -Z (thumb side), H_back = cross(H_front, H_along)*s
@@ -620,23 +635,24 @@ function buildSoldierMesh(lod) {
     const jToe  = REST_W[BI['toe' + side]];
 
     const legRows = [
-      // [y, rx, rFront, rBack]
-      [0.955, 0.105, 0.102, 0.108],
-      [0.860, 0.100, 0.096, 0.103],
+      // [y, rx, rFront, rBack] — top tucked inside pelvis (0.935), bottom sunk 10cm inside boot shaft (0.155)
+      [0.935, 0.096, 0.094, 0.098],
+      [0.860, 0.098, 0.095, 0.101],
       [0.740, 0.092, 0.088, 0.093],
       [0.620, 0.082, 0.079, 0.081],
       [0.540, 0.076, 0.073, 0.074],
       [0.505, 0.075, 0.073, 0.074],
       [0.455, 0.074, 0.069, 0.078],
-      [0.370, 0.072, 0.066, 0.083],
-      [0.270, 0.067, 0.063, 0.072],
-      [0.210, 0.068, 0.066, 0.068],
+      [0.370, 0.072, 0.066, 0.082],
+      [0.275, 0.064, 0.060, 0.068],
+      [0.215, 0.054, 0.052, 0.056],
+      [0.155, 0.044, 0.044, 0.046],
     ];
     const lxAt = (y) => lerp(jAnk[0], jHip[0], clamp((y - jAnk[1]) / (jHip[1] - jAnk[1]), 0, 1));
     const lzAt = (y) => lerp(jAnk[2], jHip[2], clamp((y - jAnk[1]) / (jHip[1] - jAnk[1]), 0, 1));
     const legW = (x, y) => {
       if (y > 0.78) {
-        const wh = sstep(0.87, 0.96, y);
+        const wh = sstep(0.84, 0.935, y);
         return [[BI.hips, wh], [BI['thigh' + side], 1 - wh]];
       }
       const wt = sstep(0.44, 0.57, y);
@@ -647,7 +663,7 @@ function buildSoldierMesh(lod) {
       legRows.map((r) => [lxAt(r[0]), r[0], lzAt(r[0])]),
       legRows.map((r) => r[1]),
       legRows.map((r) => [r[3], r[2]]),
-      seg(16), 2.2, [1, 0, 0], 'camo', legW
+      seg(16), 2.2, [1, 0, 0], 'camo', legW, [false, false]
     );
 
     // Thigh cargo pocket (snug crisp flap pocket)
@@ -658,15 +674,15 @@ function buildSoldierMesh(lod) {
       addRoundedBox(mb, [0.066, 0.074, 0.018], [lxAt(0.495), 0.495, lzAt(0.495) - 0.088], [0.10, 0, 0], 1, 3.2, 'metal', rigidW('shin' + side));
     }
 
-    // Combat boot shaft (ankle -> lower shin, extends cleanly into heel)
+    // Combat boot shaft (covers shin bottom by > 10cm, open top hugs trouser cuff, no flat caps)
     const shaftW = (x, y) => {
       const ws = sstep(0.075, 0.155, y);
       return [[BI['shin' + side], ws], [BI['foot' + side], 1 - ws]];
     };
     addTube(
       mb,
-      [[jAnk[0], 0.036, jAnk[2] + 0.008], [jAnk[0], 0.085, jAnk[2]], [jAnk[0], 0.155, jAnk[2]], [jAnk[0], 0.235, jAnk[2]]],
-      [0.052, 0.055, 0.058, 0.062], [0.058, 0.057, 0.059, 0.061], seg(14), 2.2, [1, 0, 0], 'boot', shaftW
+      [[jAnk[0], 0.036, jAnk[2] + 0.008], [jAnk[0], 0.085, jAnk[2]], [jAnk[0], 0.155, jAnk[2]], [jAnk[0], 0.220, jAnk[2]], [jAnk[0], 0.262, jAnk[2]]],
+      [0.052, 0.056, 0.060, 0.066, 0.069], [0.058, 0.058, 0.061, 0.066, 0.069], seg(14), 2.2, [1, 0, 0], 'boot', shaftW, [false, false]
     );
 
     // Combat boot upper foot + toe box (smooth tapered heel -> rounded toe)
