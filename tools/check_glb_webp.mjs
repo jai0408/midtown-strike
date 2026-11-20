@@ -6,7 +6,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const FILES = ['src/maps/lodge_asset.js', 'src/world/lodge_props_asset.js', 'src/world/creatures_asset.js', 'src/game/weapons_glb.js'];
+const FILES = ['src/chars/soldier2_asset.js', 'src/maps/lodge_asset.js', 'src/world/lodge_props_asset.js', 'src/world/creatures_asset.js', 'src/game/weapons_glb.js'];
 const EXT = 'EXT_texture_webp';
 let glbs = 0, webp = 0, other = 0, errors = 0;
 const fail = (where, msg) => { errors++; console.log(`FAIL ${where}: ${msg}`); };

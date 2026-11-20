@@ -1,7 +1,8 @@
 // Shared base for the player and the bots: collision body, stances, mantling,
 // hit volumes, health and the link to the animated soldier model.
 import { makeBody, raySphere, rayCapsule, F_SOLID, STEP_HEIGHT } from '../core/physics.js';
-import { Soldier } from '../chars/soldier.js';
+import { Soldier as ClassicSoldier } from '../chars/soldier.js';
+import { Soldier as NewSoldier, isSoldier2Ready } from '../chars/soldier2.js';
 import { clamp, lerp, smooth, damp } from '../core/util.js';
 
 export const STAND = 0, CROUCH = 1, PRONE = 2;
@@ -17,9 +18,8 @@ export class Actor {
     this.name = name;
     this.isPlayer = false;
     this.body = makeBody(0.38, HEIGHTS[STAND]);
-    this.soldier = new Soldier(team === MARINES ? 'marine' : 'enemy');
-    this.soldier.mesh.castShadow = true;
-    game.scene.add(this.soldier.root);
+    this.soldier = null;
+    this.setSoldierModel(game.settings && game.settings.soldierModel === 'classic' ? 'classic' : 'new');
     this.yaw = 0;
     this.pitch = 0;
     this.stance = STAND;
@@ -53,6 +53,20 @@ export class Actor {
   get z() { return this.body.z; }
   eyeY() { return this.body.y + (this.sliding ? 0.95 : EYES[this.stance]); }
   chestY() { return this.body.y + (this.stance === PRONE ? 0.28 : this.stance === CROUCH ? 0.8 : 1.25); }
+
+  setSoldierModel(mode) {
+    const useNew = mode !== 'classic' && isSoldier2Ready();
+    const Ctor = useNew ? NewSoldier : ClassicSoldier;
+    if (this.soldier instanceof Ctor) return;
+    const prev = this.soldier;
+    const hadAllyMarker = prev ? prev.root.children.find((c) => c.isSprite) : null;
+    if (prev) prev.dispose();
+    this.soldier = new Ctor(this.team === MARINES ? 'marine' : 'enemy');
+    if (this.soldier.mesh) this.soldier.mesh.castShadow = true;
+    if (hadAllyMarker) this.soldier.root.add(hadAllyMarker);
+    this.game.scene.add(this.soldier.root);
+    if (this.def) this.setWeapon(this.def);
+  }
 
   setWeapon(def) {
     this.def = def;
@@ -230,6 +244,8 @@ export class Actor {
     sd.root.rotation.y = this.yaw;
     if (!detail) return;
     const st = this.sliding ? CROUCH : this.stance;
+    const cam = this.game.camera && this.game.camera.position;
+    const dist = cam ? Math.hypot(b.x - cam.x, b.z - cam.z) : 0;
     sd.update(dt, {
       speed: this.alive ? this.speed : 0,
       moveX: this.localX, moveZ: this.localZ,
@@ -239,8 +255,10 @@ export class Actor {
       air: (!b.onGround && !this.mantle) || !!this.mantle, slide: this.sliding,
       reload: this.reloadT >= 0 && this.def && this.def.reload ? this.reloadT / this.def.reload : -1,
       melee: this.meleeT >= 0 && this.def && this.def.swing ? this.meleeT / this.def.swing : -1,
+      throw: this.throwT >= 0 ? this.throwT / 0.6 : -1,
       dead: this.alive ? 0 : this.deadT / 0.55, deadDir: this.deadDir,
       groundY: b.onGround ? this.modelY : this.game.world.groundAt(b.x, b.z),
+      dist,
     });
   }
 
