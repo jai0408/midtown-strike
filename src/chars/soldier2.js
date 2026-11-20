@@ -183,6 +183,15 @@ const HOLD = {
 };
 HOLD.sniper = HOLD.rifle;
 
+// First person only: the camera sits just above the shoulders, so a straight arm
+// out to the handguard points away from the eye and reads as a pipe. Bring the
+// shoulders forward and down so the elbow bends and the forearm rises from below,
+// and keep the support wrist inside a natural bend so the cuff does not twist.
+const FP_SHOULDER = { L: [0.0, -0.08, -0.13], R: [0.0, -0.03, -0.06] };
+const NO_SHIFT = [0, 0, 0];
+const FP_WRIST_MAX = 0.35;    // rad (~20 deg) of left-wrist bend away from the forearm
+const FP_WRIST_PASSES = 2;    // re-solve the arm after limiting the wrist
+
 const HAND_FREE = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.25, 0, 0));
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _v4 = new THREE.Vector3();
 const _g1 = new THREE.Vector3(), _g2 = new THREE.Vector3(), _g3 = new THREE.Vector3();
@@ -377,16 +386,18 @@ export class Soldier {
     const restU = side === 'L' ? UPPER_DIR_L : UPPER_DIR_R;
     const restF = side === 'L' ? FORE_DIR_L : FORE_DIR_R;
     const cOff = clav ? clav.position : _v4.set(0, 0, 0);
-    const Sx = cOff.x + arm.userData.rest.x;
-    const Sy = cOff.y + arm.userData.rest.y;
-    const Sz = cOff.z + arm.userData.rest.z;
+    const sh = this._fpLongGun ? FP_SHOULDER[side] : NO_SHIFT;
+    const rest = arm.userData.rest;
+    const Sx = cOff.x + rest.x + sh[0];
+    const Sy = cOff.y + rest.y + sh[1];
+    const Sz = cOff.z + rest.z + sh[2];
 
     _v1.set(tx - Sx, ty - Sy, tz - Sz);
     let d = _v1.length();
     _v1.divideScalar(d || 1);
     const reach = UPPER_LEN + FORE_LEN - 0.005;
     const slack = clamp(d - reach, 0, 0.075);
-    arm.position.copy(arm.userData.rest).addScaledVector(_v1, slack);
+    arm.position.set(rest.x + sh[0], rest.y + sh[1], rest.z + sh[2]).addScaledVector(_v1, slack);
     d = clamp(d - slack, 0.08, reach);
 
     const cosA = clamp((UPPER_LEN * UPPER_LEN + d * d - FORE_LEN * FORE_LEN) / (2 * UPPER_LEN * d), -1, 1);
@@ -408,7 +419,10 @@ export class Soldier {
   /** Places both hands on the weapon grips (3P or 1P), with reload choreography. */
   gripWeapon(reload = -1) {
     const def = this.weaponDef, pts = this.points, w = this.weapon;
+    this._fpLongGun = false;
     if (!def || !pts || !w || def.pose === 'melee') return;
+    // pistols already sit close to the chest in first person; only long guns need the reach fix
+    this._fpLongGun = !!this.fpCam && def.pose !== 'pistol';
     const H = HOLD[def.pose] || HOLD.rifle, sc = w.scale.x, gm = this.gunMount, m = gm.matrix;
     _qR.copy(gm.quaternion).multiply(H.R);
     _qL.copy(gm.quaternion).multiply(H.L);
@@ -439,7 +453,30 @@ export class Soldier {
     b.handR.quaternion.copy(_qA).multiply(_qR);
     _qA.copy(b.armL.quaternion).multiply(b.foreL.quaternion).invert();
     b.handL.quaternion.copy(_qA).multiply(_qL);
+    if (this.fpCam) this._limitSupportWrist(lx + _g3.x, ly + _g3.y, lz + _g3.z, -out);
     if (onGun < 1) b.handL.quaternion.slerp(HAND_FREE, 1 - onGun);
+  }
+
+  /**
+   * First person: cap the left wrist bend, then re-aim the arm so the palm
+   * (not the wrist) stays on the grip point (gx, gy, gz, chest space).
+   */
+  _limitSupportWrist(gx, gy, gz, pole) {
+    const b = this.b, hand = b.handL.quaternion;
+    for (let i = 0; i < FP_WRIST_PASSES; i++) {
+      const bend = 2 * Math.acos(clamp(Math.abs(hand.w), 0, 1));
+      if (bend <= FP_WRIST_MAX) return;
+      _q1.identity().slerp(hand, FP_WRIST_MAX / bend);
+      // world (chest-space) orientation the hand will have after the limit
+      _qA.copy(b.armL.quaternion).multiply(b.foreL.quaternion).multiply(_q1);
+      _g3.copy(GRIP_L_LOCAL).applyQuaternion(_qA);
+      this._ik('L', gx - _g3.x, gy - _g3.y, gz - _g3.z, pole);
+      // keep that orientation under the re-solved forearm
+      hand.copy(b.armL.quaternion).multiply(b.foreL.quaternion).invert().multiply(_qA);
+    }
+    // the last re-solve can move the forearm again: hard-cap the bend that is left
+    const bend = 2 * Math.acos(clamp(Math.abs(hand.w), 0, 1));
+    if (bend > FP_WRIST_MAX) hand.copy(_q1.identity().slerp(hand, FP_WRIST_MAX / bend));
   }
 
   _playOnce(name, fadeIn = 0.08, timeScale = 1.0) {
