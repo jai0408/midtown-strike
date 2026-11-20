@@ -4237,12 +4237,12 @@ def setup_preview_scene(glb_path, trees, bushes, sun_dir):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=glb_path)
     sc = bpy.context.scene
-    for eng in ("BLENDER_EEVEE", "BLENDER_EEVEE_NEXT", "BLENDER_WORKBENCH"):
-        try:
-            sc.render.engine = eng
-            break
-        except Exception:
-            continue
+    sc.render.engine = "CYCLES"
+    try:
+        sc.cycles.device = "CPU"
+        sc.cycles.samples = 8
+    except Exception:
+        pass
     try:
         sc.eevee.taa_render_samples = 24
     except Exception:
