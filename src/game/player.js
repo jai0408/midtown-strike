@@ -76,6 +76,13 @@ export class Player extends Actor {
     this.oobT = 0;
     this.stats = { shots: 0, hits: 0, headshots: 0, damage: 0 };
     this.aimDir = new THREE.Vector3(0, 0, -1);
+    // FPP weapon & camera polish state (inertial sway, landing spring, slide roll, breathing)
+    this._swayX = 0;
+    this._swayY = 0;
+    this._landDip = 0;
+    this._camRoll = 0;
+    this._breathT = 0;
+    this._switchDur = 0.5;
   }
 
   get cur() { return this.slots[this.slot]; }
@@ -91,12 +98,14 @@ export class Player extends Actor {
     this.slot = 0;
     this.setWeapon(this.slots[0].def);
     this.switchT = 0.3;
+    this._switchDur = 0.3;
     this.adsWanted = false;
     this.recoilP = 0;
     this.bloom = 0;
     this.camY = this.body.y + EYES[STAND];
     this.throwT = -1;
     this.oobT = 0;
+    this._swayX = 0; this._swayY = 0; this._landDip = 0; this._camRoll = 0;
   }
 
   selectSlot(i) {
@@ -105,6 +114,7 @@ export class Player extends Actor {
     this.slot = i;
     this.setWeapon(this.slots[i].def);
     this.switchT = this.def.cat === 'melee' ? 0.25 : this.def.cat === 'handgun' ? 0.32 : 0.5;
+    this._switchDur = this.switchT;
     this.reloadT = -1;
     this.meleeT = -1;
     this.burstLeft = 0;
@@ -153,8 +163,13 @@ export class Player extends Actor {
     let assist = 1;
     if (set.aimAssist && this.aimActor && input.touchLook) assist = this.aimOn ? 0.5 : 0.72;
     const sens = set.sensitivity * zoom * assist;
-    this.yaw -= input.lookX * sens;
-    this.pitch = clamp(this.pitch - input.lookY * sens * (set.invertY ? -1 : 1), this.stance === PRONE ? -0.55 : -1.3, this.stance === PRONE ? 0.7 : 1.3);
+    const dYawLook = -input.lookX * sens;
+    const dPitchLook = -input.lookY * sens * (set.invertY ? -1 : 1);
+    this.yaw += dYawLook;
+    this.pitch = clamp(this.pitch + dPitchLook, this.stance === PRONE ? -0.55 : -1.3, this.stance === PRONE ? 0.7 : 1.3);
+    this._swayX = damp(this._swayX, clamp(-dYawLook * 1.4, -0.06, 0.06), 12, dt);
+    this._swayY = damp(this._swayY, clamp(-dPitchLook * 1.2, -0.05, 0.05), 12, dt);
+    this._breathT += dt;
     if (this.snap) {
       // gentle pull onto the target when bringing the sights up
       const s = this.snap, a = s.actor;
@@ -206,6 +221,7 @@ export class Player extends Actor {
       } else if (!this.tryMantle() && b.onGround) {
         b.vy = JUMP_V;
         b.onGround = false;
+        this._landDip = Math.min(this._landDip + 0.035, 0.05);
         g.audio.step(1.4);
       }
     }
@@ -247,9 +263,13 @@ export class Player extends Actor {
       if (!b.onGround && b.hitBox >= 0 && input.moveY > 0.5 && b.vy < 3) this.tryMantle(1.6);
     }
     if (!wasGround && b.onGround) {
+      this._landDip = -clamp(b.landSpeed / 10, 0.025, 0.09);
       if (b.landSpeed > 5) { g.audio.land(clamp(b.landSpeed / 12, 0.4, 1.2)); g.fx.dust(b.x, b.y, b.z, 3); this.shakeP -= 0.02; }
       if (b.landSpeed > 13.5) this.takeDamage((b.landSpeed - 13.5) * 9, null, null, false, b.x, b.z);
     }
+    this._landDip = damp(this._landDip, 0, 11, dt);
+    const targetRoll = this.sliding ? 0.042 : -input.moveX * 0.018 * (1 - this.adsK * 0.7);
+    this._camRoll = damp(this._camRoll, targetRoll, 10, dt);
     // footsteps
     if (b.onGround && this.speed > 1.2 && !this.sliding) {
       this.stepT -= dt * this.speed;
@@ -397,14 +417,39 @@ export class Player extends Actor {
     const hip = FP_HIP[def.id] || H.hip;
     let x = lerp(hip[0], 0, ads), y = lerp(hip[1], 0, ads), z = lerp(hip[2], FP_EYE[def.id] || H.ads, ads);
     let rx = 0, ry = lerp(0.04, 0, ads), rz = 0;
+    // subtle idle figure-8 breathing sway
+    const idleB = (1 - ads * 0.75) * (1 - sd.moveK * 0.6);
+    x += Math.sin(this._breathT * 1.35) * 0.0022 * idleB;
+    y += Math.sin(this._breathT * 2.70) * 0.0018 * idleB;
+    // walk/run bob
     x += sw * 0.007 * amp; y += -Math.abs(cw) * 0.009 * amp;
     rz += sw * 0.02 * amp;
+    // inertial look sway (reduced in ADS)
+    const swayK = 1 - ads * 0.82;
+    x += this._swayX * 0.38 * swayK; y += this._swayY * 0.32 * swayK;
+    rx += this._swayY * 0.75 * swayK; ry += this._swayX * 0.9 * swayK; rz += -this._swayX * 0.6 * swayK;
+    // landing dip & jump lift spring
+    const dipK = 1 - ads * 0.65;
+    y += this._landDip * 0.45 * dipK;
+    rx += this._landDip * 0.95 * dipK;
     // sprint: rifle swung across the chest, muzzle down
     x = lerp(x, 0.02, sprint); y = lerp(y, -0.17, sprint); z = lerp(z, -0.08, sprint);
     rx = lerp(rx, -0.45, sprint); ry = lerp(ry, 0.75, sprint); rz = lerp(rz, 0.35, sprint);
+    // slide: tactical canted rifle (~22 deg) when sliding in FPP
+    const sl = sd.slideK * (1 - ads) * (1 - reload);
+    if (sl > 0.005) {
+      x = lerp(x, x + 0.035, sl); y = lerp(y, y - 0.04, sl);
+      rx += -0.06 * sl; ry += 0.14 * sl; rz += 0.38 * sl;
+    }
     // reload: tilt the magazine well towards the support hand
     y = lerp(y, y - 0.05, reload); z = lerp(z, z + 0.03, reload);
     rx += 0.32 * reload; ry += 0.22 * reload; rz += -0.5 * reload;
+    // weapon equip / switch raise animation
+    if (this.switchT > 0) {
+      const swK = smooth(clamp(this.switchT / (this._switchDur || 0.4), 0, 1));
+      y -= 0.22 * swK; z += 0.07 * swK;
+      rx -= 0.68 * swK; rz += 0.24 * swK;
+    }
     // recoil kick
     z += sd.kick * 0.05; rx += sd.kick * 0.07;
     // mount (camera space) = T(x, y, z) * R * T(-sight * sc)
@@ -584,7 +629,7 @@ export class Player extends Actor {
       // the view never ends up inside the chest rig
       const fwd = 0.1 + Math.max(0, -this.pitch) * 0.3;
       const hx = -Math.sin(this.yaw), hz = -Math.cos(this.yaw);
-      cam.position.set(px + hx * fwd, this.camY + 0.03 - Math.max(0, -this.pitch) * 0.06, pz + hz * fwd);
+      cam.position.set(px + hx * fwd, this.camY + 0.03 + this._landDip * 0.35 - Math.max(0, -this.pitch) * 0.06, pz + hz * fwd);
       // lying down the body stretches out ahead of the hips: put the eyes at the
       // head (from the chest, which is never hidden), just in front of the face,
       // so the view is not from inside the shoulders and the hidden head
@@ -596,8 +641,10 @@ export class Player extends Actor {
       if (cam.position.y < floor) cam.position.y = floor;
     }
     const shake = g.fx.shake;
-    cam.rotation.set(this.pitch + this.shakeP + rand(-1, 1) * shake * 0.03, this.yaw + this.shakeY + rand(-1, 1) * shake * 0.03, rand(-1, 1) * shake * 0.02, 'YXZ');
-    const fov = lerp(BASE_FOV + (this.sprinting ? 5 : 0), def.adsFov || BASE_FOV, ads);
+    const roll = fp && !this.scoped ? this._camRoll : 0;
+    cam.rotation.set(this.pitch + this.shakeP + rand(-1, 1) * shake * 0.03, this.yaw + this.shakeY + rand(-1, 1) * shake * 0.03, roll + rand(-1, 1) * shake * 0.02, 'YXZ');
+    const fovBoost = this.sliding ? 9 : (this.sprinting ? 5 : 0);
+    const fov = lerp(BASE_FOV + fovBoost, def.adsFov || BASE_FOV, ads);
     const f = damp(cam.fov, fov, 18, dt);
     if (Math.abs(f - cam.fov) > 0.01) { cam.fov = f; cam.updateProjectionMatrix(); }
     // do not look through our own head when the camera is squeezed in

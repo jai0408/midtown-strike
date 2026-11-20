@@ -433,20 +433,30 @@ function buildSoldierMesh(lod) {
     headRows.map((r) => [r[4], r[3]]),
     seg(18), 2.15, [1, 0, 0], 'balaclava', headW
   );
-  // Subtle nose bridge bump under balaclava
-  addRoundedBox(mb, [0.026, 0.042, 0.032], [0, 1.678, -0.098], [0.22, 0, 0], bseg(2), 2.4, 'balaclava', rigidW('head'));
+  // Sculpted tactical lower-face half-mask / jaw & nose guard (replaces flat black slab look)
+  addRoundedBox(mb, [0.028, 0.044, 0.034], [0, 1.676, -0.100], [0.24, 0, 0], bseg(2), 2.6, 'balaclava', rigidW('head'));
+  addRoundedBox(mb, [0.118, 0.068, 0.048], [0, 1.628, -0.082], [-0.14, 0, 0], bseg(2), 2.8, 'pads', rigidW('head'));
 
-  // ---- BALLISTIC GOGGLES / EYEWEAR -----------------------------------------
+  // ---- BALLISTIC GOGGLES / TACTICAL VISOR + HELMET STRAP -------------------
   const gogPath = [];
-  const gSteps = lod === 0 ? 12 : 7;
+  const gSteps = lod === 0 ? 14 : 8;
   for (let k = 0; k <= gSteps; k++) {
-    const ph = (-72 + (144 * k) / gSteps) * (Math.PI / 180);
-    gogPath.push([0.093 * Math.sin(ph), 1.702, -0.108 * Math.cos(ph)]);
+    const ph = (-76 + (152 * k) / gSteps) * (Math.PI / 180);
+    gogPath.push([0.098 * Math.sin(ph), 1.704, -0.114 * Math.cos(ph)]);
   }
-  addTube(mb, gogPath, 0.026, 0.005, seg(8), 3.2, [0, 1, 0], 'lens', rigidW('head'));
-  // Goggle frame rim top & bottom
-  addTube(mb, gogPath.map((p) => [p[0], p[1] + 0.024, p[2] - 0.002]), 0.006, 0.006, 6, 2.2, [0, 1, 0], 'pads', rigidW('head'));
-  addTube(mb, gogPath.map((p) => [p[0], p[1] - 0.024, p[2] - 0.002]), 0.005, 0.005, 6, 2.2, [0, 1, 0], 'pads', rigidW('head'));
+  addTube(mb, gogPath, 0.029, 0.007, seg(8), 3.6, [0, 1, 0], 'lens', rigidW('head'));
+  // Chunky ballistic goggle frame rims (top brow shield + lower cheek rim + center nose bridge)
+  addTube(mb, gogPath.map((p) => [p[0], p[1] + 0.027, p[2] - 0.003]), 0.008, 0.009, 6, 2.6, [0, 1, 0], 'pads', rigidW('head'));
+  addTube(mb, gogPath.map((p) => [p[0], p[1] - 0.026, p[2] - 0.003]), 0.007, 0.008, 6, 2.6, [0, 1, 0], 'pads', rigidW('head'));
+  // Elastic goggle strap wrapping around rear of helmet
+  if (lod === 0) {
+    const strapPath = [];
+    for (let k = 0; k <= 12; k++) {
+      const ph = (76 + (208 * k) / 12) * (Math.PI / 180);
+      strapPath.push([0.114 * Math.sin(ph), 1.706, 0.008 - 0.130 * Math.cos(ph)]);
+    }
+    addTube(mb, strapPath, 0.015, 0.004, 6, 3.0, [0, 1, 0], 'gearDark', rigidW('head'));
+  }
 
   // ---- TACTICAL HELMET (FAST / MICH high-cut, top at 1.832m) ---------------
   const hSeg = seg(24), hRings = lod === 0 ? 8 : 5;
@@ -852,13 +862,16 @@ function buildPBRTextures(SIZE = 2048) {
           rough = clamp(0.84 + (grime - 0.5) * 0.12 - edgeWear * 0.08, 0.65, 0.96);
           ao = clamp(0.78 + isStrap * 0.18 - bartack * 0.12, 0.55, 1.0);
         } else if (box.name === 'balaclava') {
-          // Dark charcoal ribbed tactical balaclava
+          // Tactical ribbed charcoal-olive balaclava with cheek seams & perforated mouth breather mesh
           const rib = Math.sin(lu * Math.PI * 96) * 0.5 + 0.5;
           const n = fbm(lu * 14, lv * 14, 2, 333);
-          const v = 34 + rib * 10 + n * 12;
-          r = v * 0.96; g = v * 0.98; b = v * 1.04;
-          h = 0.45 + rib * 0.25 + (n - 0.5) * 0.15;
-          rough = 0.90; ao = 0.82 + rib * 0.12;
+          const frontMask = Math.exp(-Math.pow((lu - 0.75) * 9.0, 2)) * (lv > 0.22 && lv < 0.62 ? 1 : 0);
+          const meshDot = frontMask > 0.25 && ((x % 4) < 2) && ((y % 4) < 2) ? 1 : 0;
+          const seam = (Math.abs(lu - 0.63) < 0.008 || Math.abs(lu - 0.87) < 0.008) ? 1 : 0;
+          const v = 46 + rib * 12 + n * 14 + frontMask * 10 - meshDot * 20 - seam * 14;
+          r = v * 0.95; g = v * 0.98; b = v * 1.04;
+          h = 0.45 + rib * 0.22 + (n - 0.5) * 0.15 - meshDot * 0.28 + seam * 0.20;
+          rough = 0.86; ao = 0.82 + rib * 0.12 - meshDot * 0.18;
         } else if (box.name === 'boot') {
           // Coyote suede combat boot with lace rows and mud/dust near bottom
           const grain = fbm(lu * 45, lv * 45, 3, 701);
@@ -880,9 +893,9 @@ function buildPBRTextures(SIZE = 2048) {
           h = 0.5 + (knit - 0.99) * 1.6 + (n - 0.5) * 0.3;
           rough = 0.72; ao = 0.85;
         } else if (box.name === 'pads') {
-          // Hard-shell polymer knee/elbow pads with scuffs
+          // Hard-shell polymer knee/elbow pads & mask guard with scuffs
           const scuff = fbm(lu * 18, lv * 18, 3, 911);
-          const v = 42 + edgeWear * 26 + scuff * 14;
+          const v = 46 + edgeWear * 28 + scuff * 14;
           r = v; g = v * 0.99; b = v * 0.96;
           h = 0.5 + (scuff - 0.5) * 0.25;
           rough = clamp(0.52 - edgeWear * 0.12 + scuff * 0.12, 0.36, 0.72);
@@ -905,11 +918,14 @@ function buildPBRTextures(SIZE = 2048) {
           rough = clamp(0.32 + (brush - 0.5) * 0.12, 0.26, 0.50);
           metal = 0.82; ao = 0.90;
         } else if (box.name === 'lens') {
-          // Dark tinted ballistic eyewear lens (phone-safe roughness >= 0.16)
-          const sheen = Math.pow(1 - Math.abs(lu - 0.5) * 2, 2);
-          r = 18 + sheen * 16; g = 24 + sheen * 22; b = 32 + sheen * 30;
+          // Reflective polarized ballistic visor (amber-blue anti-glare gradient, phone-safe roughness >= 0.16)
+          const sheen = Math.pow(1 - Math.abs(lu - 0.5) * 1.8, 2);
+          const band = Math.exp(-Math.pow((lv - 0.35) * 4.5, 2));
+          r = 26 + sheen * 36 + band * 44;
+          g = 42 + sheen * 54 + band * 52;
+          b = 64 + sheen * 72 + band * 40;
           h = 0.55;
-          rough = 0.18; metal = 0.15; ao = 0.95;
+          rough = 0.16; metal = 0.38; ao = 0.96;
         } else if (box.name === 'flag') {
           // Subdued tactical US flag patch
           const stripe = Math.floor(lv * 13);
