@@ -1,5 +1,8 @@
 """Imports the three owner-supplied Sketchfab weapon models into the game.
 
+NOTE: the generated asset module is post-processed by tools/recompress_assets.py (textures re-encoded as WebP,
+GLB images via EXT_texture_webp). Run it after this script; do not hand-edit the output.
+
     /Applications/Blender.app/Contents/MacOS/Blender --background --python tools/blender/import_weapons.py
 
 Sources (never modified, in the folder above the repo):

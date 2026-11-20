@@ -1,5 +1,8 @@
 """Cedar Lodge map builder (Blender 5 headless).
 
+NOTE: the generated asset module is post-processed by tools/recompress_assets.py (textures re-encoded as WebP,
+GLB images via EXT_texture_webp). Run it after this script; do not hand-edit the output.
+
 Run:  /Applications/Blender.app/Contents/MacOS/Blender --background --python tools/blender/build_lodge.py
 
 Everything is procedural (numpy + Blender built-ins only):
@@ -2690,30 +2693,8 @@ def build_backdrop():
     c = c * (1 - smooth(40, 110, h))[:, None] + rockc[None, :] * (0.85 + 0.3 * n)[:, None] * smooth(40, 110, h)[:, None]
     c = c * (1 - smooth(170, 230, h + 30 * (n - 0.5)))[:, None] + snow[None, :] * smooth(170, 230, h + 30 * (n - 0.5))[:, None]
     emit("mountain", V, N, np.zeros((len(V), 2)), I, colors=np.clip(c * 0.9, 0, 1))
-    # forest silhouette: cone clusters on the terrain outside the playable area
-    rs = np.random.RandomState(77)
-    cnt = 0
-    for _ in range(4000):
-        x, z = rs.uniform(-158, 158, 2)
-        if max(abs(x) - 70, abs(z) - 80) < 0 or (z < -50 and abs(x) < 80):
-            continue
-        h0 = float(gh(x, z))
-        if h0 < -0.5:
-            continue
-        s = rs.uniform(0.9, 1.7)
-        hgt, rad = 13 * s, 2.6 * s
-        n_ = 5
-        ang = np.linspace(0, 2 * math.pi, n_, endpoint=False)
-        Pq = np.array([(x + rad * math.cos(t), h0 - 0.3, z + rad * math.sin(t)) for t in ang] + [(x, h0 + hgt, z)])
-        Nq = np.array([(math.cos(t), 0.5, math.sin(t)) for t in ang] + [(0, 1, 0)])
-        Nq /= np.linalg.norm(Nq, axis=1, keepdims=True)
-        col_ = np.array(hexl(["#243f2c", "#2a4a33", "#1f3a28"][rs.randint(3)])) * (0.8 + 0.4 * rs.rand())
-        cc = np.tile(col_, (n_ + 1, 1)) * np.array([[0.7]] * n_ + [[1.2]])
-        Iq = np.array([(k, (k + 1) % n_, n_) for k in range(n_)])
-        emit("mountain", Pq, Nq, np.zeros((n_ + 1, 2)), Iq, colors=np.clip(cc, 0, 1))
-        cnt += 1
-        if cnt >= 260:
-            break
+    # (the forest beyond the playable area used to be pale 5-sided cones here; it is now
+    # real trees in the foliage list, see the far forest in place_foliage(), drawn as impostors)
 
 
 # ----------------------------------------------------------------------------------------------
@@ -2874,6 +2855,22 @@ def place_foliage(slopes=None):
         if abs(x) < 20 and abs(z) < 22:
             continue
         add_bush(x, z, ["bush", "fern", "bush"][rs.randint(3)])
+    # 4) far forest on the slopes outside the playable area (where the old cone silhouette
+    # stood): real pines and spruce, which the engine draws as 8-triangle impostors at range
+    rf = np.random.RandomState(77)
+    far = 0
+    for _ in range(6000):
+        x, z = rf.uniform(-158, 158, 2)
+        if max(abs(x) - 70, abs(z) - 80) < 0 or (z < -50 and abs(x) < 80):
+            continue
+        h = float(gh(x, z))
+        if h < -0.5:
+            continue
+        kind = "pine" if rf.rand() < 0.55 else "spruce"
+        trees.append([round(x, 2), round(h, 2), round(z, 2), round(rf.uniform(1.0, 1.6), 2), round(rf.uniform(0, 6.283), 2), kind])
+        far += 1
+        if far >= 320:
+            break
     return trees, bushes
 
 # ----------------------------------------------------------------------------------------------

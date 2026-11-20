@@ -200,6 +200,36 @@ export function createKoiPond({ x: cx = POND.x, z: cz = POND.z, groundAt, world 
       owned.geos.push(m.geometry);
       if (name === 'pond_rock') {
         follow(m.geometry, () => 1);
+        // every boulder came out the same dark grey: vary each one (by its world position,
+        // coarse enough that one stone keeps one tone) between granite grey, warm sandstone
+        // and dark basalt, and grow moss on the up-facing tops
+        const mat = m.material;
+        mat.customProgramCacheKey = () => 'koi-pond-rock-1';
+        mat.onBeforeCompile = (shader) => {
+          shader.vertexShader = shader.vertexShader
+            .replace('#include <common>', '#include <common>\nvarying vec3 vRPos;\nvarying float vUp;')
+            .replace('#include <begin_vertex>', `#include <begin_vertex>
+              vRPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+              vUp = (modelMatrix * vec4(objectNormal, 0.0)).y;`);
+          shader.fragmentShader = shader.fragmentShader
+            .replace('#include <common>', `#include <common>
+              varying vec3 vRPos;
+              varying float vUp;
+              // small, bounded hash (world coords are within a few hundred metres here)
+              float rockHash(vec2 p) { p = fract(p * vec2(0.1031, 0.1030)); p += dot(p, p.yx + 33.33); return fract((p.x + p.y) * p.x); }`)
+            .replace('#include <map_fragment>', `#include <map_fragment>
+              {
+                float hsel = rockHash(floor(vRPos.xz / 0.7));
+                vec3 tone = hsel < 0.4 ? vec3(0.92, 0.92, 0.95)        // granite
+                          : hsel < 0.75 ? vec3(1.18, 1.02, 0.82)       // sandstone
+                          : vec3(0.62, 0.64, 0.66);                     // basalt
+                float fine = 0.88 + 0.24 * rockHash(floor(vRPos.xz * 6.0) + floor(vRPos.y * 6.0));
+                diffuseColor.rgb *= tone * fine;
+                float moss = smoothstep(0.55, 0.9, vUp) * smoothstep(0.25, 0.7, rockHash(floor(vRPos.xz / 0.35) + 7.0));
+                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.20, 0.27, 0.11), moss * 0.7);
+              }`);
+        };
+        mat.needsUpdate = true;
       } else if (name === 'pond_floor') {
         follow(m.geometry, (px, pz) => smoothstep(0.8, 1.0, relR(px, pz)));
         const mat = m.material;

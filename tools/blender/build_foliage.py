@@ -1,5 +1,8 @@
 """Builds the Cedar Lodge vegetation: pine x2, spruce, birch x2, bush x2, fern and a grass tuft.
 
+NOTE: the generated asset module is post-processed by tools/recompress_assets.py (textures re-encoded as WebP,
+GLB images via EXT_texture_webp). Run it after this script; do not hand-edit the output.
+
     /Applications/Blender.app/Contents/MacOS/Blender --background --python tools/blender/build_foliage.py
 
 Everything is procedural (no downloaded assets):
