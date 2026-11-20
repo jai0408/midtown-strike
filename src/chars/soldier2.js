@@ -31,9 +31,17 @@ function decodeBase64(b64) {
   return bytes.buffer;
 }
 
+const UPPER_BODY_BONES = new Set([
+  'chest', 'neck', 'head',
+  'clavicleL', 'clavicleR', 'upperArmL', 'upperArmR',
+  'forearmL', 'forearmR', 'handL', 'handR',
+  'thumbL', 'thumbR', 'fingersL', 'fingersR',
+]);
+const UPPER_ONLY_CLIPS = new Set(['reload', 'melee', 'grenade', 'hit_flinch']);
+
 function makeTintedColorMap(baseTex, kind) {
   const img = baseTex && baseTex.image;
-  if (!img) return baseTex;
+  if (!img || typeof document === 'undefined') return baseTex;
   const w = img.width || 2048, h = img.height || 2048;
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
@@ -85,7 +93,17 @@ export async function loadSoldier2Assets() {
       m.needsUpdate = true;
       materials[kind] = m;
     }
-    asset = { scene: gltf.scene, clips: gltf.animations || [], materials };
+    // Keep only upper-body tracks on action clips so prone/crouch postures never pop upright
+    const clips = (gltf.animations || []).map((clip) => {
+      if (!UPPER_ONLY_CLIPS.has(clip.name)) return clip;
+      const filtered = clip.tracks.filter((tr) => {
+        const dot = tr.name.indexOf('.');
+        const bone = dot >= 0 ? tr.name.slice(0, dot) : tr.name;
+        return UPPER_BODY_BONES.has(bone);
+      });
+      return new THREE.AnimationClip(clip.name, clip.duration, filtered);
+    });
+    asset = { scene: gltf.scene, clips, materials };
     return true;
   } catch (e) {
     console.warn('loadSoldier2Assets failed:', e);
@@ -293,6 +311,7 @@ export class Soldier {
 
     // Internal clip state trackers (phase-locked locomotion + staged posture + inertial lean)
     this._w = Object.fromEntries(LOOP_CLIPS.map((n) => [n, n === 'idle' ? 1 : 0]));
+    this._tgt = Object.fromEntries(LOOP_CLIPS.map((n) => [n, 0]));
     this._posture = 0;       // continuous 0=stand -> 1=crouch -> 2=prone (passes smoothly through crouch)
     this._prevYaw = 0;
     this._turnRate = 0;
@@ -492,7 +511,8 @@ export class Soldier {
 
     if (this.mixer) {
       // --- Compute target weights for all cyclic clips ----------------------
-      const tgt = Object.fromEntries(LOOP_CLIPS.map((n) => [n, 0]));
+      const tgt = this._tgt;
+      for (let i = 0; i < LOOP_CLIPS.length; i++) tgt[LOOP_CLIPS[i]] = 0;
       const aliveW = dead > 0.01 ? 0 : 1;
 
       if (aliveW > 0) {
@@ -592,8 +612,8 @@ export class Soldier {
       }
 
       // --- One-shot action triggers -----------------------------------------
-      if (s.air && !this._wasAir && aliveW > 0) this._playOnce('jump_start', 0.07, 1.0);
-      if (!s.air && this._wasAir && aliveW > 0) this._playOnce('land', 0.05, 1.0);
+      if (s.air && !this._wasAir && aliveW > 0 && this._posture < 0.5) this._playOnce('jump_start', 0.07, 1.0);
+      if (!s.air && this._wasAir && aliveW > 0 && this._posture < 0.5) this._playOnce('land', 0.05, 1.0);
       this._wasAir = !!s.air;
 
       const isDead = dead > 0.01;
