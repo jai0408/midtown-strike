@@ -838,11 +838,54 @@ def build_bus_geometry(old=False):
                 for p, q in ((a, b), (b, c), (c, d), (d, a)):
                     tris += [[p, q, q + np.array([0, -0.055, 0])], [p, q + np.array([0, -0.055, 0]), p + np.array([0, -0.055, 0])]]
         return np.array(tris, np.float32), gl
+    def rear_face(ring):
+        cols = [-1.0, -0.84, -0.46, -0.38, 0.38, 0.46, 0.84, 1.0]
+        rows = []
+        for j in range(NR):
+            xr = abs(ring[j][0]) if j < NR else 0
+            rows.append([np.array([s * xr, ring[j][1], ring[j][2]], np.float32) for s in cols])
+        tris, gl, frames = [], [], []
+        for j in range(NR - 1):
+            for k in range(len(cols) - 1):
+                a, b, c, d = rows[j][k], rows[j][k + 1], rows[j + 1][k + 1], rows[j + 1][k]
+                if k in (1, 3, 5) and j in (5, 6):
+                    continue
+                tris += [[a, b, c], [a, c, d]]
+        for k in (1, 3, 5):
+            a, b, c, d = rows[5][k], rows[5][k + 1], rows[7][k + 1], rows[7][k]
+            # Glass panel quad (recessed inside the window opening, oriented outward towards -y)
+            g_b = b + np.array([0, 0.040, 0.012], np.float32)
+            g_a = a + np.array([0, 0.040, 0.012], np.float32)
+            g_d = d + np.array([0, 0.040, -0.012], np.float32)
+            g_c = c + np.array([0, 0.040, -0.012], np.float32)
+            gl.append([g_b, g_a, g_d, g_c])
+            # Inner reveal walls (inset into the bus toward +y)
+            dy = 0.055
+            for p, q in ((a, b), (b, c), (c, d), (d, a)):
+                frames += [[p, q, q + np.array([0, dy, 0], np.float32)], [p, q + np.array([0, dy, 0], np.float32), p + np.array([0, dy, 0], np.float32)]]
+            # Outer raised rubber gasket frame around the cutout
+            Wf = 0.024
+            ao = a + np.array([-Wf, -0.008, -Wf], np.float32)
+            bo = b + np.array([Wf, -0.008, -Wf], np.float32)
+            co = c + np.array([Wf, -0.008, Wf], np.float32)
+            do = d + np.array([-Wf, -0.008, Wf], np.float32)
+            ai = a + np.array([0, -0.002, 0], np.float32)
+            bi = b + np.array([0, -0.002, 0], np.float32)
+            ci = c + np.array([0, -0.002, 0], np.float32)
+            di = d + np.array([0, -0.002, 0], np.float32)
+            for po, qo, pi, qi in ((ao, bo, ai, bi), (bo, co, bi, ci), (co, do, ci, di), (do, ao, di, ai)):
+                frames += [[po, qo, qi], [po, qi, pi]]
+        fr_arr = np.array(frames, np.float32) if len(frames) else np.zeros((0, 3, 3), np.float32)
+        if len(fr_arr):
+            fn, _ = tri_normals(fr_arr)
+            bad_fr = (fn[:, 1] > 0.0) & (np.abs(fn[:, 1]) > 0.3)
+            fr_arr[bad_fr] = fr_arr[bad_fr][:, ::-1]
+        return np.array(tris, np.float32), gl, fr_arr
     def ring_of(si):
         return [V[si, i] for i in range(NR)] if False else [V[si, full.index(j)] for j in range(NR)]
     rear_ring = [V[0, j] for j in range(NR)]
     front_ring = [V[-1, j] for j in range(NR)]
-    rf, _ = face(rear_ring, False)
+    rf, rglass, rframe = rear_face(rear_ring)
     ff, fglass = face(front_ring, True)
     for P in (rf, ff):
         c = P.mean(1)
@@ -854,10 +897,14 @@ def build_bus_geometry(old=False):
         flat = np.abs(n[:, 1]) > 0.5
         P2[bad & flat] = P2[bad & flat][:, ::-1]
         S.add(P2, S_PAINT, tag="body")
+    if len(rframe):
+        S.add(rframe, S_BLACK, tag="body")
     glass = []
     for sd, gq in bp["glass"]:
         glass.append(np.array(gq, np.float32))
     for g in fglass:
+        glass.append(np.array(g, np.float32))
+    for g in rglass:
         glass.append(np.array(g, np.float32))
     # bottom / floor
     S.add(box_tris((0, (Y_REAR + Y_FRONT) / 2 - 0.1, Z0 + 0.01), (2.3, Y_FRONT - Y_REAR - 0.5, 0.02)), S_UNDER, chart="sw", tag="body")
@@ -1357,8 +1404,13 @@ def paint_bus(wear, seed, A, Nn, SURF, CH, LC, AO, PX, size, rects, keys_list):
     alb[dr & ~low] = np.array([0.012, 0.014, 0.016], np.float32)
     # ---------------- rear door + window frames (rear face) + panel lines
     rear = (Nn[:, 1] < -0.6) & (y < -5.2)
-    rwin = rear & (ax < 0.5) & (z > 1.55) & (z < 2.5)
-    alb[rwin & is_p] = np.array([0.008, 0.010, 0.012], np.float32)
+    rgasket = rear & is_p & (z > 1.50) & (z < 2.47) & (
+        ((ax > 0.35) & (ax < 0.41)) | ((ax > 0.43) & (ax < 0.49)) |
+        ((ax > 0.81) & (ax < 0.87)) |
+        (np.abs(z - 1.55) < 0.025) | (np.abs(z - 2.42) < 0.025)
+    )
+    alb[rgasket] = np.array([0.015, 0.015, 0.018], np.float32)
+    rough[rgasket] = 0.85
     front = (Nn[:, 1] > 0.6) & (y > 2.9) & (y < 3.6)
     # SCHOOL BUS header sign (front & rear)
     for ysd, fr in ((1, front), (-1, rear)):
