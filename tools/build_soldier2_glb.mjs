@@ -983,7 +983,7 @@ function aimRestBone(restDir, targetDir, front) {
 }
 
 // Solve 2-bone leg IK in hips-local space, returning local rotations [qThigh, qShin, qFoot, qToe]
-function solveLegIK(side, ankleModel, footPitch, footYaw, toePitch, hipsPos, hipsQ) {
+function solveLegIK(side, ankleModel, footPitch, footYaw, toePitch, hipsPos, hipsQ, kneeOut = 0.22) {
   const s = side === 'L' ? -1 : 1;
   const invHipsQ = qConj(hipsQ);
   const thighRest = REST_L[BI['thigh' + side]];
@@ -994,11 +994,17 @@ function solveLegIK(side, ankleModel, footPitch, footYaw, toePitch, hipsPos, hip
   const rel = sub(target, thighRest);
   let d = vlen(rel);
   const dir = d > 1e-5 ? mul(rel, 1 / d) : [0, -1, 0];
-  d = clamp(d, 0.14, LEG_MAX);
+  // Soft knee-lock cushion prevents robotic hyper-extension snapping at full leg reach
+  const softMax = LEG_MAX - 0.008;
+  d = clamp(d, 0.14, softMax);
   const cosA = clamp((THIGH_L * THIGH_L + d * d - SHIN_L * SHIN_L) / (2 * THIGH_L * d), -1, 1);
   const sinA = Math.sqrt(Math.max(0, 1 - cosA * cosA));
-  // Knee pole: forward (-Z) and slightly outward
-  const poleModel = [-Math.sin(footYaw) + s * 0.18 * Math.cos(footYaw), 0, -Math.cos(footYaw) - s * 0.18 * Math.sin(footYaw)];
+  // Knee pole: forward (-Z) and naturally slightly outward along foot heading
+  const poleModel = [
+    -Math.sin(footYaw) + s * kneeOut * Math.cos(footYaw),
+    0.04,
+    -Math.cos(footYaw) - s * kneeOut * Math.sin(footYaw),
+  ];
   let pole = qApply(invHipsQ, poleModel);
   pole = sub(pole, mul(dir, dot(pole, dir)));
   pole = vlen(pole) > 1e-4 ? norm(pole) : [0, 0, -1];
@@ -1033,14 +1039,14 @@ function aimBoneWithRef(restDir, targetDir, restRef, targetRef) {
 }
 
 // Analytical 2-bone arm IK in chest-local space (A-pose rest -> exact rifle grip pose)
-function solveArmIK(side, handTargetChest, elbowPoleChest, palmInChest) {
+function solveArmIK(side, handTargetChest, elbowPoleChest, palmInChest, clavShrug = 0, clavFwd = 0) {
   const s = side === 'L' ? -1 : 1;
   const clavOff = REST_L[BI['clavicle' + side]];
   const upOff   = REST_L[BI['upperArm' + side]];
   const uRest   = REST_L[BI['forearm' + side]];
   const fRest   = REST_L[BI['hand' + side]];
   const lenU = vlen(uRest), lenF = vlen(fRest);
-  const qClav = qEulerYXZ(0, s * -0.06, 0);
+  const qClav = qEulerYXZ(0, s * (-0.06 - clavFwd), s * clavShrug);
   const shoulderPos = add(clavOff, qApply(qClav, upOff));
 
   const rel = sub(handTargetChest, shoulderPos);
@@ -1071,30 +1077,37 @@ function solveArmIK(side, handTargetChest, elbowPoleChest, palmInChest) {
 }
 
 // Compute weapon-ready ("rifle low ready") arm rotations via 2-bone IK in chest space
-function makeReadyArms(pose, sway = 0, bob = 0) {
+function makeReadyArms(pose, sway = 0, bob = 0, breath = 0, crawlL = 0, crawlR = 0) {
   const out = {};
   let tgtL, tgtR, poleL, poleR;
+  let shL = breath * 0.03, shR = breath * 0.03;
+  let fwdL = 0, fwdR = 0;
+
   if (pose === 'sprint') {
-    // Tactical high-port / across-chest rifle carry
-    tgtR  = [ 0.04 + sway * 0.015, 0.06 + bob * 0.025, -0.26];
-    tgtL  = [-0.14 + sway * 0.020, 0.14 - bob * 0.020, -0.34];
-    poleL = [-0.85, -0.50, 0.20];
-    poleR = [ 0.85, -0.55, 0.25];
+    // Tactical high-port / across-chest rifle carry with athletic shoulder pump
+    tgtR  = [ 0.05 + sway * 0.024, 0.05 + bob * 0.028, -0.25 - sway * 0.014];
+    tgtL  = [-0.15 + sway * 0.028, 0.13 - bob * 0.022, -0.33 + sway * 0.016];
+    poleL = [-0.88, -0.48, 0.22];
+    poleR = [ 0.88, -0.52, 0.28];
+    fwdL = sway * 0.08; fwdR = -sway * 0.08;
   } else if (pose === 'prone') {
-    // Elbows braced forward on ground, hands holding rifle ahead of chest
-    tgtR  = [ 0.07, 0.10 + bob * 0.01, -0.34];
-    tgtL  = [-0.05, 0.12 - bob * 0.01, -0.48];
-    poleL = [-0.75, -0.60, -0.15];
-    poleR = [ 0.75, -0.60, -0.15];
+    // Elbows braced forward on ground, forearms cradling rifle ahead of chest
+    // crawlL / crawlR drive contralateral elbow reach & pull during leopard crawl
+    tgtR  = [ 0.08 + crawlR * 0.03, 0.28 + crawlR * 0.11, -0.24 + bob * 0.015];
+    tgtL  = [-0.07 - crawlL * 0.03, 0.38 + crawlL * 0.11, -0.22 - bob * 0.015];
+    poleL = [-0.88, -0.15, -0.45 - crawlL * 0.12];
+    poleR = [ 0.88, -0.15, -0.45 - crawlR * 0.12];
+    fwdL = 0.08 + crawlL * 0.12;
+    fwdR = 0.08 + crawlR * 0.12;
   } else {
     // Low-ready tactical rifle hold: right hand on pistol grip, left hand forward on handguard
-    tgtR  = [ 0.08 + sway * 0.008, 0.02 + bob * 0.012, -0.30];
-    tgtL  = [-0.03 + sway * 0.010, 0.05 + bob * 0.010, -0.48];
+    tgtR  = [ 0.08 + sway * 0.010, 0.02 + bob * 0.014 + breath * 0.005, -0.30];
+    tgtL  = [-0.03 + sway * 0.012, 0.05 + bob * 0.012 + breath * 0.004, -0.48];
     poleL = [-0.70, -0.68, 0.22];
     poleR = [ 0.72, -0.65, 0.28];
   }
-  const ikL = solveArmIK('L', tgtL, poleL, [-0.5, -0.8, 0.1]);
-  const ikR = solveArmIK('R', tgtR, poleR, [ 0.8,  0.4, 0.2]);
+  const ikL = solveArmIK('L', tgtL, poleL, [-0.5, -0.8, 0.1], shL, fwdL);
+  const ikR = solveArmIK('R', tgtR, poleR, [ 0.8,  0.4, 0.2], shR, fwdR);
   out.clavicleL = ikL.qClav; out.upperArmL = ikL.qUp; out.forearmL = ikL.qFore; out.handL = ikL.qHand;
   out.clavicleR = ikR.qClav; out.upperArmR = ikR.qUp; out.forearmR = ikR.qFore; out.handR = ikR.qHand;
   // Natural relaxed grip curl on finger groups
@@ -1105,7 +1118,8 @@ function makeReadyArms(pose, sway = 0, bob = 0) {
   return out;
 }
 
-// Generate a seamless cyclic locomotion clip with planted-foot IK
+// Generate a seamless, biomechanically grounded cyclic locomotion clip with planted-foot IK,
+// pelvic obliquity, phase-lagged spine follow-through, and vestibulo-ocular head stabilization.
 function makeLocomotionClip(name, { frames, speed, dirX, dirZ, duty, lift, crouch = 0, sprint = false }) {
   const T = frames / FPS;
   const times = Array.from({ length: frames + 1 }, (_, i) => i / FPS);
@@ -1114,80 +1128,109 @@ function makeLocomotionClip(name, { frames, speed, dirX, dirZ, duty, lift, crouc
   const setT = (b, p) => { ((tracks[b] ||= {}).t ||= []).push(...p); };
 
   const stanceDist = speed * T * duty;
-  const frontShare = speed > 3.5 ? 0.38 : 0.44;
+  const runK = clamp((speed - 1.8) / 3.2, 0, 1);
+  const frontShare = crouch ? 0.45 : lerp(0.47, 0.37, runK);
   const backMode = dirZ > 0.5;
-  const yawBase = Math.abs(dirX) > 0.5 ? (dirX < 0 ? 0.38 : -0.38) : 0;
-  const rollAmp = speed > 3.5 ? 0.78 : 0.48;
-  const strikeAmp = speed > 3.5 ? 0.14 : 0.28;
-  const latW = crouch ? 0.135 : (speed > 3.5 ? 0.095 : 0.108);
+  const strafeMode = Math.abs(dirX) > 0.5;
+  const yawBase = strafeMode ? (dirX < 0 ? 0.42 : -0.42) : 0;
+  const rollAmp = crouch ? 0.36 : lerp(0.46, sprint ? 0.88 : 0.78, runK);
+  const strikeAmp = crouch ? 0.18 : lerp(0.30, 0.14, runK);
+  const latW = crouch ? 0.145 : (strafeMode ? 0.125 : lerp(0.106, 0.092, runK));
 
   for (let f = 0; f <= frames; f++) {
-    const P = (f % frames) / frames; // 0..1 seamless
-    const stepWave = Math.cos(4 * Math.PI * (P - duty * 0.5));
-    const sideWave = Math.cos(2 * Math.PI * (P - duty * 0.5));
-    const runK = clamp((speed - 1.8) / 3.2, 0, 1);
+    const P = (f % frames) / frames; // 0..1 seamless (L heel-strike at P=0, R at P=0.5)
+    // Asymmetric biomechanical vertical CoM wave:
+    // Walking peaks at mid-stance (inverted pendulum); running dips at mid-stance absorption & peaks in flight
+    const p2 = P * Math.PI * 2;
+    const p4 = P * Math.PI * 4;
+    const walkVert = -Math.cos(p4 - 0.35) + 0.18 * Math.sin(p4 * 2);
+    const runVert  = -Math.sin(p4 + 0.35) - 0.16 * Math.cos(p4 * 2);
+    const stepWave = lerp(walkVert, runVert, runK);
+    const sideWave = Math.sin(p2 + 0.35);
+    // Phase-lagged waves for organic spine/chest/arm follow-through
+    const stepLag1 = Math.sin(p4 - 0.25);
+    const stepLag2 = Math.sin(p4 - 0.65);
+    const sideLag1 = Math.sin(p2 - 0.15);
 
-    // Hips height, sway, forward lean, counter-rotation
-    let hy = REST_W[BI.hips][1] - 0.025 - crouch * 0.34 - (0.02 + 0.045 * runK);
-    hy += lerp(0.015, -0.028, runK) * stepWave * (1 - crouch * 0.5);
-    const sway = -lerp(0.022, 0.012, runK) * sideWave * (1 - crouch * 0.4);
-    const leanX = -(0.04 + 0.10 * runK + (sprint ? 0.14 : 0) + crouch * 0.14) * (backMode ? -0.4 : 1);
-    const hipYaw = yawBase - lerp(0.07, 0.12, runK) * Math.cos(2 * Math.PI * P);
-    const hipRoll = -0.045 * sideWave * (1 - crouch * 0.5);
-    const hipsPos = [sway, hy, 0];
+    // Hips height: grounded crouch stays remarkably level ("Groucho walk")
+    const baseDrop = crouch ? 0.365 : (0.022 + 0.048 * runK + (sprint ? 0.025 : 0));
+    const bobAmp = crouch ? 0.009 : lerp(0.019, sprint ? 0.044 : 0.036, runK);
+    const hy = REST_W[BI.hips][1] - baseDrop + stepWave * bobAmp;
+    // Lateral weight transfer over stance foot + subtle pelvic drop (Trendelenburg) on swing side
+    const sway = lerp(0.028, 0.015, runK) * sideWave * (crouch ? 1.15 : 1.0);
+    const hipRoll = -lerp(0.055, 0.075, runK) * sideWave * (crouch ? 0.55 : 1.0);
+    const leanBase = 0.045 + 0.115 * runK + (sprint ? 0.155 : 0) + crouch * 0.19;
+    const leanX = -(leanBase * (backMode ? -0.35 : 1) + stepWave * 0.022 * runK);
+    const hipYaw = yawBase - lerp(0.085, sprint ? 0.18 : 0.145, runK) * Math.cos(p2 - 0.12);
+    // Subtle fore-aft surge in-place during sprint/run
+    const surgeZ = -0.014 * runK * Math.cos(p4);
+    const hipsPos = [sway, hy, surgeZ];
     const hipsQ = qEulerYXZ(leanX, hipYaw, hipRoll);
 
     setT(BI.hips, hipsPos);
     setR(BI.hips, hipsQ);
 
-    // Legs via planted-foot IK
+    // Legs via planted-foot IK with true heel-to-toe roll & strafe clearance
     for (const side of ['L', 'R']) {
       const sgn = side === 'L' ? -1 : 1;
       const ph = (P + (side === 'L' ? 0 : 0.5)) % 1;
-      let along, up = 0, pitch = 0, toePitch = 0;
+      let along, up = 0, pitch = 0, toePitch = 0, latClear = 0;
       if (ph < duty) {
         const t = ph / duty;
         along = stanceDist * (frontShare - t);
-        // Heel-to-toe foot roll
-        const heel = strikeAmp * (1 - sstep(0, 0.18, t));
-        const push = rollAmp * sstep(lerp(0.55, 0.42, runK), 1.0, t);
-        pitch = (backMode ? -0.5 : 1) * (heel - push);
-        toePitch = push * 0.85; // toes stay flat on ground while heel lifts
+        // Smooth heel-strike -> flat-foot mid-stance -> heel-off / toe-off roll
+        const heel = strikeAmp * Math.pow(1 - sstep(0, 0.22, t), 1.4);
+        const push = rollAmp * Math.pow(sstep(lerp(0.56, 0.40, runK), 1.0, t), 1.2);
+        pitch = (backMode ? -0.45 : 1) * (heel - push);
+        // Toes stay flat on ground as heel lifts at push-off
+        toePitch = Math.max(0, push) * 0.90;
       } else {
         const t = (ph - duty) / (1 - duty);
         const it = 1 - t;
         const x0 = (frontShare - 1) * stanceDist, x3 = frontShare * stanceDist;
-        const kick = (0.10 * runK + (sprint ? 0.08 : 0)) * (backMode ? -0.4 : 1);
-        const x1 = x0 - kick, x2 = x3 + 0.10 * stanceDist;
+        // High-knee recovery & crisp butt-kick on run/sprint
+        const kick = (0.12 * runK + (sprint ? 0.10 : 0)) * (backMode ? -0.35 : 1);
+        const x1 = x0 - kick, x2 = x3 + 0.12 * stanceDist;
         along = it * it * it * x0 + 3 * it * it * t * x1 + 3 * it * t * t * x2 + t * t * t * x3;
-        up = 3 * it * t * (it * 1.5 + t) * lift;
-        const mid = -0.22 - 0.25 * runK;
-        pitch = t < 0.35 ? lerp(-rollAmp, mid, sstep(0, 0.35, t)) : lerp(mid, strikeAmp, sstep(0.35, 0.95, t));
-        if (backMode) pitch *= -0.5;
-        toePitch = 0;
+        // Asymmetric lift curve: faster initial knee lift, controlled descent into heel strike
+        up = Math.sin(Math.pow(t, 0.78) * Math.PI) * lift;
+        // Swing foot clears stance leg laterally during strafes
+        if (strafeMode) latClear = sgn * 0.055 * Math.sin(t * Math.PI);
+        const midPitch = -0.24 - 0.30 * runK;
+        pitch = t < 0.38
+          ? lerp(-rollAmp, midPitch, sstep(0, 0.38, t))
+          : lerp(midPitch, strikeAmp, sstep(0.38, 0.96, t));
+        if (backMode) pitch *= -0.45;
+        toePitch = -0.08 * Math.sin(t * Math.PI);
       }
-      // Foot ankle offset when rolling over heel/ball
-      const rollRise = Math.max(0, -pitch) * 0.075 + Math.max(0, pitch) * 0.035;
+      // Exact ankle vertical rise from heel/ball pivot so sole never sinks into ground
+      const rollRise = Math.max(0, -pitch) * 0.082 + Math.max(0, pitch) * 0.032;
       const footModel = [
-        sgn * latW + dirX * along,
+        sgn * latW + latClear + dirX * along,
         ANKLE_H + up + rollRise,
         dirZ * along,
       ];
-      const ik = solveLegIK(side, footModel, pitch, yawBase * 0.6, toePitch, hipsPos, hipsQ);
+      // Natural ~7 deg outward foot turnout + directional heading
+      const footYaw = yawBase * 0.65 - sgn * (crouch ? 0.18 : 0.11);
+      const kneeOut = crouch ? 0.34 : (strafeMode ? 0.28 : 0.20);
+      const ik = solveLegIK(side, footModel, pitch, footYaw, toePitch, hipsPos, hipsQ, kneeOut);
       setR(BI['thigh' + side], ik.qThigh);
       setR(BI['shin' + side], ik.qShin);
       setR(BI['foot' + side], ik.qFoot);
       setR(BI['toe' + side], ik.qToe);
     }
 
-    // Counter-rotate spine & chest so upper body stays aimed forward (-Z)
-    setR(BI.spine, qEulerYXZ(-leanX * 0.45 + crouch * 0.10, -hipYaw * 0.55, -hipRoll * 0.5));
-    setR(BI.chest, qEulerYXZ(-leanX * 0.35 + stepWave * 0.02 * runK, -hipYaw * 0.45, -hipRoll * 0.4));
-    setR(BI.neck,  qEulerYXZ(crouch * 0.08, 0, 0));
-    setR(BI.head,  qEulerYXZ(crouch * 0.06, 0, 0));
+    // Phase-lagged spine & chest counter-rotation + vestibulo-ocular head stabilization
+    const spYaw = -hipYaw * 0.52 + 0.025 * sideLag1 * runK;
+    const chYaw = -hipYaw * 0.48 + 0.032 * sideLag1 * (sprint ? 1.4 : 1.0);
+    setR(BI.spine, qEulerYXZ(-leanX * 0.42 + crouch * 0.09 + stepLag1 * 0.018 * runK, spYaw, -hipRoll * 0.55));
+    setR(BI.chest, qEulerYXZ(-leanX * 0.34 + stepLag2 * 0.024 * runK, chYaw, -hipRoll * 0.45));
+    // Neck & head counter-pitch/counter-roll to keep eyes level on the horizon
+    setR(BI.neck,  qEulerYXZ(crouch * 0.09 - stepLag2 * 0.016 * runK, -chYaw * 0.25, 0));
+    setR(BI.head,  qEulerYXZ(crouch * 0.08 - stepLag2 * 0.014 * runK, -chYaw * 0.15, -hipRoll * 0.15));
 
-    // Arms following weapon
-    const arms = makeReadyArms(sprint ? 'sprint' : 'ready', sideWave, stepWave * runK);
+    // Arms following weapon with inertial lag after footstep impact
+    const arms = makeReadyArms(sprint ? 'sprint' : 'ready', sideLag1, stepLag2 * (0.4 + 0.6 * runK), 0);
     for (const [bn, q] of Object.entries(arms)) setR(BI[bn], q);
   }
   return { name, times, tracks, refSpeed: speed };
@@ -1211,22 +1254,24 @@ function makePoseClip(name, frames, poseFn) {
 function buildAllAnimations() {
   const clips = [];
 
-  // 1. IDLE (subtle breathing + gentle weight shift, rifle low ready)
-  clips.push(makePoseClip('idle', 72, (u) => {
-    const br = Math.sin(u * Math.PI * 2);
-    const sw = Math.sin(u * Math.PI * 2 + 0.7);
-    const hipsPos = [sw * 0.006, REST_W[BI.hips][1] - 0.022 + br * 0.004, 0];
-    const hipsQ = qEulerYXZ(-0.02, -0.14 + sw * 0.015, sw * 0.008);
-    const ikL = solveLegIK('L', [-0.125, ANKLE_H, -0.09], 0, -0.08, 0, hipsPos, hipsQ);
-    const ikR = solveLegIK('R', [ 0.135, ANKLE_H,  0.07], 0, -0.35, 0, hipsPos, hipsQ);
-    const arms = makeReadyArms('ready', sw * 0.25, br * 0.35);
+  // 1. IDLE (organic multi-harmonic breathing, subtle weight shift, micro head stabilization)
+  clips.push(makePoseClip('idle', 90, (u) => {
+    const t = u * Math.PI * 2;
+    const br = Math.sin(t) * 0.8 + Math.sin(t * 2 - 0.6) * 0.2;
+    const sw = Math.sin(t + 0.85);
+    const scan = Math.sin(t - 0.4) * 0.035;
+    const hipsPos = [sw * 0.010, REST_W[BI.hips][1] - 0.026 + br * 0.004, sw * 0.003];
+    const hipsQ = qEulerYXZ(-0.025, -0.16 + sw * 0.020, sw * 0.014);
+    const ikL = solveLegIK('L', [-0.132, ANKLE_H, -0.095], 0, -0.06, 0, hipsPos, hipsQ, 0.22);
+    const ikR = solveLegIK('R', [ 0.142, ANKLE_H,  0.075], 0, -0.36, 0, hipsPos, hipsQ, 0.24);
+    const arms = makeReadyArms('ready', sw * 0.22, br * 0.28, br);
     return {
       hipsPos, hipsQ,
       rots: {
-        spine: qEulerYXZ(0.02 + br * 0.012, 0.08, 0),
-        chest: qEulerYXZ(0.01 + br * 0.018, 0.06, 0),
-        neck: qEulerYXZ(-br * 0.01, 0, 0),
-        head: qEulerYXZ(-br * 0.01, 0, 0),
+        spine: qEulerYXZ(0.020 + br * 0.012, 0.09 - sw * 0.010, -sw * 0.008),
+        chest: qEulerYXZ(0.012 + br * 0.022, 0.07 - sw * 0.008, -sw * 0.006),
+        neck:  qEulerYXZ(-br * 0.014, scan * 0.45, 0),
+        head:  qEulerYXZ(-br * 0.012, scan * 0.55, -sw * 0.008),
         thighL: ikL.qThigh, shinL: ikL.qShin, footL: ikL.qFoot, toeL: ikL.qToe,
         thighR: ikR.qThigh, shinR: ikR.qShin, footR: ikR.qFoot, toeR: ikR.qToe,
         ...arms,
@@ -1235,34 +1280,37 @@ function buildAllAnimations() {
   }));
 
   // 2-5. WALK (1.5 m/s) 4-way
-  clips.push(makeLocomotionClip('walk_fwd',   { frames: 30, speed: 1.5, dirX:  0, dirZ: -1, duty: 0.62, lift: 0.09 }));
-  clips.push(makeLocomotionClip('walk_back',  { frames: 30, speed: 1.5, dirX:  0, dirZ:  1, duty: 0.62, lift: 0.08 }));
-  clips.push(makeLocomotionClip('walk_left',  { frames: 30, speed: 1.5, dirX: -1, dirZ:  0, duty: 0.62, lift: 0.08 }));
-  clips.push(makeLocomotionClip('walk_right', { frames: 30, speed: 1.5, dirX:  1, dirZ:  0, duty: 0.62, lift: 0.08 }));
+  clips.push(makeLocomotionClip('walk_fwd',   { frames: 30, speed: 1.5, dirX:  0, dirZ: -1, duty: 0.62, lift: 0.095 }));
+  clips.push(makeLocomotionClip('walk_back',  { frames: 30, speed: 1.5, dirX:  0, dirZ:  1, duty: 0.62, lift: 0.085 }));
+  clips.push(makeLocomotionClip('walk_left',  { frames: 30, speed: 1.5, dirX: -1, dirZ:  0, duty: 0.62, lift: 0.090 }));
+  clips.push(makeLocomotionClip('walk_right', { frames: 30, speed: 1.5, dirX:  1, dirZ:  0, duty: 0.62, lift: 0.090 }));
 
   // 6-9. RUN (4.7 m/s fwd, 3.6 back, 4.2 strafe)
-  clips.push(makeLocomotionClip('run_fwd',   { frames: 18, speed: 4.7, dirX:  0, dirZ: -1, duty: 0.34, lift: 0.24 }));
-  clips.push(makeLocomotionClip('run_back',  { frames: 20, speed: 3.6, dirX:  0, dirZ:  1, duty: 0.42, lift: 0.18 }));
-  clips.push(makeLocomotionClip('run_left',  { frames: 19, speed: 4.2, dirX: -1, dirZ:  0, duty: 0.38, lift: 0.20 }));
-  clips.push(makeLocomotionClip('run_right', { frames: 19, speed: 4.2, dirX:  1, dirZ:  0, duty: 0.38, lift: 0.20 }));
+  clips.push(makeLocomotionClip('run_fwd',   { frames: 18, speed: 4.7, dirX:  0, dirZ: -1, duty: 0.34, lift: 0.26 }));
+  clips.push(makeLocomotionClip('run_back',  { frames: 20, speed: 3.6, dirX:  0, dirZ:  1, duty: 0.42, lift: 0.19 }));
+  clips.push(makeLocomotionClip('run_left',  { frames: 19, speed: 4.2, dirX: -1, dirZ:  0, duty: 0.38, lift: 0.22 }));
+  clips.push(makeLocomotionClip('run_right', { frames: 19, speed: 4.2, dirX:  1, dirZ:  0, duty: 0.38, lift: 0.22 }));
 
   // 10. SPRINT (6.7 m/s)
-  clips.push(makeLocomotionClip('sprint', { frames: 15, speed: 6.7, dirX: 0, dirZ: -1, duty: 0.27, lift: 0.32, sprint: true }));
+  clips.push(makeLocomotionClip('sprint', { frames: 15, speed: 6.7, dirX: 0, dirZ: -1, duty: 0.27, lift: 0.34, sprint: true }));
 
-  // 11. CROUCH IDLE (tactical kneeling stance)
-  clips.push(makePoseClip('crouch_idle', 60, (u) => {
-    const br = Math.sin(u * Math.PI * 2);
-    const hipsPos = [0, 0.565 + br * 0.005, 0.02];
-    const hipsQ = qEulerYXZ(-0.14, -0.22, 0);
-    const ikL = solveLegIK('L', [-0.14, ANKLE_H, -0.26], 0.0, -0.10, 0, hipsPos, hipsQ);
-    const ikR = solveLegIK('R', [ 0.13, 0.12,  0.46], -1.25, -0.15, 0.8, hipsPos, hipsQ);
-    const arms = makeReadyArms('ready', 0, br * 0.25);
+  // 11. CROUCH IDLE (grounded tactical combat kneel with breathing & weight balance)
+  clips.push(makePoseClip('crouch_idle', 72, (u) => {
+    const t = u * Math.PI * 2;
+    const br = Math.sin(t) * 0.8 + Math.sin(t * 2 - 0.5) * 0.2;
+    const sw = Math.sin(t + 0.6);
+    const hipsPos = [sw * 0.008, 0.555 + br * 0.006, 0.025];
+    const hipsQ = qEulerYXZ(-0.16, -0.24 + sw * 0.015, sw * 0.012);
+    const ikL = solveLegIK('L', [-0.145, ANKLE_H, -0.27], 0.0, -0.08, 0, hipsPos, hipsQ, 0.32);
+    const ikR = solveLegIK('R', [ 0.138, 0.115,  0.45], -1.28, -0.18, 0.88, hipsPos, hipsQ, 0.26);
+    const arms = makeReadyArms('ready', sw * 0.15, br * 0.24, br);
     return {
       hipsPos, hipsQ,
       rots: {
-        spine: qEulerYXZ(0.08 + br * 0.01, 0.12, 0),
-        chest: qEulerYXZ(0.06 + br * 0.015, 0.10, 0),
-        neck: qEulerYXZ(0.04, 0, 0), head: qEulerYXZ(0.04, 0, 0),
+        spine: qEulerYXZ(0.09 + br * 0.012, 0.13, -sw * 0.008),
+        chest: qEulerYXZ(0.07 + br * 0.018, 0.11, -sw * 0.006),
+        neck:  qEulerYXZ(0.05 - br * 0.010, sw * 0.02, 0),
+        head:  qEulerYXZ(0.05 - br * 0.010, sw * 0.02, 0),
         thighL: ikL.qThigh, shinL: ikL.qShin, footL: ikL.qFoot, toeL: ikL.qToe,
         thighR: ikR.qThigh, shinR: ikR.qShin, footR: ikR.qFoot, toeR: ikR.qToe,
         ...arms,
@@ -1270,94 +1318,133 @@ function buildAllAnimations() {
     };
   }));
 
-  // 12. CROUCH WALK (2.6 m/s)
-  clips.push(makeLocomotionClip('crouch_walk', { frames: 24, speed: 2.6, dirX: 0, dirZ: -1, duty: 0.58, lift: 0.11, crouch: 1 }));
+  // 12. CROUCH WALK (2.6 m/s stealthy Groucho walk, level head, planted feet)
+  clips.push(makeLocomotionClip('crouch_walk', { frames: 24, speed: 2.6, dirX: 0, dirZ: -1, duty: 0.58, lift: 0.115, crouch: 1 }));
 
-  // 13. PRONE IDLE
-  clips.push(makePoseClip('prone_idle', 60, (u) => {
-    const br = Math.sin(u * Math.PI * 2);
-    const hipsPos = [0, 0.21 + br * 0.004, 0.12];
-    const hipsQ = qEulerYXZ(-1.48, 0, 0);
-    const arms = makeReadyArms('prone', 0, br * 0.2);
+  // 13. PRONE IDLE (natural splayed heels, propped chest, ribcage breathing)
+  clips.push(makePoseClip('prone_idle', 72, (u) => {
+    const t = u * Math.PI * 2;
+    const br = Math.sin(t) * 0.8 + Math.sin(t * 2 - 0.5) * 0.2;
+    const sw = Math.sin(t + 0.5) * 0.02;
+    const hipsPos = [0, 0.178 + br * 0.004, 0.14];
+    const hipsQ = qEulerYXZ(-1.50, 0, sw * 0.4);
+    const arms = makeReadyArms('prone', sw * 0.3, br * 0.22, br, 0, 0);
     return {
       hipsPos, hipsQ,
       rots: {
-        spine: qEulerYXZ(0.28 + br * 0.015, 0, 0),
-        chest: qEulerYXZ(0.24 + br * 0.015, 0, 0),
-        neck: qEulerYXZ(0.45, 0, 0), head: qEulerYXZ(0.45, 0, 0),
-        thighL: qEulerYXZ(0.05, 0, -0.14), shinL: qEulerYXZ(-0.12, 0, 0), footL: qEulerYXZ(0.75, 0, 0), toeL: qEulerYXZ(0, 0, 0),
-        thighR: qEulerYXZ(0.05, 0,  0.14), shinR: qEulerYXZ(-0.12, 0, 0), footR: qEulerYXZ(0.75, 0, 0), toeR: qEulerYXZ(0, 0, 0),
+        spine: qEulerYXZ(0.28 + br * 0.018, 0, -sw * 0.2),
+        chest: qEulerYXZ(0.26 + br * 0.022, 0, -sw * 0.2),
+        neck:  qEulerYXZ(0.46 - br * 0.015, sw * 0.8, 0),
+        head:  qEulerYXZ(0.44 - br * 0.015, sw * 0.6, 0),
+        // Heels splayed naturally outward so boots lie flat along the ground
+        thighL: qEulerYXZ(0.04, -0.22, -0.18), shinL: qEulerYXZ(-0.10, 0, 0), footL: qEulerYXZ(0.85, -0.35, 0.25), toeL: qEulerYXZ(0.10, 0, 0),
+        thighR: qEulerYXZ(0.04,  0.22,  0.18), shinR: qEulerYXZ(-0.10, 0, 0), footR: qEulerYXZ(0.85,  0.35, -0.25), toeR: qEulerYXZ(0.10, 0, 0),
         ...arms,
       },
     };
   }));
 
-  // 14. PRONE CRAWL (1.0 m/s)
-  clips.push(makePoseClip('prone_crawl', 33, (u) => {
-    const s = Math.sin(u * Math.PI * 2), c = Math.cos(u * Math.PI * 2);
-    const hipsPos = [s * 0.035, 0.22, 0.12];
-    const hipsQ = qEulerYXZ(-1.46, s * 0.14, c * 0.06);
-    const arms = makeReadyArms('prone', s * 0.6, c * 0.5);
+  // 14. PRONE CRAWL (1.0 m/s contralateral military leopard/low crawl!)
+  // Right knee draws forward & pushes while left elbow reaches & pulls, then alternates smoothly
+  clips.push(makePoseClip('prone_crawl', 36, (u) => {
+    const p = u * Math.PI * 2;
+    const s = Math.sin(p), c = Math.cos(p);
+    // Smooth drive pulse per leg (0..1 when drawing knee up and pushing back)
+    const driveL = Math.pow(Math.max(0,  Math.sin(p)), 0.85);
+    const driveR = Math.pow(Math.max(0, -Math.sin(p)), 0.85);
+    const pushL  = Math.max(0,  Math.cos(p));
+    const pushR  = Math.max(0, -Math.cos(p));
+    // Contralateral arm reach: right arm reaches when left leg drives, and vice versa
+    const crawlL = -s;
+    const crawlR =  s;
+
+    // Pelvis rolls away from driving knee, shifts laterally, and surges with each push
+    const hipsPos = [s * 0.042, 0.185 + Math.abs(s) * 0.018, 0.14 - Math.cos(p * 2) * 0.025];
+    const hipsQ = qEulerYXZ(-1.46, s * 0.18, c * 0.14);
+    const arms = makeReadyArms('prone', s * 0.35, c * 0.25, 0, crawlL, crawlR);
     return {
       hipsPos, hipsQ,
       rots: {
-        spine: qEulerYXZ(0.26, -s * 0.10, 0),
-        chest: qEulerYXZ(0.22, -s * 0.08, 0),
-        neck: qEulerYXZ(0.45, 0, 0), head: qEulerYXZ(0.45, 0, 0),
-        thighL: qEulerYXZ(0.15 + s * 0.32, 0, -0.18), shinL: qEulerYXZ(-0.18 - Math.max(0, c) * 0.55, 0, 0), footL: qEulerYXZ(0.7, 0, 0), toeL: qEulerYXZ(0, 0, 0),
-        thighR: qEulerYXZ(0.15 - s * 0.32, 0,  0.18), shinR: qEulerYXZ(-0.18 - Math.max(0, -c) * 0.55, 0, 0), footR: qEulerYXZ(0.7, 0, 0), toeR: qEulerYXZ(0, 0, 0),
+        // S-curve lateral spine flexion counter-balancing hip yaw/roll
+        spine: qEulerYXZ(0.26, -s * 0.14, -c * 0.10),
+        chest: qEulerYXZ(0.24, -s * 0.12, -c * 0.08),
+        neck:  qEulerYXZ(0.45,  s * 0.10, 0),
+        head:  qEulerYXZ(0.43,  s * 0.08, -c * 0.04),
+        // Left leg: hip abducts & flexes outward, knee bends deeply to ~95 deg, inner boot edge pushes ground
+        thighL: qEulerYXZ(0.06 + driveL * 0.62, -0.22 - driveL * 0.35, -0.18 - driveL * 0.42),
+        shinL:  qEulerYXZ(-0.12 - driveL * 1.15 - pushL * 0.18, 0, 0),
+        footL:  qEulerYXZ(lerp(0.85, 0.15, driveL), -0.35 - driveL * 0.25, 0.25),
+        toeL:   qEulerYXZ(driveL * 0.35, 0, 0),
+        // Right leg: opposite phase
+        thighR: qEulerYXZ(0.06 + driveR * 0.62,  0.22 + driveR * 0.35,  0.18 + driveR * 0.42),
+        shinR:  qEulerYXZ(-0.12 - driveR * 1.15 - pushR * 0.18, 0, 0),
+        footR:  qEulerYXZ(lerp(0.85, 0.15, driveR),  0.35 + driveR * 0.25, -0.25),
+        toeR:   qEulerYXZ(driveR * 0.35, 0, 0),
         ...arms,
       },
     };
   }));
 
-  // 15. JUMP START
-  clips.push(makePoseClip('jump_start', 10, (u) => {
-    const k = smooth(u);
-    const dip = Math.sin(u * Math.PI) * 0.10;
-    const hipsPos = [0, 0.92 - dip + k * 0.08, 0];
-    const hipsQ = qEulerYXZ(-0.14 * (1 - k) - 0.05 * k, 0, 0);
-    const arms = makeReadyArms('ready', 0, k * 0.4);
+  // 15. JUMP START (anticipation dip -> triple-extension push-off -> knee tuck into flight)
+  clips.push(makePoseClip('jump_start', 12, (u) => {
+    const dip = Math.sin(clamp(u / 0.38, 0, 1) * Math.PI);
+    const launch = smooth(clamp((u - 0.26) / 0.36, 0, 1));
+    const tuck = smooth(clamp((u - 0.50) / 0.50, 0, 1));
+    const hipsPos = [0, 0.93 - dip * 0.13 + launch * 0.09, -launch * 0.03];
+    const hipsQ = qEulerYXZ(-0.06 - dip * 0.14 + launch * 0.08 - tuck * 0.06, -0.06, 0);
+    const arms = makeReadyArms('ready', 0, -dip * 0.4 + launch * 0.5);
     return {
       hipsPos, hipsQ,
       rots: {
-        spine: qEulerYXZ(0.08, 0, 0), chest: qEulerYXZ(0.05, 0, 0), neck: qEulerYXZ(0, 0, 0), head: qEulerYXZ(0, 0, 0),
-        thighL: qEulerYXZ(lerp(0.25, 0.62, k), 0, -0.05), shinL: qEulerYXZ(lerp(-0.45, -0.95, k), 0, 0), footL: qEulerYXZ(-0.25 * k, 0, 0), toeL: qEulerYXZ(0, 0, 0),
-        thighR: qEulerYXZ(lerp(0.20, 0.15, k), 0,  0.05), shinR: qEulerYXZ(lerp(-0.35, -0.55, k), 0, 0), footR: qEulerYXZ(-0.35 * k, 0, 0), toeR: qEulerYXZ(0, 0, 0),
+        spine: qEulerYXZ(0.06 + dip * 0.10 - launch * 0.06, 0.04, 0),
+        chest: qEulerYXZ(0.04 + dip * 0.06, 0.02, 0),
+        neck:  qEulerYXZ(-dip * 0.08, 0, 0), head: qEulerYXZ(-dip * 0.06, 0, 0),
+        thighL: qEulerYXZ(lerp(0.28 + dip * 0.35, 0.68, tuck), 0, -0.06),
+        shinL:  qEulerYXZ(lerp(-0.48 - dip * 0.42, -1.02, tuck), 0, 0),
+        footL:  qEulerYXZ(lerp(0.10, -0.35, launch), 0, 0), toeL: qEulerYXZ(0, 0, 0),
+        thighR: qEulerYXZ(lerp(0.22 + dip * 0.30, 0.20, tuck), 0,  0.06),
+        shinR:  qEulerYXZ(lerp(-0.40 - dip * 0.38, -0.62, tuck), 0, 0),
+        footR:  qEulerYXZ(lerp(0.10, -0.45, launch), 0, 0), toeR: qEulerYXZ(0, 0, 0),
         ...arms,
       },
     };
   }));
 
-  // 16. FALL LOOP
-  clips.push(makePoseClip('fall_loop', 18, (u) => {
-    const w = Math.sin(u * Math.PI * 2);
-    const hipsPos = [0, 0.95 + w * 0.015, 0];
-    const hipsQ = qEulerYXZ(-0.08 + w * 0.03, 0, 0);
-    const arms = makeReadyArms('ready', w * 0.2, w * 0.25);
+  // 16. FALL LOOP (airborne balance & subtle leg counter-motion)
+  clips.push(makePoseClip('fall_loop', 20, (u) => {
+    const w = Math.sin(u * Math.PI * 2), c = Math.cos(u * Math.PI * 2);
+    const hipsPos = [0, 0.95 + w * 0.016, 0];
+    const hipsQ = qEulerYXZ(-0.08 + w * 0.04, -0.06, c * 0.025);
+    const arms = makeReadyArms('ready', c * 0.25, w * 0.30);
     return {
       hipsPos, hipsQ,
       rots: {
-        spine: qEulerYXZ(0.06, 0, 0), chest: qEulerYXZ(0.04, 0, 0), neck: qEulerYXZ(0, 0, 0), head: qEulerYXZ(0, 0, 0),
-        thighL: qEulerYXZ(0.58 + w * 0.08, 0, -0.06), shinL: qEulerYXZ(-0.92 - w * 0.08, 0, 0), footL: qEulerYXZ(-0.22, 0, 0), toeL: qEulerYXZ(0, 0, 0),
-        thighR: qEulerYXZ(0.18 - w * 0.08, 0,  0.06), shinR: qEulerYXZ(-0.58 + w * 0.08, 0, 0), footR: qEulerYXZ(-0.28, 0, 0), toeR: qEulerYXZ(0, 0, 0),
+        spine: qEulerYXZ(0.06 - w * 0.02, 0.04, -c * 0.02),
+        chest: qEulerYXZ(0.04 - w * 0.02, 0.02, -c * 0.015),
+        neck:  qEulerYXZ(0.02, 0, 0), head: qEulerYXZ(0.02, 0, 0),
+        thighL: qEulerYXZ(0.60 + w * 0.10, 0, -0.07), shinL: qEulerYXZ(-0.96 - w * 0.10, 0, 0), footL: qEulerYXZ(-0.24 + c * 0.08, 0, 0), toeL: qEulerYXZ(0, 0, 0),
+        thighR: qEulerYXZ(0.20 - w * 0.10, 0,  0.07), shinR: qEulerYXZ(-0.60 + w * 0.10, 0, 0), footR: qEulerYXZ(-0.30 - c * 0.08, 0, 0), toeR: qEulerYXZ(0, 0, 0),
         ...arms,
       },
     };
   }));
 
-  // 17. LAND
-  clips.push(makePoseClip('land', 10, (u) => {
-    const dip = Math.sin(u * Math.PI);
-    const hipsPos = [0, 0.93 - dip * 0.24, 0];
-    const hipsQ = qEulerYXZ(-0.05 - dip * 0.22, 0, 0);
-    const ikL = solveLegIK('L', [-0.13, ANKLE_H, -0.06], 0, 0, 0, hipsPos, hipsQ);
-    const ikR = solveLegIK('R', [ 0.13, ANKLE_H,  0.06], 0, 0, 0, hipsPos, hipsQ);
-    const arms = makeReadyArms('ready', 0, -dip * 0.5);
+  // 17. LAND (weighted impact absorption + elastic recovery)
+  clips.push(makePoseClip('land', 12, (u) => {
+    // Fast compression (0..0.35), smooth elastic rebound (0.35..1.0)
+    const dip = u < 0.35 ? smooth(u / 0.35) : 1 - smooth((u - 0.35) / 0.65);
+    const lagDip = u < 0.45 ? smooth(u / 0.45) : 1 - smooth((u - 0.45) / 0.55);
+    const hipsPos = [0, 0.93 - dip * 0.27, dip * 0.03];
+    const hipsQ = qEulerYXZ(-0.04 - dip * 0.24, -0.10, 0);
+    const ikL = solveLegIK('L', [-0.145, ANKLE_H, -0.08], 0, -0.08, 0, hipsPos, hipsQ, 0.30);
+    const ikR = solveLegIK('R', [ 0.145, ANKLE_H,  0.08], 0, -0.22, 0, hipsPos, hipsQ, 0.30);
+    const arms = makeReadyArms('ready', 0, -lagDip * 0.65);
     return {
       hipsPos, hipsQ,
       rots: {
-        spine: qEulerYXZ(dip * 0.12, 0, 0), chest: qEulerYXZ(dip * 0.08, 0, 0), neck: qEulerYXZ(0, 0, 0), head: qEulerYXZ(0, 0, 0),
+        spine: qEulerYXZ(lagDip * 0.14, 0.06, 0),
+        chest: qEulerYXZ(lagDip * 0.10, 0.04, 0),
+        neck:  qEulerYXZ(-lagDip * 0.12, 0, 0), head: qEulerYXZ(-lagDip * 0.10, 0, 0),
         thighL: ikL.qThigh, shinL: ikL.qShin, footL: ikL.qFoot, toeL: ikL.qToe,
         thighR: ikR.qThigh, shinR: ikR.qShin, footR: ikR.qFoot, toeR: ikR.qToe,
         ...arms,
@@ -1365,134 +1452,178 @@ function buildAllAnimations() {
     };
   }));
 
-  // 18. DEATH FORWARD (pitched forward face down)
-  clips.push(makePoseClip('death_fwd', 24, (u) => {
-    const k = smooth(u);
-    const hipsPos = [0, lerp(0.93, 0.16, k * k), lerp(0, -0.35, k)];
-    const hipsQ = qEulerYXZ(lerp(0, -1.52, k), lerp(0, 0.12, k), lerp(0, 0.08, k));
+  // 18. DEATH FORWARD (knees buckle -> gravity drop -> ground impact settle)
+  clips.push(makePoseClip('death_fwd', 28, (u) => {
+    const buckle = smooth(clamp(u / 0.35, 0, 1));
+    const drop = smooth(clamp((u - 0.20) / 0.58, 0, 1));
+    const bounce = Math.sin(clamp((u - 0.72) / 0.28, 0, 1) * Math.PI) * 0.025;
+    const k = drop * drop;
+    const hipsPos = [0, lerp(0.93, 0.165, k) - buckle * 0.14 * (1 - k) + bounce, lerp(0, -0.42, drop)];
+    const hipsQ = qEulerYXZ(lerp(0, -1.53, drop), lerp(0, 0.14, drop), lerp(0, 0.09, drop));
+    const ikL = solveArmIK('L', [-0.24 * drop - 0.04 * (1 - drop), lerp(0.05, -0.05, drop), lerp(-0.46, -0.28, drop)], [-0.85, -0.4, 0.3], [-0.5, -0.8, 0.1]);
+    const ikR = solveArmIK('R', [ 0.22 * drop + 0.08 * (1 - drop), lerp(0.02, -0.06, drop), lerp(-0.30, -0.22, drop)], [ 0.85, -0.4, 0.3], [ 0.8,  0.4, 0.2]);
     return {
       hipsPos, hipsQ,
       rots: {
-        spine: qEulerYXZ(lerp(0, 0.08, k), 0, 0), chest: qEulerYXZ(lerp(0, 0.05, k), 0, 0),
-        neck: qEulerYXZ(lerp(0, -0.15, k), 0, 0), head: qEulerYXZ(lerp(0, -0.15, k), lerp(0, 0.45, k), 0),
-        clavicleL: qEulerYXZ(0, 0, 0), upperArmL: qEulerYXZ(lerp(0.5, 0.9, k), 0, lerp(0.5, -0.25, k)), forearmL: qEulerYXZ(0.2, 0.4, 0), handL: qEulerYXZ(0, 0, 0), thumbL: qEulerYXZ(0, 0, 0), fingersL: qEulerYXZ(0, 0, 0),
-        clavicleR: qEulerYXZ(0, 0, 0), upperArmR: qEulerYXZ(lerp(0.5, 0.7, k), 0, lerp(-0.5, 0.35, k)), forearmR: qEulerYXZ(0.2, -0.5, 0), handR: qEulerYXZ(0, 0, 0), thumbR: qEulerYXZ(0, 0, 0), fingersR: qEulerYXZ(0, 0, 0),
-        thighL: qEulerYXZ(lerp(0.1, 0.25, k), 0, -0.12 * k), shinL: qEulerYXZ(lerp(-0.1, -0.45, k), 0, 0), footL: qEulerYXZ(0.4 * k, 0, 0), toeL: qEulerYXZ(0, 0, 0),
-        thighR: qEulerYXZ(lerp(0.05, 0.08, k), 0,  0.15 * k), shinR: qEulerYXZ(lerp(-0.1, -0.18, k), 0, 0), footR: qEulerYXZ(0.4 * k, 0, 0), toeR: qEulerYXZ(0, 0, 0),
+        spine: qEulerYXZ(lerp(0, 0.10, drop) - buckle * 0.15 * (1 - drop), 0, 0),
+        chest: qEulerYXZ(lerp(0, 0.06, drop), 0, 0),
+        neck:  qEulerYXZ(lerp(0, -0.14, drop), 0, 0),
+        head:  qEulerYXZ(lerp(0, -0.14, drop), lerp(0, 0.52, drop), 0),
+        clavicleL: ikL.qClav, upperArmL: ikL.qUp, forearmL: ikL.qFore, handL: ikL.qHand, thumbL: qEulerYXZ(0, 0, 0), fingersL: qEulerYXZ(0, 0, 0),
+        clavicleR: ikR.qClav, upperArmR: ikR.qUp, forearmR: ikR.qFore, handR: ikR.qHand, thumbR: qEulerYXZ(0, 0, 0), fingersR: qEulerYXZ(0, 0, 0),
+        thighL: qEulerYXZ(lerp(0.1, 0.26, drop) + buckle * 0.30 * (1 - drop), 0, -0.14 * drop),
+        shinL:  qEulerYXZ(lerp(-0.1, -0.42, drop) - buckle * 0.55 * (1 - drop), 0, 0),
+        footL:  qEulerYXZ(0.45 * drop, -0.2 * drop, 0), toeL: qEulerYXZ(0, 0, 0),
+        thighR: qEulerYXZ(lerp(0.05, 0.08, drop) + buckle * 0.25 * (1 - drop), 0, 0.16 * drop),
+        shinR:  qEulerYXZ(lerp(-0.1, -0.18, drop) - buckle * 0.45 * (1 - drop), 0, 0),
+        footR:  qEulerYXZ(0.45 * drop,  0.2 * drop, 0), toeR: qEulerYXZ(0, 0, 0),
       },
     };
   }));
 
-  // 19. DEATH BACK (falls backward onto back)
-  clips.push(makePoseClip('death_back', 24, (u) => {
-    const k = smooth(u);
-    const hipsPos = [0, lerp(0.93, 0.17, k * k), lerp(0, 0.35, k)];
-    const hipsQ = qEulerYXZ(lerp(0, 1.52, k), lerp(0, -0.14, k), lerp(0, -0.08, k));
+  // 19. DEATH BACK (stagger back -> drop onto back -> limb settle)
+  clips.push(makePoseClip('death_back', 28, (u) => {
+    const stag = smooth(clamp(u / 0.30, 0, 1));
+    const drop = smooth(clamp((u - 0.18) / 0.60, 0, 1));
+    const bounce = Math.sin(clamp((u - 0.74) / 0.26, 0, 1) * Math.PI) * 0.025;
+    const k = drop * drop;
+    const hipsPos = [0, lerp(0.93, 0.175, k) + bounce, lerp(0, 0.42, drop)];
+    const hipsQ = qEulerYXZ(lerp(0, 1.53, drop), lerp(0, -0.16, drop), lerp(0, -0.09, drop));
+    const ikL = solveArmIK('L', [-0.30 * drop - 0.03 * (1 - drop), lerp(0.05, -0.10, drop), lerp(-0.46, 0.02, drop)], [-0.9, -0.3, 0.4], [-0.5, -0.8, 0.1]);
+    const ikR = solveArmIK('R', [ 0.28 * drop + 0.08 * (1 - drop), lerp(0.02, -0.12, drop), lerp(-0.30, 0.04, drop)], [ 0.9, -0.3, 0.4], [ 0.8,  0.4, 0.2]);
     return {
       hipsPos, hipsQ,
       rots: {
-        spine: qEulerYXZ(lerp(0, -0.05, k), 0, 0), chest: qEulerYXZ(lerp(0, -0.05, k), 0, 0),
-        neck: qEulerYXZ(lerp(0, 0.12, k), 0, 0), head: qEulerYXZ(lerp(0, 0.15, k), lerp(0, -0.35, k), 0),
-        clavicleL: qEulerYXZ(0, 0, 0), upperArmL: qEulerYXZ(lerp(0.4, -0.2, k), 0, lerp(0.5, -0.15, k)), forearmL: qEulerYXZ(0.1, 0.35, 0), handL: qEulerYXZ(0, 0, 0), thumbL: qEulerYXZ(0, 0, 0), fingersL: qEulerYXZ(0, 0, 0),
-        clavicleR: qEulerYXZ(0, 0, 0), upperArmR: qEulerYXZ(lerp(0.4, -0.15, k), 0, lerp(-0.5, 0.20, k)), forearmR: qEulerYXZ(0.1, -0.4, 0), handR: qEulerYXZ(0, 0, 0), thumbR: qEulerYXZ(0, 0, 0), fingersR: qEulerYXZ(0, 0, 0),
-        thighL: qEulerYXZ(lerp(0.1, 0.22, k), 0, -0.14 * k), shinL: qEulerYXZ(lerp(-0.1, -0.40, k), 0, 0), footL: qEulerYXZ(-0.2 * k, 0, 0), toeL: qEulerYXZ(0, 0, 0),
-        thighR: qEulerYXZ(lerp(0.05, -0.06, k), 0,  0.14 * k), shinR: qEulerYXZ(lerp(-0.1, -0.14, k), 0, 0), footR: qEulerYXZ(-0.2 * k, 0, 0), toeR: qEulerYXZ(0, 0, 0),
+        spine: qEulerYXZ(stag * 0.18 * (1 - drop) - 0.05 * drop, 0, 0),
+        chest: qEulerYXZ(stag * 0.14 * (1 - drop) - 0.05 * drop, 0, 0),
+        neck:  qEulerYXZ(lerp(0, 0.12, drop), 0, 0),
+        head:  qEulerYXZ(lerp(0, 0.16, drop), lerp(0, -0.42, drop), 0),
+        clavicleL: ikL.qClav, upperArmL: ikL.qUp, forearmL: ikL.qFore, handL: ikL.qHand, thumbL: qEulerYXZ(0, 0, 0), fingersL: qEulerYXZ(0, 0, 0),
+        clavicleR: ikR.qClav, upperArmR: ikR.qUp, forearmR: ikR.qFore, handR: ikR.qHand, thumbR: qEulerYXZ(0, 0, 0), fingersR: qEulerYXZ(0, 0, 0),
+        thighL: qEulerYXZ(lerp(0.1, 0.24, drop), 0, -0.16 * drop),
+        shinL:  qEulerYXZ(lerp(-0.1, -0.42, drop), 0, 0),
+        footL:  qEulerYXZ(-0.22 * drop, -0.25 * drop, 0), toeL: qEulerYXZ(0, 0, 0),
+        thighR: qEulerYXZ(lerp(0.05, -0.05, drop), 0, 0.16 * drop),
+        shinR:  qEulerYXZ(lerp(-0.1, -0.14, drop), 0, 0),
+        footR:  qEulerYXZ(-0.22 * drop,  0.25 * drop, 0), toeR: qEulerYXZ(0, 0, 0),
       },
     };
   }));
 
-  // 20. RELOAD (2.0 s)
+  // 20. RELOAD (2.0 s, IK-driven mag swap: grip -> mag well -> chest pouch -> mag well -> grip)
   clips.push(makePoseClip('reload', 60, (u) => {
     const dip = Math.sin(u * Math.PI);
     const hipsPos = [0, REST_W[BI.hips][1] - 0.025, 0];
-    const hipsQ = qEulerYXZ(-0.03, -0.12, 0);
-    const ikL = solveLegIK('L', [-0.125, ANKLE_H, -0.08], 0, -0.08, 0, hipsPos, hipsQ);
-    const ikR = solveLegIK('R', [ 0.135, ANKLE_H,  0.07], 0, -0.32, 0, hipsPos, hipsQ);
-    const arms = makeReadyArms('ready', 0, 0);
-    // Support arm reaches down to mag pouch at u=0.45, back up at u=0.75
-    const reach = Math.sin(clamp((u - 0.18) / 0.62, 0, 1) * Math.PI);
-    arms.upperArmL = qEulerYXZ(lerp(0.62, 0.25, reach), lerp(0.42, 0.20, reach), lerp(0.58, 0.72, reach));
-    arms.forearmL  = qEulerYXZ(0.18, lerp(0.92, 0.45, reach), 0.15);
+    const hipsQ = qEulerYXZ(-0.03, -0.14, 0);
+    const ikL = solveLegIK('L', [-0.128, ANKLE_H, -0.085], 0, -0.08, 0, hipsPos, hipsQ, 0.22);
+    const ikR = solveLegIK('R', [ 0.138, ANKLE_H,  0.075], 0, -0.34, 0, hipsPos, hipsQ, 0.24);
+    const seg = (a, b) => smooth(clamp((u - a) / (b - a), 0, 1));
+    const toMag   = seg(0.06, 0.22);
+    const toPouch = seg(0.24, 0.46);
+    const toWell  = seg(0.50, 0.74);
+    const toGrip  = seg(0.80, 0.96);
+    let lx = lerp(-0.03, 0.04, toMag), ly = lerp(0.05, 0.02, toMag), lz = lerp(-0.48, -0.34, toMag);
+    lx = lerp(lx, -0.08, toPouch); ly = lerp(ly, -0.10, toPouch); lz = lerp(lz, -0.22, toPouch);
+    lx = lerp(lx,  0.04, toWell);  ly = lerp(ly,  0.02, toWell);  lz = lerp(lz, -0.34, toWell);
+    lx = lerp(lx, -0.03, toGrip);  ly = lerp(ly,  0.05, toGrip);  lz = lerp(lz, -0.48, toGrip);
+    const armL = solveArmIK('L', [lx, ly, lz], [-0.75, -0.68, 0.22], [-0.5, -0.8, 0.1]);
+    const armR = solveArmIK('R', [0.09, 0.04 + dip * 0.02, -0.29], [0.74, -0.62, 0.28], [0.8, 0.4, 0.2]);
     return {
       hipsPos, hipsQ,
       rots: {
-        spine: qEulerYXZ(0.02 + dip * 0.05, 0.06, -dip * 0.05),
-        chest: qEulerYXZ(0.02 + dip * 0.06, 0.06, -dip * 0.06),
-        neck: qEulerYXZ(-dip * 0.06, 0, 0), head: qEulerYXZ(-dip * 0.08, 0, 0),
+        spine: qEulerYXZ(0.02 + dip * 0.05, 0.07, -dip * 0.06),
+        chest: qEulerYXZ(0.02 + dip * 0.06, 0.07, -dip * 0.07),
+        neck:  qEulerYXZ(-dip * 0.08, 0, 0), head: qEulerYXZ(-dip * 0.10, 0, 0),
+        clavicleL: armL.qClav, upperArmL: armL.qUp, forearmL: armL.qFore, handL: armL.qHand,
+        clavicleR: armR.qClav, upperArmR: armR.qUp, forearmR: armR.qFore, handR: armR.qHand,
+        thumbL: qEulerYXZ(0.15, -0.25, 0.2), fingersL: qEulerYXZ(0, 0, -0.35),
+        thumbR: qEulerYXZ(0.15,  0.25, -0.2), fingersR: qEulerYXZ(0, 0,  0.35),
         thighL: ikL.qThigh, shinL: ikL.qShin, footL: ikL.qFoot, toeL: ikL.qToe,
         thighR: ikR.qThigh, shinR: ikR.qShin, footR: ikR.qFoot, toeR: ikR.qToe,
-        ...arms,
       },
     };
   }));
 
-  // 21. MELEE STRIKE (0.5 s)
+  // 21. MELEE STRIKE (0.5 s, IK-driven hip-rotated diagonal slash)
   clips.push(makePoseClip('melee', 15, (u) => {
-    const wind = smooth(clamp(u / 0.28, 0, 1));
-    const slash = smooth(clamp((u - 0.28) / 0.34, 0, 1));
-    const rec = smooth(clamp((u - 0.62) / 0.38, 0, 1));
-    const twist = lerp(lerp(0, -0.45, wind), lerp(0.55, 0, rec), slash);
-    const hipsPos = [0, REST_W[BI.hips][1] - 0.03, 0];
-    const hipsQ = qEulerYXZ(-0.06, twist * 0.35, 0);
-    const ikL = solveLegIK('L', [-0.13, ANKLE_H, -0.10], 0, -0.1, 0, hipsPos, hipsQ);
-    const ikR = solveLegIK('R', [ 0.14, ANKLE_H,  0.09], 0, -0.3, 0, hipsPos, hipsQ);
-    const arms = makeReadyArms('ready', 0, 0);
-    const axR = lerp(lerp(0.5, 1.85, wind), lerp(0.55, 0.5, rec), slash);
-    const azR = lerp(lerp(-0.72, -0.15, wind), lerp(-1.15, -0.72, rec), slash);
-    arms.upperArmR = qEulerYXZ(axR, -0.25 + twist * 0.5, azR);
-    arms.forearmR  = qEulerYXZ(0.2, lerp(-1.1, -0.35, slash) * (1 - rec) - 1.08 * rec, -0.15);
+    const wind  = smooth(clamp(u / 0.28, 0, 1));
+    const slash = smooth(clamp((u - 0.28) / 0.30, 0, 1));
+    const rec   = smooth(clamp((u - 0.58) / 0.42, 0, 1));
+    const twist = lerp(lerp(0, -0.48, wind), lerp(0.58, 0, rec), slash);
+    const hipsPos = [0, REST_W[BI.hips][1] - 0.035, -slash * (1 - rec) * 0.06];
+    const hipsQ = qEulerYXZ(-0.07, twist * 0.35, 0);
+    const ikL = solveLegIK('L', [-0.135, ANKLE_H, -0.11], 0, -0.10, 0, hipsPos, hipsQ, 0.24);
+    const ikR = solveLegIK('R', [ 0.145, ANKLE_H,  0.09], 0, -0.32, 0, hipsPos, hipsQ, 0.24);
+    const rx = lerp(lerp(0.08, 0.34, wind), lerp(-0.24, 0.08, rec), slash);
+    const ry = lerp(lerp(0.02, 0.28, wind), lerp(-0.04, 0.02, rec), slash);
+    const rz = lerp(lerp(-0.30, -0.12, wind), lerp(-0.48, -0.30, rec), slash);
+    const armL = solveArmIK('L', [-0.14, 0.06, -0.34], [-0.78, -0.60, 0.22], [-0.5, -0.8, 0.1]);
+    const armR = solveArmIK('R', [rx, ry, rz], [0.85, -0.30, 0.28], [0.8, 0.4, 0.2]);
     return {
       hipsPos, hipsQ,
       rots: {
         spine: qEulerYXZ(0.05, twist * 0.45, 0), chest: qEulerYXZ(0.04, twist * 0.55, 0),
-        neck: qEulerYXZ(0, -twist * 0.4, 0), head: qEulerYXZ(0, -twist * 0.4, 0),
+        neck:  qEulerYXZ(0, -twist * 0.45, 0), head: qEulerYXZ(0, -twist * 0.45, 0),
+        clavicleL: armL.qClav, upperArmL: armL.qUp, forearmL: armL.qFore, handL: armL.qHand,
+        clavicleR: armR.qClav, upperArmR: armR.qUp, forearmR: armR.qFore, handR: armR.qHand,
+        thumbL: qEulerYXZ(0.15, -0.25, 0.2), fingersL: qEulerYXZ(0, 0, -0.35),
+        thumbR: qEulerYXZ(0.15,  0.25, -0.2), fingersR: qEulerYXZ(0, 0,  0.35),
         thighL: ikL.qThigh, shinL: ikL.qShin, footL: ikL.qFoot, toeL: ikL.qToe,
         thighR: ikR.qThigh, shinR: ikR.qShin, footR: ikR.qFoot, toeR: ikR.qToe,
-        ...arms,
       },
     };
   }));
 
-  // 22. GRENADE THROW (0.67 s)
+  // 22. GRENADE THROW (0.67 s, IK-driven overhand cock, whip throw & follow-through)
   clips.push(makePoseClip('grenade', 20, (u) => {
-    const cock = smooth(clamp(u / 0.38, 0, 1));
-    const thr  = smooth(clamp((u - 0.38) / 0.30, 0, 1));
-    const rec  = smooth(clamp((u - 0.68) / 0.32, 0, 1));
-    const twist = lerp(lerp(0, -0.52, cock), lerp(0.42, 0, rec), thr);
-    const hipsPos = [0, REST_W[BI.hips][1] - 0.03, 0];
-    const hipsQ = qEulerYXZ(-0.05, twist * 0.3, 0);
-    const ikL = solveLegIK('L', [-0.13, ANKLE_H, -0.12], 0, -0.1, 0, hipsPos, hipsQ);
-    const ikR = solveLegIK('R', [ 0.14, ANKLE_H,  0.10], 0, -0.35, 0, hipsPos, hipsQ);
-    const arms = makeReadyArms('ready', 0, 0);
-    const pitchR = lerp(lerp(0.5, 2.35, cock), lerp(0.35, 0.5, rec), thr);
-    arms.upperArmR = qEulerYXZ(pitchR, -0.2, lerp(-0.72, -0.3, cock * (1 - thr)));
-    arms.forearmR  = qEulerYXZ(0.15, lerp(-1.08, -0.25, thr) * (1 - rec) - 1.08 * rec, -0.1);
+    const cock = smooth(clamp(u / 0.36, 0, 1));
+    const thr  = smooth(clamp((u - 0.36) / 0.28, 0, 1));
+    const rec  = smooth(clamp((u - 0.64) / 0.36, 0, 1));
+    const twist = lerp(lerp(0, -0.56, cock), lerp(0.46, 0, rec), thr);
+    const hipsPos = [0, REST_W[BI.hips][1] - 0.035, -thr * (1 - rec) * 0.05];
+    const hipsQ = qEulerYXZ(-0.06, twist * 0.30, 0);
+    const ikL = solveLegIK('L', [-0.135, ANKLE_H, -0.13], 0, -0.10, 0, hipsPos, hipsQ, 0.24);
+    const ikR = solveLegIK('R', [ 0.145, ANKLE_H,  0.11], 0, -0.36, 0, hipsPos, hipsQ, 0.24);
+    const rx = lerp(lerp(0.08, 0.34, cock), lerp(-0.06, 0.08, rec), thr);
+    const ry = lerp(lerp(0.02, 0.42, cock), lerp( 0.08, 0.02, rec), thr);
+    const rz = lerp(lerp(-0.30, 0.14, cock), lerp(-0.54, -0.30, rec), thr);
+    const lx = lerp(lerp(-0.03, -0.10, cock), lerp(-0.18, -0.03, rec), thr);
+    const ly = lerp(lerp( 0.05,  0.18, cock), lerp( 0.02,  0.05, rec), thr);
+    const lz = lerp(lerp(-0.48, -0.52, cock), lerp(-0.30, -0.48, rec), thr);
+    const armL = solveArmIK('L', [lx, ly, lz], [-0.75, -0.55, 0.20], [-0.5, -0.8, 0.1]);
+    const armR = solveArmIK('R', [rx, ry, rz], [ 0.85,  0.10, 0.35], [ 0.8,  0.4, 0.2]);
     return {
       hipsPos, hipsQ,
       rots: {
-        spine: qEulerYXZ(0.05, twist * 0.45, 0), chest: qEulerYXZ(0.05, twist * 0.55, 0),
-        neck: qEulerYXZ(0, -twist * 0.4, 0), head: qEulerYXZ(0, -twist * 0.4, 0),
+        spine: qEulerYXZ(0.05 - cock * 0.08 * (1 - thr) + thr * 0.10 * (1 - rec), twist * 0.45, 0),
+        chest: qEulerYXZ(0.05 - cock * 0.08 * (1 - thr) + thr * 0.10 * (1 - rec), twist * 0.55, 0),
+        neck:  qEulerYXZ(0, -twist * 0.45, 0), head: qEulerYXZ(0, -twist * 0.45, 0),
+        clavicleL: armL.qClav, upperArmL: armL.qUp, forearmL: armL.qFore, handL: armL.qHand,
+        clavicleR: armR.qClav, upperArmR: armR.qUp, forearmR: armR.qFore, handR: armR.qHand,
+        thumbL: qEulerYXZ(0.15, -0.25, 0.2), fingersL: qEulerYXZ(0, 0, -0.35),
+        thumbR: qEulerYXZ(0.15,  0.25, -0.2), fingersR: qEulerYXZ(0, 0,  0.35),
         thighL: ikL.qThigh, shinL: ikL.qShin, footL: ikL.qFoot, toeL: ikL.qToe,
         thighR: ikR.qThigh, shinR: ikR.qShin, footR: ikR.qFoot, toeR: ikR.qToe,
-        ...arms,
       },
     };
   }));
 
-  // 23. HIT FLINCH (0.30 s)
-  clips.push(makePoseClip('hit_flinch', 9, (u) => {
-    const k = Math.sin(u * Math.PI);
-    const hipsPos = [0, REST_W[BI.hips][1] - 0.025, k * 0.03];
-    const hipsQ = qEulerYXZ(k * 0.08, -0.12, k * 0.05);
-    const ikL = solveLegIK('L', [-0.125, ANKLE_H, -0.08], 0, -0.08, 0, hipsPos, hipsQ);
-    const ikR = solveLegIK('R', [ 0.135, ANKLE_H,  0.07], 0, -0.32, 0, hipsPos, hipsQ);
-    const arms = makeReadyArms('ready', k * 0.3, k * 0.3);
+  // 23. HIT FLINCH (0.33 s, sharp impact impulse + delayed head whip + damped recovery)
+  clips.push(makePoseClip('hit_flinch', 10, (u) => {
+    const k = u < 0.28 ? smooth(u / 0.28) : 1 - smooth((u - 0.28) / 0.72);
+    const headLag = u < 0.42 ? smooth(clamp((u - 0.08) / 0.34, 0, 1)) : 1 - smooth((u - 0.42) / 0.58);
+    const hipsPos = [0, REST_W[BI.hips][1] - 0.025 - k * 0.02, k * 0.035];
+    const hipsQ = qEulerYXZ(k * 0.09, -0.12 + k * 0.06, k * 0.05);
+    const ikL = solveLegIK('L', [-0.128, ANKLE_H, -0.085], 0, -0.08, 0, hipsPos, hipsQ, 0.22);
+    const ikR = solveLegIK('R', [ 0.138, ANKLE_H,  0.075], 0, -0.32, 0, hipsPos, hipsQ, 0.24);
+    const arms = makeReadyArms('ready', k * 0.35, k * 0.35);
     return {
       hipsPos, hipsQ,
       rots: {
-        spine: qEulerYXZ(k * 0.16, 0.08, k * 0.14),
-        chest: qEulerYXZ(k * 0.22, 0.06 + k * 0.16, k * 0.18),
-        neck: qEulerYXZ(k * 0.20, 0, -k * 0.12), head: qEulerYXZ(k * 0.22, 0, -k * 0.15),
+        spine: qEulerYXZ(k * 0.18, 0.08, k * 0.15),
+        chest: qEulerYXZ(k * 0.24, 0.06 + k * 0.18, k * 0.18),
+        neck:  qEulerYXZ(headLag * 0.22, 0, -headLag * 0.14),
+        head:  qEulerYXZ(headLag * 0.26, 0, -headLag * 0.16),
         thighL: ikL.qThigh, shinL: ikL.qShin, footL: ikL.qFoot, toeL: ikL.qToe,
         thighR: ikR.qThigh, shinR: ikR.qShin, footR: ikR.qFoot, toeR: ikR.qToe,
         ...arms,

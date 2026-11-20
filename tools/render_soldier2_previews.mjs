@@ -426,3 +426,27 @@ for (let k = 0; k < 6; k++) {
   }
 }
 saveJpg('soldier2_run_strip', SW, SH, strip);
+
+// 6-frame crouch walk strip
+const crouchStrip = Buffer.alloc(SW * SH * 3);
+for (let k = 0; k < 6; k++) {
+  const cp = evalPose('crouch_walk', k / 6);
+  const rgb = renderView({
+    W: 420, H: 600, camPos: [2.05, 0.82, -1.45], target: [0, 0.68, 0], fovDeg: 42,
+    meshes: [{ ...cp, ox: 0, oz: 0, tint: 'marine' }],
+  });
+  for (let y = 0; y < SH; y++) rgb.copy(crouchStrip, (y * SW + k * 420) * 3, y * 420 * 3, (y + 1) * 420 * 3);
+}
+saveJpg('soldier2_crouch_strip', SW, SH, crouchStrip);
+
+// 6-frame prone leopard crawl strip
+const crawlStrip = Buffer.alloc(SW * SH * 3);
+for (let k = 0; k < 6; k++) {
+  const pp = evalPose('prone_crawl', k / 6);
+  const rgb = renderView({
+    W: 420, H: 600, camPos: [1.95, 1.35, -1.35], target: [0, 0.24, -0.05], fovDeg: 42,
+    meshes: [{ ...pp, ox: 0, oz: 0, tint: 'marine' }],
+  });
+  for (let y = 0; y < SH; y++) rgb.copy(crawlStrip, (y * SW + k * 420) * 3, y * 420 * 3, (y + 1) * 420 * 3);
+}
+saveJpg('soldier2_crawl_strip', SW, SH, crawlStrip);

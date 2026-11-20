@@ -183,11 +183,16 @@ const REF_SPEEDS = SOLDIER2_META.refSpeeds || {
   sprint: 6.7, crouch_walk: 2.6, prone_crawl: 1.0,
 };
 
-const LOOP_CLIPS = [
-  'idle', 'walk_fwd', 'walk_back', 'walk_left', 'walk_right',
-  'run_fwd', 'run_back', 'run_left', 'run_right', 'sprint',
-  'crouch_idle', 'crouch_walk', 'prone_idle', 'prone_crawl', 'fall_loop',
+const LOCO_SYNC_CLIPS = [
+  'walk_fwd', 'walk_back', 'walk_left', 'walk_right',
+  'run_fwd', 'run_back', 'run_left', 'run_right', 'sprint', 'crouch_walk',
 ];
+const LOOP_CLIPS = [
+  'idle', ...LOCO_SYNC_CLIPS,
+  'crouch_idle', 'prone_idle', 'prone_crawl', 'fall_loop',
+];
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
+const _qYaw = new THREE.Quaternion();
 
 export class Soldier {
   constructor(kind = 'marine') {
@@ -286,8 +291,15 @@ export class Soldier {
     this.mountPos = new THREE.Vector3(0.085, 0.085, -0.15);
     this.mountRot = new THREE.Vector3(0, 0.2, 0);
 
-    // Internal clip state trackers
+    // Internal clip state trackers (phase-locked locomotion + staged posture + inertial lean)
     this._w = Object.fromEntries(LOOP_CLIPS.map((n) => [n, n === 'idle' ? 1 : 0]));
+    this._posture = 0;       // continuous 0=stand -> 1=crouch -> 2=prone (passes smoothly through crouch)
+    this._prevYaw = 0;
+    this._turnRate = 0;
+    this._prevMoveX = 0;
+    this._prevMoveZ = 0;
+    this._leanX = 0;
+    this._leanZ = 0;
     this._wasAir = false;
     this._wasDead = false;
     this._wasReload = false;
@@ -436,13 +448,29 @@ export class Soldier {
     this.pitch   = damp(this.pitch,   s.pitch || 0, 22, dt);
 
     const speed = s.speed || 0;
-    const moving = speed > 0.2;
+    const moving = speed > 0.16;
     this.moveK = damp(this.moveK, moving ? 1 : 0, 10, dt);
 
-    // Advance gait phase for first-person bob compatibility
-    const freq = speed > 0.2 ? clamp(0.85 + 0.14 * speed, 0.8, 2.4) : 0.4;
-    this.gaitP = (this.gaitP + freq * dt) % 1;
-    this.phase = this.gaitP * Math.PI * 2;
+    // Track yaw turn rate & horizontal acceleration for subtle inertial banking/lean
+    const curYaw = this.root.rotation.y || 0;
+    let dYaw = curYaw - this._prevYaw;
+    while (dYaw > Math.PI) dYaw -= Math.PI * 2;
+    while (dYaw < -Math.PI) dYaw += Math.PI * 2;
+    this._prevYaw = curYaw;
+    const safeDt = Math.max(dt, 0.004);
+    this._turnRate = damp(this._turnRate, clamp(dYaw / safeDt, -5, 5), 10, dt);
+    const mx = s.moveX || 0, mz = s.moveZ || 0;
+    const accX = clamp((mx - this._prevMoveX) / safeDt, -18, 18);
+    const accZ = clamp((mz - this._prevMoveZ) / safeDt, -18, 18);
+    this._prevMoveX = mx; this._prevMoveZ = mz;
+    this._leanX = damp(this._leanX, clamp(accZ * 0.008, -0.10, 0.10), 8, dt);
+    this._leanZ = damp(this._leanZ, clamp(-accX * 0.009 - this._turnRate * 0.022 * this.moveK, -0.12, 0.12), 8, dt);
+
+    // Staged continuous posture (0=stand -> 1=crouch -> 2=prone) so lay-down/stand-up passes
+    // naturally through crouch/kneel instead of snapping flat through the floor
+    const targetPosture = s.prone ? 2 : (s.crouch || s.slide ? 1 : 0);
+    const postureRate = (targetPosture === 2 || this._posture > 1.05) ? 6.2 : 9.5;
+    this._posture = damp(this._posture, targetPosture, postureRate, dt);
 
     // LOD0 / LOD1 distance switch (1 draw call always)
     if (this.mesh && this.meshLod1 && s.dist != null) {
@@ -456,7 +484,7 @@ export class Soldier {
 
     const dead = s.dead || 0;
     const deadE = smooth(clamp(dead, 0, 1));
-    const cK = this.crouchK * (1 - this.proneK), pK = this.proneK, slK = this.slideK;
+    const pK = clamp(this._posture - 1, 0, 1), slK = this.slideK;
     const reload = s.reload != null && s.reload >= 0 ? s.reload : -1;
     const melee = s.melee != null && s.melee >= 0 ? s.melee : -1;
     const thr = s.throw != null && s.throw >= 0 ? s.throw : -1;
@@ -470,46 +498,50 @@ export class Soldier {
       if (aliveW > 0) {
         const airW = s.air ? 1 : 0;
         const groundW = 1 - airW;
-        const proneW = groundW * (s.prone ? 1 : 0);
-        const crouchW = groundW * (!s.prone && (s.crouch || s.slide) ? 1 : 0);
-        const standW = groundW * (!s.prone && !s.crouch && !s.slide ? 1 : 0);
+        // Smooth triangular posture weights: stand <-> crouch <-> prone
+        const standW  = groundW * clamp(1 - this._posture, 0, 1);
+        const crouchW = groundW * clamp(1 - Math.abs(this._posture - 1), 0, 1);
+        const proneW  = groundW * clamp(this._posture - 1, 0, 1);
 
         if (airW > 0) tgt.fall_loop = airW;
 
-        if (proneW > 0) {
-          const mv = clamp(speed / 0.5, 0, 1);
-          tgt.prone_idle = proneW * (1 - mv);
+        if (proneW > 0.001) {
+          const mv = smooth(clamp((speed - 0.08) / 0.42, 0, 1));
+          tgt.prone_idle  = proneW * (1 - mv);
           tgt.prone_crawl = proneW * mv;
-          if (this.actions.prone_crawl) this.actions.prone_crawl.setEffectiveTimeScale(clamp(speed / REF_SPEEDS.prone_crawl, 0.4, 2.0));
+          if (this.actions.prone_crawl) {
+            this.actions.prone_crawl.setEffectiveTimeScale(clamp(speed / REF_SPEEDS.prone_crawl, 0.35, 1.9));
+          }
         }
 
-        if (crouchW > 0) {
-          const mv = s.slide ? 0 : clamp(speed / 0.6, 0, 1);
+        if (crouchW > 0.001) {
+          const mv = s.slide ? 0 : smooth(clamp((speed - 0.10) / 0.50, 0, 1));
           tgt.crouch_idle = crouchW * (1 - mv);
           tgt.crouch_walk = crouchW * mv;
-          if (this.actions.crouch_walk) this.actions.crouch_walk.setEffectiveTimeScale(clamp(speed / REF_SPEEDS.crouch_walk, 0.4, 2.0));
         }
 
-        if (standW > 0) {
-          if (speed < 0.2) {
+        if (standW > 0.001) {
+          if (speed < 0.14) {
             tgt.idle = standW;
           } else {
-            // Directional weights from model-space velocity (-Z forward, +X right)
+            // Smooth directional weights from model-space velocity (-Z forward, +X right)
             const invS = 1 / (speed || 1);
-            const fx = clamp(-(s.moveZ || 0) * invS, 0, 1);
-            const bx = clamp( (s.moveZ || 0) * invS, 0, 1);
-            const lx = clamp(-(s.moveX || 0) * invS, 0, 1);
-            const rx = clamp( (s.moveX || 0) * invS, 0, 1);
+            const fx = clamp(-mz * invS, 0, 1);
+            const bx = clamp( mz * invS, 0, 1);
+            const lx = clamp(-mx * invS, 0, 1);
+            const rx = clamp( mx * invS, 0, 1);
             const dSum = fx + bx + lx + rx || 1;
             const wF = fx / dSum, wB = bx / dSum, wL = lx / dSum, wR = rx / dSum;
 
-            // Speed tier weights: idle (0) -> walk (1.5) -> run (4.7) -> sprint (6.7)
-            const wWalkTier = speed < 1.5 ? clamp(speed / 1.5, 0, 1) : clamp(1 - (speed - 1.5) / 2.4, 0, 1);
+            // Smooth speed tier blending: idle (0) -> walk (1.5) -> run (4.7) -> sprint (6.7)
+            const wWalkTier = speed < 1.5
+              ? smooth(clamp(speed / 1.5, 0, 1))
+              : 1 - smooth(clamp((speed - 1.5) / 2.5, 0, 1));
             const wIdleTier = speed < 1.5 ? 1 - wWalkTier : 0;
-            const wSprintTier = (s.sprint && wF > 0.5) ? clamp((speed - 4.7) / 1.8, 0, 1) : 0;
+            const wSprintTier = (s.sprint && wF > 0.45) ? smooth(clamp((speed - 4.7) / 1.8, 0, 1)) : 0;
             const wRunTier = clamp(1 - wIdleTier - wWalkTier - wSprintTier, 0, 1);
 
-            tgt.idle = standW * wIdleTier;
+            tgt.idle       = standW * wIdleTier;
             tgt.walk_fwd   = standW * wWalkTier * wF;
             tgt.walk_back  = standW * wWalkTier * wB;
             tgt.walk_left  = standW * wWalkTier * wL;
@@ -519,34 +551,55 @@ export class Soldier {
             tgt.run_left   = standW * wRunTier  * wL;
             tgt.run_right  = standW * wRunTier  * wR;
             tgt.sprint     = standW * wSprintTier;
-
-            // Match clip playback rate to actual ground speed -> zero foot sliding
-            for (const nm of ['walk_fwd', 'walk_back', 'walk_left', 'walk_right', 'run_fwd', 'run_back', 'run_left', 'run_right', 'sprint']) {
-              if (tgt[nm] > 0.001 && this.actions[nm]) {
-                const ref = REF_SPEEDS[nm] || 3.0;
-                this.actions[nm].setEffectiveTimeScale(clamp(speed / ref, 0.35, 2.2));
-              }
-            }
           }
         }
       }
 
-      // Smooth cross-fades (~0.18-0.22s via damp rate 9)
-      const fadeRate = 10;
+      // Smooth cross-fades (~0.16-0.24s) with slightly softer transitions for posture changes
+      const fadeRate = 9.5;
       for (const nm of LOOP_CLIPS) {
         this._w[nm] = damp(this._w[nm], tgt[nm], fadeRate, dt);
         if (this.actions[nm]) this.actions[nm].setEffectiveWeight(this._w[nm]);
       }
 
+      // --- Phase-locked locomotion sync (zero leg scissoring / zero foot sliding) ---
+      // All 10 ground locomotion clips share L heel-strike at phase 0 and R at 0.5.
+      // Advance one unified normalized gait phase from the weighted blended stride length.
+      let locoWSum = 0, blendedStride = 0;
+      for (const nm of LOCO_SYNC_CLIPS) {
+        const w = this._w[nm];
+        if (w > 0.001 && this.actions[nm]) {
+          const dur = this.actions[nm].getClip().duration || 0.7;
+          const ref = REF_SPEEDS[nm] || 3.0;
+          blendedStride += w * (ref * dur);
+          locoWSum += w;
+        }
+      }
+      if (locoWSum > 0.001 && speed > 0.08) {
+        const stride = Math.max(0.75, blendedStride / locoWSum);
+        const freq = clamp(speed / stride, 0.35, 2.8);
+        this.gaitP = (this.gaitP + freq * dt) % 1;
+      } else {
+        this.gaitP = (this.gaitP + 0.38 * dt) % 1;
+      }
+      this.phase = this.gaitP * Math.PI * 2;
+      for (const nm of LOCO_SYNC_CLIPS) {
+        const act = this.actions[nm];
+        if (act) {
+          act.setEffectiveTimeScale(0);
+          act.time = this.gaitP * act.getClip().duration;
+        }
+      }
+
       // --- One-shot action triggers -----------------------------------------
-      if (s.air && !this._wasAir && aliveW > 0) this._playOnce('jump_start', 0.06, 1.0);
+      if (s.air && !this._wasAir && aliveW > 0) this._playOnce('jump_start', 0.07, 1.0);
       if (!s.air && this._wasAir && aliveW > 0) this._playOnce('land', 0.05, 1.0);
       this._wasAir = !!s.air;
 
       const isDead = dead > 0.01;
       if (isDead && !this._wasDead) {
         const dClip = (s.deadDir || 1) < 0 ? 'death_fwd' : 'death_back';
-        this._playOnce(dClip, 0.12, 1.0);
+        this._playOnce(dClip, 0.10, 1.0);
       } else if (!isDead && this._wasDead) {
         if (this.actions.death_fwd) this.actions.death_fwd.stop();
         if (this.actions.death_back) this.actions.death_back.stop();
@@ -557,18 +610,18 @@ export class Soldier {
       if (isReload && !this._wasReload && aliveW > 0) {
         const dur = this.actions.reload ? this.actions.reload.getClip().duration : 2.0;
         const wDur = (def && def.reload) || 2.0;
-        this._playOnce('reload', 0.12, dur / wDur);
+        this._playOnce('reload', 0.14, dur / wDur);
       } else if (!isReload && this._wasReload && this.actions.reload) {
-        this.actions.reload.fadeOut(0.15);
+        this.actions.reload.fadeOut(0.18);
       }
       this._wasReload = isReload;
 
       const isMelee = melee >= 0;
-      if (isMelee && !this._wasMelee && aliveW > 0) this._playOnce('melee', 0.05, 1.0);
+      if (isMelee && !this._wasMelee && aliveW > 0) this._playOnce('melee', 0.06, 1.0);
       this._wasMelee = isMelee;
 
       const isThrow = thr >= 0;
-      if (isThrow && !this._wasThrow && aliveW > 0) this._playOnce('grenade', 0.06, 1.0);
+      if (isThrow && !this._wasThrow && aliveW > 0) this._playOnce('grenade', 0.07, 1.0);
       this._wasThrow = isThrow;
 
       if (Math.abs(this.flinch) > 0.65 && Math.abs(this._lastFlinch) <= 0.65 && aliveW > 0) {
@@ -576,27 +629,36 @@ export class Soldier {
       }
       this._lastFlinch = this.flinch;
 
-      // Advance mixer
+      // Advance mixer (updates idle, prone_idle, prone_crawl, crouch_idle, fall_loop, and one-shots)
       this.mixer.update(dt);
     }
 
-    // --- Post-mixer upper-body aim pitch & slide lean -----------------------
+    // --- Post-mixer upper-body aim pitch, inertial lean & slide pose --------
     const aim = this.pitch * (1 - deadE);
+    const aliveLean = (1 - deadE) * (1 - pK * 0.85);
+    const turnLead = clamp(this._turnRate * 0.045, -0.18, 0.18) * aliveLean;
     if (b.spine) {
-      _qPitch.setFromAxisAngle(X_AXIS, aim * 0.42 - slK * 0.35);
+      _qPitch.setFromAxisAngle(X_AXIS, aim * 0.42 - slK * 0.35 + this._leanX * 0.55 * aliveLean);
       b.spine.quaternion.multiply(_qPitch);
+      _qRoll.setFromAxisAngle(Z_AXIS, this._leanZ * 0.55 * aliveLean);
+      b.spine.quaternion.multiply(_qRoll);
     }
     if (b.chest) {
-      _qPitch.setFromAxisAngle(X_AXIS, aim * 0.46 + this.kick * 0.05 - slK * 0.22);
+      _qPitch.setFromAxisAngle(X_AXIS, aim * 0.46 + this.kick * 0.05 - slK * 0.22 + this._leanX * 0.45 * aliveLean);
       b.chest.quaternion.multiply(_qPitch);
-      if (Math.abs(this.flinch) > 0.01) {
-        _qRoll.setFromAxisAngle(Z_AXIS, this.flinch * 0.16);
+      _qYaw.setFromAxisAngle(Y_AXIS, turnLead * 0.45);
+      b.chest.quaternion.multiply(_qYaw);
+      const rollAmt = this._leanZ * 0.45 * aliveLean + this.flinch * 0.16;
+      if (Math.abs(rollAmt) > 0.002) {
+        _qRoll.setFromAxisAngle(Z_AXIS, rollAmt);
         b.chest.quaternion.multiply(_qRoll);
       }
     }
     if (b.head) {
       _qPitch.setFromAxisAngle(X_AXIS, aim * 0.12);
       b.head.quaternion.multiply(_qPitch);
+      _qYaw.setFromAxisAngle(Y_AXIS, turnLead * 0.55);
+      b.head.quaternion.multiply(_qYaw);
     }
     if (slK > 0.01 && b.hips) {
       _qPitch.setFromAxisAngle(X_AXIS, slK * 0.55);
