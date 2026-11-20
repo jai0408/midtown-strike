@@ -1,5 +1,8 @@
 """Builds the Midtown Strike street vehicles (sedan, taxi, police, suv, humvee, van, truck, bus).
 
+NOTE: the generated asset module is post-processed by tools/recompress_assets.py (textures re-encoded as WebP,
+GLB images via EXT_texture_webp). Run it after this script; do not hand-edit the output.
+
     /Applications/Blender.app/Contents/MacOS/Blender --background --python tools/blender/build_vehicles.py
 
 Bodies are lofted from cross-sections with real wheel-arch cut-outs (liner + tyre inside),

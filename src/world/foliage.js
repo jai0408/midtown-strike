@@ -22,6 +22,8 @@ const CHUNK = 32;
 const TIME_WRAP = 20 * Math.PI; // wind frequencies are multiples of 0.1 so the wrap is seamless
 
 /** Per-quality settings. dist/lod0 are metres at drawScale 1; grass is the radius around the camera. */
+/** The farthest any class draws, as a multiple of dist (chunk-level early out). */
+let MAX_CULL = 1;
 const QUALITY = {
   // grass blades ~ pi * grass^2 / spacing^2: low 0.8k, medium 3.4k, high 13k, ultra 29k
   low: { dist: 70, lod0: 20, grass: 14, spacing: 0.86, shadow: false },
@@ -32,13 +34,15 @@ const QUALITY = {
 
 /** Draw / LOD0 distance multipliers per model class. */
 const CLASS = {
-  tree: { cull: 1.0, lod0: 1.0, shadow: true, amp: 0.38, flutter: 0.05 },
+  // trees reach far (the 8-triangle impostors cover the hillsides around the map); the rest stays near
+  tree: { cull: 2.4, lod0: 1.0, shadow: true, amp: 0.38, flutter: 0.05 },
   bush: { cull: 0.5, lod0: 0.45, shadow: false, amp: 0.07, flutter: 0.035 },
   fern: { cull: 0.32, lod0: 0.4, shadow: false, amp: 0.06, flutter: 0.03 },
   plant: { cull: 0.3, lod0: 0.4, shadow: false, amp: 0.06, flutter: 0.03 },
   tall: { cull: 0.45, lod0: 0.4, shadow: false, amp: 0.1, flutter: 0.03 },
   rock: { cull: 0.4, lod0: 0.4, shadow: false, amp: 0, flutter: 0 },
 };
+MAX_CULL = Math.max(...Object.values(CLASS).map((c) => c.cull));
 
 // ---------------------------------------------------------------------------------------------
 // decoding
@@ -660,7 +664,7 @@ export async function buildFoliage({ foliage, heightAt, quality = 'medium', excl
     for (const k of kinds) { k.cursor[0] = 0; k.cursor[1] = 0; }
     for (const c of chunks) {
       const dx = Math.max(c.min.x - cam.x, 0, cam.x - c.max.x), dz = Math.max(c.min.z - cam.z, 0, cam.z - c.max.z);
-      if (dx * dx + dz * dz > dist * dist) continue;
+      if (dx * dx + dz * dz > dist * dist * MAX_CULL * MAX_CULL) continue;   // per-kind cull below
       if (useFrustum) {
         c.sphere.radius += margin;
         const vis = frustum.intersectsSphere(c.sphere);

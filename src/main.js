@@ -11,7 +11,7 @@ import { WEAPONS, CATEGORIES, DEFAULT_LOADOUT, weaponsIn } from './game/weapons.
 import { fmtTime, clamp } from './core/util.js';
 import * as THREE from 'three';
 
-const VERSION = '1.5.1';
+const VERSION = '1.5.2';
 const STORE = 'midtown-strike-v1';
 // a laptop or desktop: no touch screen, keyboard and mouse / trackpad instead
 const DESKTOP = !('ontouchstart' in window) && !(navigator.maxTouchPoints > 0);

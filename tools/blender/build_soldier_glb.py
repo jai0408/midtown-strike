@@ -1,4 +1,6 @@
 """
+NOTE: the generated asset module is post-processed by tools/recompress_assets.py (textures re-encoded as WebP,
+GLB images via EXT_texture_webp). Run it after this script; do not hand-edit the output.
 Midtown Strike - soldier built from the supplied Tripo model (TacticalSoldier.glb).
 
 Run (Blender 5.3, headless):
