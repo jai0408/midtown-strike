@@ -1609,16 +1609,16 @@ def sphere_grid(nlat, nlon):
     return D, tris
 
 
-def make_rock(rng, R, squash, seed, nlat=8, nlon=14):
+def make_rock(rng, R, squash, seed, nlat=10, nlon=18):
     D, tris = sphere_grid(nlat, nlon)
     flat = D.reshape(-1, 3)
     big = fbm3(flat * 1.6 + seed * 3.1, 1.0, 3, seed) - 0.5
     sm = noise3(flat * 4.0 + seed, 1.0, seed + 5) - 0.5
-    rad = R * (1 + 0.55 * big + 0.10 * sm)
-    # flatten underside, round top
+    rad = R * (1 + 0.35 * big + 0.08 * sm)
+    # rounded underside, organic chunky boulder form
     yy = flat[:, 1]
     P = flat * rad[:, None]
-    P[:, 1] = np.where(P[:, 1] < 0, P[:, 1] * 0.55, P[:, 1])
+    P[:, 1] = np.where(P[:, 1] < 0, P[:, 1] * 0.75, P[:, 1])
     P *= np.array(squash, np.float32)
     P = P.reshape(nlat + 1, nlon + 1, 3)
     out = np.array([[P[a], P[b], P[c]] for t in tris for (a, b, c) in [t]], np.float32)
@@ -1637,12 +1637,18 @@ def build_coping(rng):
     N_R = 36
     for i in range(N_R):
         th = (i / N_R) * math.pi * 2 + math.sin(i * 3.7) * 0.06
-        r = pond_r(th) + 0.10 + 0.15 * math.sin(i * 5.3) + rng.uniform(-0.05, 0.05)
-        R = rng.uniform(0.34, 0.52)
-        sq = (rng.uniform(0.9, 1.35), rng.uniform(0.55, 0.8), rng.uniform(0.85, 1.2))
-        P, uv = make_rock(rng, R, sq, 100 + i)
+        r = pond_r(th) + 0.12 + 0.12 * math.sin(i * 5.3) + rng.uniform(-0.05, 0.05)
+        R = rng.uniform(0.38, 0.58)
+        sq = (rng.uniform(0.95, 1.25), rng.uniform(0.90, 1.25), rng.uniform(0.95, 1.25))
+        P, uv = make_rock(rng, R, sq, 100 + i, nlat=10, nlon=18)
+        # Scale and position to ensure rounded chunky boulders 0.3 - 0.6 m tall
+        y_top = float(P[..., 1].max())
+        target_h = rng.uniform(0.35, 0.64)
+        P[..., 1] *= (target_h / max(0.1, y_top))
+        sink = rng.uniform(0.04, 0.06)
+        P[..., 1] -= sink
         P = rot_yaw(P, th + math.pi / 2 + rng.uniform(-0.3, 0.3))
-        P += np.array([math.sin(th) * r, rng.uniform(0.00, 0.06) - 0.02, math.cos(th) * r], np.float32)
+        P += np.array([math.sin(th) * r, 0.0, math.cos(th) * r], np.float32)
         rocks.append(P); uvs.append(uv)
         info.append([round(math.sin(th) * r, 3), round(math.cos(th) * r, 3), round(R, 3), round(float(P[..., 1].max()), 3)])
     return rocks, uvs, info
