@@ -7,13 +7,15 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { setMaxAnisotropy } from '../world/textures.js';
+import { StreetReflectionPass } from './reflections.js';
 
 export const QUALITY = {
-  // shadow = sun shadow map size (0 = off), post = bloom + film grade pass
-  low: { height: 540, draw: 0.7, far: 900, aa: false, shadow: 0, post: false },
-  medium: { height: 720, draw: 1.0, far: 1300, aa: false, shadow: 1024, post: false },
-  high: { height: 1080, draw: 1.25, far: 1700, aa: true, shadow: 2048, post: true },
-  ultra: { height: 1600, draw: 1.6, far: 2100, aa: true, shadow: 4096, post: true },   // Retina laptops and desktops
+  // shadow = sun shadow map size (0 = off), post = bloom + film grade pass,
+  // ssr = wet-street screen-space reflections (needs post; only on maps that set reflect)
+  low: { height: 540, draw: 0.7, far: 900, aa: false, shadow: 0, post: false, ssr: false },
+  medium: { height: 720, draw: 1.0, far: 1300, aa: false, shadow: 1024, post: false, ssr: false },
+  high: { height: 1080, draw: 1.25, far: 1700, aa: true, shadow: 2048, post: true, ssr: true },
+  ultra: { height: 1600, draw: 1.6, far: 2100, aa: true, shadow: 4096, post: true, ssr: true },   // Retina laptops and desktops
 };
 
 const _fwd = new THREE.Vector3();
@@ -27,6 +29,7 @@ export const ATMOSPHERES = {
     fog: { color: 0x56606e, near: 90, far: null },
     exposure: 1.0, envIntensity: 0.9, envFloor: 0x25262a, shadowR: 55, shadowRadius: 2, shadowNormalBias: 0.05,
     grade: { sat: 0.92, curve: 0, warm: 1.0 },
+    reflect: { strength: 0.9, wetBase: 0.22 },   // rain-damp streets mirror the neon
   },
   // clear sunny afternoon, CoD-Mobile-daytime style: saturated blue zenith, light blue horizon,
   // soft clouds, strong warm sun, rich environment reflections, light blue haze from ~120 m
@@ -37,6 +40,7 @@ export const ATMOSPHERES = {
     fog: { color: 0x7ea8dc, near: 150, far: 2600, uncapped: true },
     exposure: 1.02, envIntensity: 1.12, envFloor: 0x3e4a30, shadowR: 44, shadowRadius: 1.2, shadowNormalBias: 0.03,
     grade: { sat: 1.08, curve: 0.35, warm: 1.0 },
+    reflect: { strength: 0, wetBase: 0 },        // dry gravel and grass: no street reflections
   },
 };
 
@@ -199,6 +203,8 @@ export function createScene(canvas, qualityName = 'medium') {
     scene.environmentIntensity = A.envIntensity;
     SHADOW_R = A.shadowR; shadowRadius = A.shadowRadius; shadowNormalBias = A.shadowNormalBias;
     pendingGrade = A.grade;
+    reflectLook = A.reflect;
+    applyReflect();
     if (gradeU) { gradeU.sat.value = A.grade.sat; gradeU.curve.value = A.grade.curve; }
     setupShadow();
     buildEnvironment();
@@ -207,12 +213,24 @@ export function createScene(canvas, qualityName = 'medium') {
   // post: bloom on the neon and sun glints, then tone map + a restrained film grade
   let pendingGrade = null;
   let composer = null, bloom = null, exposureU = null, gradeU = null;
+  let streetRefl = null, reflectLook = ATMOSPHERES.midtown.reflect;
+  function applyReflect() {
+    if (!streetRefl) return;
+    streetRefl.setLook(reflectLook.strength, reflectLook.wetBase);
+    streetRefl.enabled = !!q.ssr && reflectLook.strength > 0;
+  }
   function setupPost() {
     if (!q.post) { composer = null; return; }
     if (composer) return;
-    const rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: q.aa ? 4 : 0 });
+    // the depth texture lets the street reflections march through the scene
+    const rt = new THREE.WebGLRenderTarget(4, 4, {
+      type: THREE.HalfFloatType, samples: q.aa ? 4 : 0, depthTexture: new THREE.DepthTexture(4, 4),
+    });
     composer = new EffectComposer(renderer, rt);
     composer.addPass(new RenderPass(scene, camera));
+    streetRefl = new StreetReflectionPass(camera);
+    composer.addPass(streetRefl);
+    applyReflect();
     // Phone GPUs can leave a few NaN / infinite pixels in the half-float buffer
     // (tiny-roughness sun glints overflow it). The bloom blur would smear each
     // one into a big black square, so clean them up and cap the range first.
@@ -284,8 +302,8 @@ export function createScene(canvas, qualityName = 'medium') {
   }
   function setQuality(name) {
     const n = QUALITY[name] || QUALITY.medium;
-    q.height = n.height; q.draw = n.draw; q.far = n.far; q.shadow = n.shadow; q.post = n.post;
-    setupShadow(); setupPost();
+    q.height = n.height; q.draw = n.draw; q.far = n.far; q.shadow = n.shadow; q.post = n.post; q.ssr = n.ssr;
+    setupShadow(); setupPost(); applyReflect();
     camera.far = q.far;
     scene.fog.far = fogFarNow();
     camera.updateProjectionMatrix();

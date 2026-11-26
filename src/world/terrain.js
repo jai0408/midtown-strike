@@ -14,6 +14,13 @@ import { POND_GLSL } from './pond_shape.js';
 
 const LAYER = 512;   // texels per layer side
 
+// The gravel albedo has its pebbles pre-shaded from the top left; lit again by the
+// sun and the normal map that reads as big harsh cobbles. Squash its baked shading
+// towards the texture's average colour and make the pebbles a little smaller.
+const GRAVEL_MEAN_LINEAR = '0.188, 0.169, 0.136';   // mean of the gravel albedo, linear
+const GRAVEL_SHADE_KEEP = 0.5;                       // 1 = baked shading as authored
+const GRAVEL_TILE_SCALE = 1.45;                      // > 1 = more, smaller pebbles per metre
+
 function blobOf(s) {
   const b64 = s.indexOf(',') >= 0 ? s.slice(s.indexOf(',') + 1) : s;
   const bin = atob(b64), u8 = new Uint8Array(bin.length);
@@ -94,7 +101,7 @@ export async function applyTerrainSplat(mat, T) {
   const uniforms = {
     uSplat: { value: splat }, uAlb: { value: albedo }, uNrm: { value: normals },
     uRect: { value: new THREE.Vector4(T.x0, T.z0, 1 / T.size, 1 / T.size) },
-    uTile: { value: new THREE.Vector4(...L.map((l) => 1 / (l.tile || 4))) },
+    uTile: { value: new THREE.Vector4(...L.map((l) => (l.name === 'gravel' ? GRAVEL_TILE_SCALE : 1) / (l.tile || 4))) },
     uRough: { value: new THREE.Vector4(...L.map((l) => (l.rough === undefined ? 0.9 : l.rough))) },
     uFade: { value: new THREE.Vector2(30, 90) },   // detail fully on up to x m, gone by y m
   };
@@ -142,6 +149,7 @@ export async function applyTerrainSplat(mat, T) {
           vec4 bw = max(hb - (max(max(hb.x, hb.y), max(hb.z, hb.w)) - 0.2), 0.0);
           bw *= step(0.001, sw);
           bw /= (bw.x + bw.y + bw.z + bw.w + 1e-4);
+          a2 = vec3(${GRAVEL_MEAN_LINEAR}) + (a2 - vec3(${GRAVEL_MEAN_LINEAR})) * ${GRAVEL_SHADE_KEEP.toFixed(2)};
           a2 *= 0.78;   // gravel's white pebbles are the brightest thing in the scene
           vec3 detail = (a0 * bw.x + a1 * bw.y + a2 * bw.z + a3 * bw.w) * 0.88;
           // the baked colour stays as soft macro variation and ground AO
