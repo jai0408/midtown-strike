@@ -2285,14 +2285,47 @@ def build_parking_props():
     for k in range(3):
         box("paint", -3.1 + 0.0, gy + 0.55 + k * 0.28, 62.44, 3.1, gy + 0.55 + k * 0.28 + 0.2, 62.56, "#d2d0c8" if k % 2 == 0 else "#a03a2a", 0.5, dirt=False)
     col(-3.1, gy + 0.5, 62.4, 3.1, gy + 1.3, 62.6, F_DEFAULT, S_WOOD)
-    # fallen tree
+    # fallen tree across the road (bowed organic multi-segment log, splintered root flare, irregular branch stubs)
+    def round_limb(p0, p1, r0, r1, tint, seg=8, caps=False):
+        p0, p1 = np.array(p0, float), np.array(p1, float)
+        d = p1 - p0
+        L = float(np.linalg.norm(d))
+        if L < 1e-5:
+            return
+        yaw = math.atan2(-d[2], d[0])
+        pitch = math.asin(max(-1.0, min(1.0, d[1] / L)))
+        push(roty(yaw), p0)
+        push(rotz(pitch))
+        cylx("log", 0, L, 0, 0, r0, r1=r1, seg=seg, tint=tint, tile=1.0, caps=caps, cap_mat="endgrain", cap_tile=2 * max(r0, r1), cap_uvo=(0.5, 0.5))
+        pop()
+        pop()
+
+    pts_log = [(-9.1, 64.55, 0.54), (-6.2, 64.22, 0.50), (-3.0, 63.98, 0.47), (0.2, 64.10, 0.44), (3.4, 64.34, 0.40), (6.4, 64.25, 0.36), (9.0, 64.05, 0.31)]
+    for (ax, az, r0), (bx, bz, r1) in zip(pts_log[:-1], pts_log[1:]):
+        ya, yb = float(gh(ax, az)) + r0 * 0.78, float(gh(bx, bz)) + r1 * 0.78
+        round_limb((ax, ya, az), (bx, yb, bz), r0, r1, "#8b7a62", seg=10, caps=(bx > 8.5))
+    # Splintered upturned root flare & earth mound at left butt end
+    fyL = float(gh(-9.1, 64.55))
+    cyly("log", -9.25, fyL - 0.12, fyL + 0.62, 64.55, 0.78, r1=0.52, seg=10, tint="#75644e", caps="top", cap_mat="endgrain", cap_tile=1.1, cap_uvo=(0.5, 0.5))
+    for rx, ry, rz, tx, ty, tz in [
+        (-9.15, 0.52, 64.55, -10.05, 1.05, 64.05),
+        (-9.15, 0.48, 64.60, -9.95, 0.20, 65.25),
+        (-9.15, 0.65, 64.50, -9.65, 1.38, 64.85),
+    ]:
+        round_limb((rx, fyL + ry, rz), (tx, fyL + ty, tz), 0.14, 0.04, "#6a5a44", seg=6, caps=True)
+    # Irregular gnarly broken branch stubs (varied spacing, angle, thickness)
+    for bx, bz, r_b, dx, dy, dz in [
+        (-6.8, 64.28, 0.12, -0.5, 0.95, 0.68),
+        (-4.1, 64.05, 0.10, 0.4, 0.78, -0.75),
+        (-0.8, 64.06, 0.11, -0.3, 0.85, 0.62),
+        (2.5,  64.28, 0.09, 0.6, 0.72, -0.52),
+        (5.6,  64.28, 0.08, 0.5, 0.58, 0.58),
+    ]:
+        by = float(gh(bx, bz)) + r_b * 3.0
+        round_limb((bx, by, bz), (bx + dx, by + dy, bz + dz), r_b, r_b * 0.38, "#6f5d47", seg=6, caps=True)
+    rock("rock", -9.35, fyL + 0.30, 65.05, 0.62, 0.42, 0.58, 33, 5, 8, "#777268", 0.25)
+    rock("rock", -8.35, fyL + 0.18, 63.82, 0.38, 0.24, 0.36, 41, 4, 6, "#6e695f", 0.25)
     fy = float(gh(0, 64.0))
-    for rr, sgn in ((0.5, 1),):
-        cylx("log", -9.0, 9.0, fy + 0.52, 64.2, 0.52, r1=0.42, seg=10, tint="#a58e74", tile=1.0)
-    for i in range(7):
-        a = i * 0.9
-        beam((-8.0 + i * 1.7, fy + 0.7, 64.2), (-7.4 + i * 1.7, fy + 1.6, 64.2 + 1.5 * math.sin(a)), 0.05, "log", "#5a4a38", 0.05)
-    rock("rock", -9.2, fy + 0.44, 64.2, 0.74, 0.50, 0.78, 33, 5, 8, "#7d776c", 0.25)
     col(-9.0, fy, 63.5, 9.0, fy + 1.05, 64.9, F_DEFAULT, S_WOOD)
     reserve(-10, 60.8, 10, 65, 0.5)
     # log pile (stacked logs)
@@ -2561,17 +2594,17 @@ def bake_terrain():
         a = a.reshape(N // 2, 2, N // 2, 2, 5).mean((1, 3))
         return a
     LG, LS, LV, LM, LR = (pack(f()) for f in (layer_grass, layer_soil, layer_gravel, layer_mud, layer_rock))
-    # masks
-    jit = ((nz1 - 0.5) * 0.7).astype(np.float32)
+    # masks (soft organic edges so gravel yard & hill trails blend naturally into soil/grass)
+    jit = ((nz1 - 0.5) * 1.1 + (nz2 - 0.5) * 0.6).astype(np.float32)
     paths = np.zeros((S, S), np.float32)
     road = np.zeros((S, S), np.float32)
     for k, (w, pts) in enumerate(PATHS):
-        m = seg_mask(X, Z, pts, w, 0.5, jit)
+        m = seg_mask(X, Z, pts, w, 1.15, jit)
         if w >= 4:
             road = np.maximum(road, m)
         else:
             paths = np.maximum(paths, m)
-    pk = 1 - smooth(-0.3, 0.9, rect_sdf(X, Z, -22, 39.5, 27, 62.5) + (nz1 - 0.5) * 1.6)
+    pk = 1 - smooth(-0.6, 2.2, rect_sdf(X, Z, -22, 39.5, 27, 62.5) + (nz1 - 0.5) * 2.2 + (nz2 - 0.5) * 1.0)
     apron = np.zeros((S, S), np.float32)
     inside = np.zeros((S, S), np.float32)
     for (nm, x0, z0, x1, z1) in FOOT:
@@ -2581,9 +2614,9 @@ def bake_terrain():
     garden = 1 - smooth(-0.2, 0.6, rect_sdf(X, Z, 30, 3, 48, 19))
     rut = np.zeros((S, S), np.float32)
     for off in (-0.95, 0.95):
-        rut = np.maximum(rut, seg_mask(X, Z, [(x + off, z) for (x, z) in PATHS[1][1]], 0.42, 0.28, jit * 0.5))
+        rut = np.maximum(rut, seg_mask(X, Z, [(x + off, z) for (x, z) in PATHS[1][1]], 0.56, 0.45, jit * 0.7))
     for off in (-0.7, 0.7):
-        rut = np.maximum(rut, seg_mask(X, Z, [(x + off, z) for (x, z) in PATHS[0][1]], 0.36, 0.25, jit * 0.5) * 0.8)
+        rut = np.maximum(rut, seg_mask(X, Z, [(x + off, z) for (x, z) in PATHS[0][1]], 0.48, 0.42, jit * 0.7) * 0.78)
     field = 1 - smooth(2.0, 6.0, np.hypot(X - 46, Z - 26) + (nz1 - 0.5) * 3)
     dc = np.abs(X - creek_cx(Z)).astype(np.float32)
     creek_active = ((Z > -52) & (Z < 55)).astype(np.float32)
@@ -4683,7 +4716,7 @@ def b64(b):
 
 def main():
     global HG
-    quick = bool(os.environ.get("LODGE_QUICK"))
+    quick = bool(os.environ.get("LODGE_QUICK")) or ("--quick" in sys.argv)
     HG = HeightGrid(-160.0, -160.0, 320.0, 321)
     reserve_c(-18.5, 20.0, 6.5)
     reserve_c(-24.0, 28.5, 8.5)

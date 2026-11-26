@@ -24,6 +24,7 @@ import json
 import math
 import os
 import struct
+import sys
 import tempfile
 import time
 
@@ -35,7 +36,7 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 OUT_JS = os.path.join(ROOT, "src", "world", "foliage_asset.js")
 SHEET_PATH = os.path.join(ROOT, "docs", "sheet_foliage.png")
 TMP = os.environ.get("FOLIAGE_TMP") or tempfile.mkdtemp(prefix="foliage_")
-NO_PREVIEW = bool(os.environ.get("NO_PREVIEW"))
+NO_PREVIEW = bool(os.environ.get("NO_PREVIEW")) or ("--noprev" in sys.argv)
 SAMPLES = int(os.environ.get("SAMPLES", "32"))
 JPEG_Q = {"bark": 78, "barkN": 72, "leaf": 78, "leafA": 82, "leafN": 72, "imp": 80, "impA": 82, "pl": 80, "plA": 85, "plN": 72}
 
@@ -267,42 +268,42 @@ def needle_tuft(cl, rng, p, ang, n, ln, cdark, clight, fan=0.62):
 
 
 def paint_pine(cl, rng, variant):
-    cd = (0.05, 0.15, 0.09) if variant == 0 else (0.06, 0.17, 0.1)
-    cb = (0.16, 0.33, 0.2) if variant == 0 else (0.2, 0.37, 0.22)
+    cd = (0.042, 0.125, 0.058) if variant == 0 else (0.048, 0.135, 0.062)
+    cb = (0.145, 0.275, 0.122) if variant == 0 else (0.175, 0.310, 0.132)
     drift = 0.07 if variant == 0 else -0.09
     pts = poly((0.5, 0.01), (0.5 + drift * 0.5, 0.5), (0.5 + drift, 0.9), 14)
     for i in range(len(pts) - 1):
         cl.seg(pts[i], pts[i + 1], 0.016, 0.01, (0.3, 0.2, 0.12), (0.26, 0.18, 0.11), 0.7)
-    nsh = 18
+    nsh = 20
     for k in range(nsh):
-        s = 0.2 + 0.78 * k / nsh
+        s = 0.18 + 0.80 * k / nsh
         i = min(len(pts) - 2, int(s * (len(pts) - 1)))
         base = pts[i]
         tang = pts[i + 1] - pts[i]
         ta = math.atan2(tang[1], tang[0])
         side = 1 if k % 2 == 0 else -1
         sa = ta + side * rng.uniform(0.55, 0.95)
-        ln = (0.32 - 0.2 * s) * rng.uniform(0.85, 1.15)
+        ln = (0.33 - 0.2 * s) * rng.uniform(0.85, 1.15)
         e = base + np.array([math.cos(sa), math.sin(sa)]) * ln
         cl.seg(base, e, 0.01, 0.006, (0.28, 0.19, 0.11), (0.24, 0.17, 0.1), 0.6)
-        needle_tuft(cl, rng, e, sa, 34, 0.17 - 0.05 * s, cd, cb)
+        needle_tuft(cl, rng, e, sa, 38, 0.17 - 0.05 * s, cd, cb)
         m = base + (e - base) * 0.55
-        needle_tuft(cl, rng, m, sa + side * 0.35, 20, 0.12, cd, cb, 0.75)
-        needle_tuft(cl, rng, base, sa - side * 0.5, 14, 0.1, cd, cb, 0.8)
+        needle_tuft(cl, rng, m, sa + side * 0.35, 22, 0.12, cd, cb, 0.75)
+        needle_tuft(cl, rng, base, sa - side * 0.5, 16, 0.1, cd, cb, 0.8)
     top = pts[-1]
-    needle_tuft(cl, rng, top, math.atan2(*(pts[-1] - pts[-3])[::-1]), 40, 0.17, cd, cb, 0.8)
-    needle_tuft(cl, rng, pts[len(pts) // 2], math.pi / 2 + 0.4 * (1 if variant == 0 else -1), 10, 0.11, cd, cb, 0.8)
+    needle_tuft(cl, rng, top, math.atan2(*(pts[-1] - pts[-3])[::-1]), 44, 0.17, cd, cb, 0.8)
+    needle_tuft(cl, rng, pts[len(pts) // 2], math.pi / 2 + 0.4 * (1 if variant == 0 else -1), 12, 0.11, cd, cb, 0.8)
 
 
 def paint_spruce(cl, rng, variant):
-    cd = (0.055, 0.16, 0.085)
-    cb = (0.15, 0.32, 0.14) if variant == 0 else (0.2, 0.38, 0.14)
+    cd = (0.048, 0.135, 0.062)
+    cb = (0.135, 0.275, 0.105) if variant == 0 else (0.175, 0.320, 0.115)
     bend = 0.35 if variant == 0 else -0.55
-    spruce_spray(cl, rng, (0.5, 0.0), math.pi / 2 - 0.12 * np.sign(bend), 0.92, bend, 0.062, cd, cb, 30, 0.34)
-    if variant == 1:  # fresh light-green growth tips
-        for _ in range(26):
+    spruce_spray(cl, rng, (0.5, 0.0), math.pi / 2 - 0.12 * np.sign(bend), 0.92, bend, 0.065, cd, cb, 34, 0.35)
+    if variant == 1:  # subtle fresh spring growth tips (kept natural olive, not chartreuse)
+        for _ in range(22):
             p = (rng.uniform(0.3, 0.7), rng.uniform(0.45, 0.95))
-            needle_tuft(cl, rng, p, rng.uniform(0.3, 2.8), 6, 0.05, (0.3, 0.46, 0.16), (0.5, 0.64, 0.22), 1.0)
+            needle_tuft(cl, rng, p, rng.uniform(0.3, 2.8), 6, 0.05, (0.22, 0.36, 0.13), (0.34, 0.48, 0.17), 1.0)
 
 
 def paint_skirt(cl, rng, pine):
@@ -334,9 +335,9 @@ def paint_birch(cl, rng, kind):
     def leafcol():
         t = rng.uniform(0, 1)
         y = rng.uniform(0, 1) ** 3 * 0.7  # a few yellowing leaves
-        c0 = lerp(lerp((0.2, 0.3, 0.09), (0.33, 0.45, 0.13), t), (0.5, 0.48, 0.14), y)
-        c1 = lerp(lerp((0.28, 0.4, 0.12), (0.45, 0.55, 0.18), t), (0.62, 0.6, 0.2), y)
-        return jit(c0 * 1.18, rng, 0.08), jit(c1 * 1.18, rng, 0.08)
+        c0 = lerp(lerp((0.15, 0.25, 0.075), (0.25, 0.36, 0.105), t), (0.44, 0.40, 0.12), y)
+        c1 = lerp(lerp((0.21, 0.33, 0.10), (0.35, 0.45, 0.145), t), (0.54, 0.50, 0.16), y)
+        return jit(c0 * 0.96, rng, 0.08), jit(c1 * 0.98, rng, 0.08)
     if kind == "blob":
         for _ in range(26):
             a = rng.uniform(0, 2 * math.pi); r = rng.uniform(0, 0.2)
@@ -662,17 +663,17 @@ def paint_bark_atlas(rng):
     t = np.clip(hp, 0, 1)[..., None]
     mot = (0.5 + 0.5 * np.tanh(n3))[..., None]
     plate = (0.88 + 0.16 * np.tanh(n1 * 1.6))[..., None]
-    base = lerp((0.27, 0.19, 0.14), (0.46, 0.3, 0.2), mot) * plate
-    col_p = lerp(np.array((0.055, 0.04, 0.032)), base, smooth(t, 0.05, 0.7))
+    base = lerp((0.29, 0.20, 0.135), (0.50, 0.34, 0.22), mot) * plate
+    col_p = lerp(np.array((0.095, 0.070, 0.052)), base, smooth(t, 0.05, 0.7))
     col_p = col_p * (0.92 + 0.1 * n4[..., None])
     nor_p = normal_from_height(gblur(hp * 10.0, 1.3), 2.8)
-    # --- birch bark: white paper-like with dark horizontal lenticels / scars
+    # --- birch bark: muted warm grey-cream (won't blow out to chalk poles) with dark scars
     m1 = pnoise(W, H, 90, 60, rng)
     m2 = pnoise(W, H, 22, 1.8, rng)
     m3 = pnoise(W, H, 55, 6, rng)
     m4 = pnoise(W, H, 5, 5, rng)
     m5 = pnoise(W, H, 120, 3, rng)
-    white = lerp((0.84, 0.82, 0.76), (0.94, 0.93, 0.89), (0.5 + 0.5 * np.tanh(m1))[..., None])
+    white = lerp((0.68, 0.66, 0.61), (0.80, 0.78, 0.73), (0.5 + 0.5 * np.tanh(m1))[..., None])
     white = white * (0.95 + 0.05 * m4[..., None])
     lent = smooth(m2, 1.6, 2.4)  # thin dark dashes
     scar = smooth(m3, 2.0, 2.7)  # big dark patches
@@ -818,12 +819,12 @@ def side_of(t):
 # models
 # ----------------------------------------------------------------------------------------------
 CONIFERS = {
-    "pine0": dict(seed=11, H=15.0, r0=0.30, crown0=0.36, whorls=23, nb=(4.6, 3.2), L=4.4, prof="pine", cells=(CELLS["pine_a"], CELLS["pine_b"]),
-                  stations=(0.3, 0.5, 0.72, 0.95), clen=1.9, cwid=2.0, vang=0.75, lean=(0.5, 0.2), tube_min=2.0, stubs=7, cones=8, cone_len=0.14, ymid=0.65),
-    "pine1": dict(seed=29, H=19.0, r0=0.34, crown0=0.5, whorls=21, nb=(4.5, 3.2), L=4.9, prof="pine", cells=(CELLS["pine_b"], CELLS["pine_a"]),
-                  stations=(0.28, 0.48, 0.7, 0.93), clen=2.1, cwid=2.1, vang=0.8, lean=(-0.7, 0.5), tube_min=2.0, stubs=8, cones=8, cone_len=0.15, ymid=0.74),
-    "spruce0": dict(seed=47, H=16.0, r0=0.28, crown0=0.14, whorls=17, nb=(6.2, 3.2), L=3.5, prof="spruce", cells=(CELLS["spruce_a"], CELLS["spruce_b"]),
-                    stations=(0.2, 0.4, 0.6, 0.8, 1.0), clen=1.3, cwid=1.45, vang=0.62, lean=(0.2, -0.1), tube_min=1.3, stubs=0, cones=11, cone_len=0.27, ymid=0.5),
+    "pine0": dict(seed=11, H=15.0, r0=0.31, crown0=0.26, whorls=21, nb=(4.5, 3.0), L=4.5, prof="pine", cells=(CELLS["pine_a"], CELLS["pine_b"]),
+                  stations=(0.28, 0.50, 0.72, 0.95), clen=1.95, cwid=2.05, vang=0.92, lean=(0.5, 0.2), tube_min=2.2, stubs=5, cones=8, cone_len=0.14, ymid=0.62),
+    "pine1": dict(seed=29, H=19.0, r0=0.35, crown0=0.35, whorls=20, nb=(4.4, 3.0), L=4.9, prof="pine", cells=(CELLS["pine_b"], CELLS["pine_a"]),
+                  stations=(0.26, 0.48, 0.70, 0.93), clen=2.15, cwid=2.15, vang=0.95, lean=(-0.7, 0.5), tube_min=2.2, stubs=6, cones=8, cone_len=0.15, ymid=0.68),
+    "spruce0": dict(seed=47, H=16.0, r0=0.29, crown0=0.12, whorls=17, nb=(5.4, 3.0), L=3.6, prof="spruce", cells=(CELLS["spruce_a"], CELLS["spruce_b"]),
+                    stations=(0.20, 0.40, 0.60, 0.80, 1.0), clen=1.35, cwid=1.50, vang=0.82, lean=(0.2, -0.1), tube_min=1.5, stubs=0, cones=11, cone_len=0.27, ymid=0.50),
 }
 
 
@@ -841,7 +842,8 @@ def build_conifer(name, lod):
 
     def radius(y):
         t = y / H
-        r = r0 * (1 - t) ** 0.85 * (1.15 if y < 1 else 1.0) + 0.02 * (1 - t)
+        butt = 1.0 + 0.36 * max(0.0, 1.0 - y / 1.35) ** 2
+        r = r0 * (1 - t) ** 0.85 * butt + 0.02 * (1 - t)
         return max(0.016, r)
 
     ycs = P["crown0"] * H
@@ -926,12 +928,18 @@ def build_conifer(name, lod):
                 p, tg = sample_curve(pts, s)
                 sd = side_of(tg)
                 cell = P["cells"][(w + k + si) % 2]
+                # Pitched V-bough pair + vertical/oblique needle volume spray so branches never look like flat discs
                 for sgn in (1, -1):
-                    ang = sgn * P["vang"] * rng.uniform(0.8, 1.15)
+                    ang = sgn * P["vang"] * rng.uniform(0.84, 1.18)
                     ux = rot_about(sd, tg, ang)
-                    vx = nrm(tg + UP * -0.12)
+                    vx = nrm(tg + UP * rng.uniform(-0.22, 0.28))
                     card(leaf, p + tg * 0.1, ux, vx, P["cwid"] * f * rng.uniform(0.9, 1.1), P["clen"] * f * rng.uniform(0.9, 1.1), cell,
                          ao_fn, nf, swl, flip=bool(rng.integers(0, 2)))
+                if si == 0 and ((w + k) & 1) and L > 1.9:
+                    ux3 = nrm(rot_about(sd, tg, rng.uniform(-0.35, 0.35)))
+                    vx3 = nrm(tg * 0.55 + UP * 0.84)
+                    card(leaf, p + UP * 0.12, ux3, vx3, P["cwid"] * f * 0.85, P["clen"] * f * 0.85, cell,
+                         ao_fn, nf, swl, flip=bool((w + k) & 1), vb=0.4)
     for ci in range(P["cones"]):
         pe, Le = ends[int(rng.integers(0, len(ends)))]
         cl_ = P["cone_len"] * rng.uniform(0.85, 1.15)

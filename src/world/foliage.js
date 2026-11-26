@@ -335,7 +335,7 @@ function windMaterial(p) {
           {
             // Sculptural canopy depth: cooler/deeper inner foliage, warmer sunlit outer tips
             float tip = smoothstep(0.08, 0.88, vCrown);
-            diffuseColor.rgb *= mix(vec3(0.74, 0.80, 0.82), vec3(1.10, 1.12, 0.96), tip);
+            diffuseColor.rgb *= mix(vec3(0.66, 0.72, 0.74), vec3(1.06, 1.08, 0.94), tip);
           }`)
         .replace('#include <normal_fragment_begin>',
           THREE.ShaderChunk.normal_fragment_begin.replace('float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;', 'float faceDirection = 1.0;'))
@@ -351,13 +351,13 @@ function windMaterial(p) {
             float bl2 = bl * bl;
             float bl5 = bl2 * bl2 * bl;
             float tipWeight = 0.35 + 0.65 * vCrown;
-            float sss = (bl2 * 0.42 + bl5 * 0.52) * tipWeight;
-            vec3 leafGlow = diffuseColor.rgb * vec3(1.22, 1.46, 0.54);
+            float sss = (bl2 * 0.36 + bl5 * 0.46) * tipWeight;
+            vec3 leafGlow = diffuseColor.rgb * vec3(1.02, 1.12, 0.62);
             // Subtle waxy leaf sky sheen at grazing angles on outer tips
             float f1 = 1.0 - clamp(dot(normal, vDir), 0.0, 1.0);
             float f2 = f1 * f1;
-            float sheen = f2 * f2 * 0.08 * vCrown;
-            outgoingLight += leafGlow * (sss + wrapTrans * 0.24 * tipWeight) + vec3(0.75, 0.88, 1.0) * sheen * diffuseColor.rgb;
+            float sheen = f2 * f2 * 0.04 * vCrown;
+            outgoingLight += leafGlow * (sss + wrapTrans * 0.22 * tipWeight) + vec3(0.75, 0.88, 1.0) * sheen * diffuseColor.rgb;
           }
           #include <opaque_fragment>`);
     }

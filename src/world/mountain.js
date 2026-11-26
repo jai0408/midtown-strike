@@ -126,15 +126,17 @@ export async function applyMountainShader(mat, rockImageB64, sunDir = [-0.5003, 
 
           float h = p.y;
 
-          // Conifer foothills: deep evergreen pine forest broken by rocky outcrops & shadow variation
-          float treeline = 92.0 + (nzLarge - 0.5) * 48.0 + (nzMed - 0.5) * 26.0;
-          float forestAlt = 1.0 - smoothstep(treeline - 24.0, treeline + 32.0, h);
-          float forestSlope = smoothstep(0.62, 0.86, rockUp + (nzMed - 0.5) * 0.12);
-          float forest = forestAlt * forestSlope;
-          float canopy = mNoise(p.xz * 0.22) * 0.52 + mNoise(p.xz * 0.58) * 0.48;
-          vec3 pineDark = vec3(0.018, 0.044, 0.024);
-          vec3 pineMid  = vec3(0.044, 0.078, 0.036);
-          vec3 forestC = mix(pineDark, pineMid, clamp(canopy * 0.75 + nzMed * 0.25, 0.0, 1.0)) * (0.56 + 0.74 * canopy);
+          // Conifer foothills: dense dark timber canopy clusters + rocky cliff breaks (zero smooth green cones)
+          float treeline = 90.0 + (nzLarge - 0.5) * 44.0 + (nzMed - 0.5) * 28.0;
+          float forestAlt = 1.0 - smoothstep(treeline - 24.0, treeline + 30.0, h);
+          float forestSlope = smoothstep(0.75, 0.92, rockUp + (nzMed - 0.5) * 0.14);
+          float standBreak = smoothstep(0.32, 0.68, mNoise(p.xz * 0.09 + vec2(3.1, -1.9)) * 0.65 + hC * 0.35);
+          float forest = forestAlt * forestSlope * (0.15 + 0.85 * standBreak);
+          float canopy = mNoise(p.xz * 0.35) * 0.45 + mNoise(p.xz * 0.95) * 0.35 + mNoise(p.xz * 0.14) * 0.20;
+          float crownDot = smoothstep(0.28, 0.76, canopy);
+          vec3 pineDark = vec3(0.008, 0.022, 0.013);
+          vec3 pineMid  = vec3(0.024, 0.050, 0.021);
+          vec3 forestC = mix(pineDark, pineMid, clamp(crownDot * 0.82 + nzMed * 0.18, 0.0, 1.0)) * (0.35 + 0.88 * crownDot);
 
           // Sub-alpine talus & scrub transition
           float scree = smoothstep(treeline - 16.0, treeline + 18.0, h)

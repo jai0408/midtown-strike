@@ -219,7 +219,7 @@ export async function buildLodge(onProgress = () => {}) {
     // bush leaves have a material of their own: calm the bright green to olive. Bark is shared by all
     // trees: calm brightness so sunlit white birch trunks don't clip to glowing white poles.
     if (/^bush\d.*leaf/.test(o.name)) m.color.set(0xa4ad7c);
-    else if (/_bark$/.test(o.name)) m.color.set(0x8a8882);
+    else if (/_bark$/.test(o.name)) m.color.set(0xb2ada4);
   });
 
   // -- school buses & koi pond ----------------------------------------------
