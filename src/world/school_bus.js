@@ -90,6 +90,17 @@ export function buildSchoolBuses(groundAt, world) {
         } else {
           m.envMapIntensity = 1.35;
           smoothPaint(m, 0.62);   // calm blotches while keeping gentle school-bus weathering
+          m.customProgramCacheKey = () => 'lodge-bus-ao-v1';
+          m.onBeforeCompile = (s) => {
+            s.vertexShader = s.vertexShader
+              .replace('#include <common>', '#include <common>\nvarying float vBusY;')
+              .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBusY = transformed.y;');
+            s.fragmentShader = s.fragmentShader
+              .replace('#include <common>', '#include <common>\nvarying float vBusY;')
+              .replace('#include <color_fragment>', `#include <color_fragment>
+                diffuseColor.rgb *= mix(0.58, 1.0, smoothstep(0.05, 0.72, vBusY));`);
+          };
+          m.needsUpdate = true;
         }
         owned.push(o);
       });

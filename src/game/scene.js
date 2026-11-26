@@ -10,6 +10,14 @@ import { setMaxAnisotropy } from '../world/textures.js';
 import { StreetReflectionPass } from './reflections.js';
 import { MediumPostPipeline } from './medium_post.js';
 
+// Smooth distance fade at the outer 14% of directional shadow frustum so shadows never hard-clip
+if (!THREE.ShaderChunk.shadowmap_pars_fragment.includes('_se_fade')) {
+  THREE.ShaderChunk.shadowmap_pars_fragment = THREE.ShaderChunk.shadowmap_pars_fragment.replace(
+    '\t\treturn mix( 1.0, shadow, shadowIntensity );\n\t}\n\tvec2 cubeToUV',
+    '\t\tvec2 _se_fade = min( shadowCoord.xy, 1.0 - shadowCoord.xy );\n\t\tshadow = mix( 1.0, shadow, smoothstep( 0.0, 0.14, min( _se_fade.x, _se_fade.y ) ) );\n\t\treturn mix( 1.0, shadow, shadowIntensity );\n\t}\n\tvec2 cubeToUV'
+  );
+}
+
 export const QUALITY = {
   // shadow = sun shadow map size (0 = off), post = false | 'lite' (phone bloom+grade) | true (full composer),
   // ssr = wet-street screen-space reflections (needs full post; only on maps that set reflect)
@@ -28,9 +36,9 @@ export const ATMOSPHERES = {
     sunDir: [-0.82, 0.44, 0.36], sunColor: 0xffdcb0, sunIntensity: 3.4,
     hemi: { sky: 0x9ab8e8, ground: 0x202026, intensity: 0.72 },
     fog: { color: 0x24334b, near: 120, far: 960 },
-    exposure: 1.0, envIntensity: 0.9, envFloor: 0x25262a, shadowR: 55, shadowRadius: 2.5, shadowNormalBias: 0.05, shadowIntensity: 0.86,
+    exposure: 1.0, envIntensity: 0.9, envFloor: 0x25262a, shadowR: 42, shadowRadius: 2.2, shadowNormalBias: 0.032, shadowIntensity: 0.88,
     grade: { sat: 0.96, curve: 0.20, warm: 1.0 },
-    bloom: { strength: 0.34, threshold: 0.90, medStrength: 0.48, medThreshold: 0.64 },
+    bloom: { strength: 0.34, threshold: 0.90, medStrength: 0.38, medThreshold: 0.78 },
     reflect: { strength: 0.92, wetBase: 0.05 },   // damp NYC asphalt with patchy puddles & stretched neon streaks
   },
   // clear sunny afternoon at Cedar Lodge: warm golden sun, airy neutral-sky fill &
@@ -40,7 +48,7 @@ export const ATMOSPHERES = {
     sunDir: [-0.5003, 0.7204, 0.4803], sunColor: 0xfff0d4, sunIntensity: 3.75,
     hemi: { sky: 0xc8daf0, ground: 0x7a7058, intensity: 1.18 },
     fog: { color: 0x90b4dc, near: 145, far: 2500, uncapped: true },
-    exposure: 1.02, envIntensity: 0.90, envFloor: 0x5c5e4a, shadowR: 44, shadowRadius: 2.8, shadowNormalBias: 0.04, shadowIntensity: 0.78,
+    exposure: 1.02, envIntensity: 0.90, envFloor: 0x5c5e4a, shadowR: 36, shadowRadius: 2.4, shadowNormalBias: 0.028, shadowIntensity: 0.82,
     grade: { sat: 1.04, curve: 0.22, warm: 1.0 },
     bloom: { strength: 0.24, threshold: 1.06, medStrength: 0.22, medThreshold: 1.08 },
     reflect: { strength: 0, wetBase: 0 },        // dry gravel and grass: no street reflections
@@ -104,7 +112,7 @@ export function createScene(canvas, qualityName = 'medium') {
           float h = d.y;
           vec3 col = mix(horizon, mid, smoothstep(0.0, 0.28, h));
           col = mix(col, top, smoothstep(0.2, 0.8, h));
-          float s = max(dot(normalize(vec3(d.x, d.y * 1.6, d.z)), sunDir), 0.0);
+          float s = max(dot(normalize(vec3(d.x, d.y * 1.6, d.z)), sunDir), 1e-4);
           col += sunCol * (pow(s, 5.0) * 0.55 + pow(s, 40.0) * 0.9);
           // faint pinpoint stars high up (off on Midtown twilight)
           vec2 gs = d.xz / max(0.15, d.y) * 180.0;
@@ -174,7 +182,7 @@ export function createScene(canvas, qualityName = 'medium') {
       if (sh.map) { sh.map.dispose(); sh.map = null; }
     }
     const c = sh.camera;
-    c.left = -SHADOW_R; c.right = SHADOW_R; c.top = SHADOW_R; c.bottom = -SHADOW_R; c.near = 1; c.far = 700;
+    c.left = -SHADOW_R; c.right = SHADOW_R; c.top = SHADOW_R; c.bottom = -SHADOW_R; c.near = 15; c.far = 360;
     c.updateProjectionMatrix();
     sh.bias = -0.0004; sh.normalBias = shadowNormalBias;
     sh.radius = q.shadow >= 2048 ? shadowRadius : shadowRadius * 0.65;
@@ -343,13 +351,15 @@ export function createScene(canvas, qualityName = 'medium') {
     sky.position.copy(camera.position);
     sky.scale.setScalar(camera.far * 0.9);
     if (sun.castShadow) {
-      // keep the shadow box around the player, snapped so it does not shimmer
-      const step = (SHADOW_R * 2) / q.shadow * 4;
+      // keep the shadow box tight around the player, snapped per texel so it does not shimmer
+      const step = (SHADOW_R * 2) / q.shadow;
       camera.getWorldDirection(_fwd);
-      const tx = Math.round((camera.position.x + _fwd.x * SHADOW_R * 0.55) / step) * step;
-      const tz = Math.round((camera.position.z + _fwd.z * SHADOW_R * 0.55) / step) * step;
+      _fwd.y = 0;
+      if (_fwd.lengthSq() > 1e-4) _fwd.normalize(); else _fwd.set(0, 0, -1);
+      const tx = Math.round((camera.position.x + _fwd.x * SHADOW_R * 0.62) / step) * step;
+      const tz = Math.round((camera.position.z + _fwd.z * SHADOW_R * 0.62) / step) * step;
       sun.target.position.set(tx, 0, tz);
-      sun.position.set(tx + sunDir.x * 300, sunDir.y * 300, tz + sunDir.z * 300);
+      sun.position.set(tx + sunDir.x * 180, sunDir.y * 180, tz + sunDir.z * 180);
       sun.target.updateMatrixWorld();
     }
     if (q.post === true && composer) {

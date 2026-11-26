@@ -371,7 +371,7 @@ function windMaterial(p) {
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', '#include <common>\nvarying float vGT;')
         .replace('#include <map_fragment>', '#include <map_fragment>\ndiffuseColor.rgb *= mix(vec3(0.8, 0.88, 0.7), vec3(1.2, 1.1, 0.8), vGT);')
-        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n{ float ndv = clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0); totalEmissiveRadiance += diffuseColor.rgb * pow(max(0.0, 1.0 - ndv), 3.0) * 0.14; }');
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n{ float ndv = clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0); float rf = 1.0 - ndv; totalEmissiveRadiance += diffuseColor.rgb * (rf * rf * rf * 0.14); }');
     }
     if (p.selfLit > 0) {
       shader.fragmentShader = shader.fragmentShader

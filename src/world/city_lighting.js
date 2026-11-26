@@ -18,7 +18,7 @@ import { MED_WET_SPEC } from './road_shader.js';
 // World region covered by the light-spill + contact-AO texture (metres)
 const MIN_X = -220, MAX_X = 220;
 const MIN_Z = -320, MAX_Z = 320;
-const W = 256, H = 256;
+const W = 512, H = 512;
 
 const INV_W = 1 / (MAX_X - MIN_X);
 const INV_H = 1 / (MAX_Z - MIN_Z);
@@ -124,11 +124,12 @@ export function buildCityLightMap(ctx) {
     }
   };
 
-  // 1. Building base contact AO + subtle warm storefront spill onto sidewalks
+  // 1. Building base contact AO (tight dark plinth shadow + soft apron) + warm storefront spill
   const shopWarm = hexLinear('#ffbe78');
   for (const b of ctx.buildings) {
     if (b.x1 + 10 < MIN_X || b.x0 - 10 > MAX_X || b.z1 + 10 < MIN_Z || b.z0 - 10 > MAX_Z) continue;
-    addBoxAO(b.x0, b.z0, b.x1, b.z1, 2.8, 0.32);
+    addBoxAO(b.x0, b.z0, b.x1, b.z1, 1.7, 0.22);
+    addBoxAO(b.x0, b.z0, b.x1, b.z1, 4.0, 0.64);
     // Gentle warm storefront spill along street-facing edges
     if (b.shops) {
       const step = 7.5;
@@ -162,9 +163,9 @@ export function buildCityLightMap(ctx) {
         const db = Math.abs(wx - bwx);
         if (db < 8.5) dKerb = Math.min(dKerb, Math.abs(db - 8.0));
       }
-      if (dKerb < 1.8) {
-        const t = dKerb / 1.8;
-        const k = 0.50 + 0.50 * (t * t * (3.0 - 2.0 * t));
+      if (dKerb < 1.1) {
+        const t = dKerb / 1.1;
+        const k = 0.40 + 0.60 * (t * t * (3.0 - 2.0 * t));
         if (k < ao[row + ix]) ao[row + ix] = k;
       }
     }
@@ -172,10 +173,10 @@ export function buildCityLightMap(ctx) {
 
   // 3. Vehicle & street-prop contact AO
   for (const v of ctx.vehicles) {
-    addYawAO(v.x, v.z, v.yaw, v.hl + 0.1, v.hw + 0.1, 1.35, 0.14);
+    addYawAO(v.x, v.z, v.yaw, v.hl + 0.1, v.hw + 0.1, 0.85, 0.10);
   }
   for (const o of (ctx.occluders || [])) {
-    addBoxAO(o.x0, o.z0, o.x1, o.z1, o.pad || 1.3, Math.min(o.minAO || 0.36, 0.26));
+    addBoxAO(o.x0, o.z0, o.x1, o.z1, Math.min(o.pad || 0.9, 0.95), Math.min(o.minAO || 0.28, 0.18));
   }
 
   // 4. Recorded colored light sources (billboards, street lamps, plaza features, wrecks)
@@ -293,8 +294,8 @@ export function applyCityLighting(mat, lightMap, {
       : `vec4 _clm = sampleCityLight(vWp.xz);
         {
           // Grounded wall/prop base darkening across the entire city
-          float hAO = mix(${(1.0 - baseAO).toFixed(2)}, 1.0, smoothstep(0.0, 2.0, max(0.0, vWp.y - ${CURB.toFixed(2)})));
-          float mapAO = mix(1.0, _clm.a, ${aoStrength.toFixed(2)} * (1.0 - smoothstep(0.0, 3.5, max(0.0, vWp.y - ${CURB.toFixed(2)}))));
+          float hAO = mix(${(1.0 - baseAO).toFixed(2)}, 1.0, smoothstep(0.0, 1.35, max(0.0, vWp.y - ${CURB.toFixed(2)})));
+          float mapAO = mix(1.0, _clm.a, ${aoStrength.toFixed(2)} * (1.0 - smoothstep(0.0, 3.0, max(0.0, vWp.y - ${CURB.toFixed(2)}))));
           diffuseColor.rgb *= hAO * mapAO;
         }`;
 

@@ -497,6 +497,8 @@ PATHS = [
     (1.7, [(12, 14), (24, 22), (38, 25)]),
 ]
 FOOT = []     # building footprints (name, x0, z0, x1, z1)
+VEH_AO = []   # parked vehicles & tractor (cx, cz, yaw, hl, hw)
+PROP_AO = []  # crates, barrels, boulders, firewood, hay (cx, cz, r, pad, min_ao)
 KEEP = []     # circles/rects where foliage must not grow: ('r', x0, z0, x1, z1) or ('c', x, z, r)
 COL = []      # colliders
 PROPS_INFO = {}
@@ -1325,6 +1327,7 @@ def crate(x, z, s=0.9, rot=0.0, tint="#b99466", stack=1, cover=True):
     pop()
     if cover:
         col_rot(x, z, s / 2, s / 2, rot, y, y + s * stack, F_DEFAULT, S_WOOD)
+    PROP_AO.append((x, z, s * 0.65, 0.65, 0.34))
     reserve_c(x, z, s * 0.9)
 
 
@@ -1336,6 +1339,7 @@ def barrel(x, z, h=0.95, r=0.31, tint="#3b5a7a", mat="metal", cover=True):
     cyly("metal", x, y + h, y + h + 0.015, z, r * 0.92, seg=12, tint="#44484a", dirt=False)
     if cover:
         col(x - r * 0.9, y, z - r * 0.9, x + r * 0.9, y + h, z + r * 0.9, F_DEFAULT, S_METAL)
+    PROP_AO.append((x, z, r, 0.55, 0.34))
     reserve_c(x, z, r * 1.5)
 
 
@@ -1352,6 +1356,7 @@ def firewood(x, z, rot=0.0, L=1.0, cols=8, rows=5, r=0.075):
         box("log", sx * (cols * r * 1.05 + 0.04) - 0.04, 0, -L / 2 - 0.0, sx * (cols * r * 1.05 + 0.04) + 0.04, rows * r * 1.9, -L / 2 + 0.08, "#8a6a48", 0.6, dirt=False)
     pop()
     col_rot(x, z, cols * r * 1.05, L / 2, rot, y, y + rows * r * 1.8 + 0.1, F_DEFAULT, S_WOOD)
+    PROP_AO.append((x, z, max(L * 0.45, cols * r), 0.65, 0.34))
     reserve_c(x, z, L * 0.8)
 
 
@@ -1443,6 +1448,7 @@ def boulder(x, z, r, seed, flat=0.7, collide=None, tint="#ffffff", sink=0.25, ro
     if collide:
         col_rot(x, z, r * 0.78, r * 0.7, rot, y - 0.2, y + r * flat * 0.9, F_DEFAULT, S_CONCRETE)
     if r >= 0.5:
+        PROP_AO.append((x, z, r * 0.82, 0.65, 0.36))
         reserve_c(x, z, r * 1.2)
 
 
@@ -1469,6 +1475,7 @@ def hay_bale(x, z, rot=0.0, stack=1):
             box("cloth", sx - 0.012, k * 0.45 - 0.0, -0.31, sx + 0.012, (k + 1) * 0.45 + 0.01, 0.31, "#8c6a2a", 0.6, dirt=False)
     pop()
     col_rot(x, z, 0.45, 0.3, rot, y, y + 0.45 * stack, F_DEFAULT, S_DIRT)
+    PROP_AO.append((x, z, 0.45, 0.60, 0.36))
     reserve_c(x, z, 0.7)
 
 
@@ -1548,6 +1555,7 @@ def vehicle(x, z, rot, kind, tint):
     box("glow", L / 2 - 0.02, 0.72, W / 2 - 0.4, L / 2 + 0.01, 0.84, W / 2 - 0.1, "#ffffff", 1.0, dirt=False)
     pop()
     col_rot(x, z, L / 2, W / 2, rot, y, y + (1.75 if kind == "pickup" else 1.8), F_DEFAULT, S_METAL)
+    VEH_AO.append((x, z, rot, L / 2, W / 2))
     reserve_rect_rot(x, z, L / 2 + 0.4, W / 2 + 0.4, rot)
 
 
@@ -1578,6 +1586,7 @@ def tractor(x, z, rot):
     pop()
     col_rot(x, z, 1.9, 0.9, rot, y, y + 2.0, F_DEFAULT, S_METAL)
     col_rot(x, z, 0.6, 0.6, rot, y + 2.0, y + 2.6, F_DEFAULT, S_METAL)
+    VEH_AO.append((x, z, rot, 1.9, 0.9))
     reserve_rect_rot(x, z, 2.4, 1.3, rot)
 
 
@@ -2629,7 +2638,7 @@ def sample_layer(L, tile_m, X, Z):
     return a * (1 - fv) + b * fv
 
 
-def bake_terrain():
+def bake_terrain(trees=None):
     S = SPL_N
     step = SPL_SIZE / S
     px = (SPL_X0 + (np.arange(S) + 0.5) * step).astype(np.float32)
@@ -2720,9 +2729,54 @@ def bake_terrain():
     nxv, nyv = -hx, hy
     nl = np.sqrt(nxv * nxv + nyv * nyv + 1)
     nrm = np.stack([nxv / nl, nyv / nl, 1 / nl], -1) * 0.5 + 0.5
-    # occlusion: cavities of the macro height + under foundations
+    # occlusion: cavities of the macro height + baked contact AO around buildings, vehicles, props & trees
     cav = blur(H.astype(np.float32), 6) - H
     ao = np.clip(1 - 1.2 * np.maximum(cav, 0) * 2 - 0.2 * inside, 0.3, 1) * (0.9 + 0.1 * (hgt / (hgt.max() + 1e-6)))
+    def _ix0(v): return max(0, int((v - SPL_X0) / step))
+    def _ix1(v): return min(S, int((v - SPL_X0) / step) + 1)
+    def _iz0(v): return max(0, int((v - SPL_Z0) / step))
+    def _iz1(v): return min(S, int((v - SPL_Z0) / step) + 1)
+    for (nm, x0, z0, x1, z1) in FOOT:
+        pad = 1.6
+        ia, ib, ja, jb = _ix0(x0 - pad), _ix1(x1 + pad), _iz0(z0 - pad), _iz1(z1 + pad)
+        if ia >= ib or ja >= jb: continue
+        d = rect_sdf(px[None, ia:ib], pz[ja:jb, None], x0, z0, x1, z1)
+        k = 0.36 + 0.64 * smooth(0.0, pad, d)
+        ao[ja:jb, ia:ib] = np.minimum(ao[ja:jb, ia:ib], k)
+    all_veh = list(VEH_AO) + [(-24.0, 28.5, -0.35, 1.35, 5.2), (-16.5, 36.5, 1.18, 1.35, 5.2)]
+    for (cx, cz, yaw, hl, hw) in all_veh:
+        pad = 0.85
+        ext = math.hypot(hl, hw) + pad
+        ia, ib, ja, jb = _ix0(cx - ext), _ix1(cx + ext), _iz0(cz - ext), _iz1(cz + ext)
+        if ia >= ib or ja >= jb: continue
+        rx = px[None, ia:ib] - cx
+        rz = pz[ja:jb, None] - cz
+        cv, sv = math.cos(yaw), math.sin(yaw)
+        lx = np.abs(rx * cv - rz * sv)
+        lz = np.abs(rx * sv + rz * cv)
+        dx = np.maximum(0.0, lx - hl)
+        dz = np.maximum(0.0, lz - hw)
+        d = np.hypot(dx, dz)
+        k = 0.22 + 0.78 * smooth(0.0, pad, d)
+        ao[ja:jb, ia:ib] = np.minimum(ao[ja:jb, ia:ib], k)
+    for (cx, cz, r, pad, min_ao) in PROP_AO:
+        ext = r + pad
+        ia, ib, ja, jb = _ix0(cx - ext), _ix1(cx + ext), _iz0(cz - ext), _iz1(cz + ext)
+        if ia >= ib or ja >= jb: continue
+        d = np.maximum(0.0, np.hypot(px[None, ia:ib] - cx, pz[ja:jb, None] - cz) - r)
+        k = min_ao + (1.0 - min_ao) * smooth(0.0, pad, d)
+        ao[ja:jb, ia:ib] = np.minimum(ao[ja:jb, ia:ib], k)
+    if trees:
+        for t in trees:
+            tx, tz, sc = t[0], t[2], t[3]
+            if abs(tx) >= 84 or abs(tz) >= 84:
+                continue
+            rad = 1.5 * sc
+            ia, ib, ja, jb = _ix0(tx - rad), _ix1(tx + rad), _iz0(tz - rad), _iz1(tz + rad)
+            if ia >= ib or ja >= jb: continue
+            d = np.hypot(px[None, ia:ib] - tx, pz[ja:jb, None] - tz)
+            k = 0.48 + 0.52 * smooth(0.15, rad, d)
+            ao[ja:jb, ia:ib] = np.minimum(ao[ja:jb, ia:ib], k)
     orm = np.stack([ao, np.clip(rgh, 0, 1), np.zeros_like(ao)], -1)
     # grass density source (resampled later)
     return alb, nrm, orm, dict(wg=wg, ws=ws, wr=wr, wv=wv, wm=wm, H=H, slope=slope, inside=inside, apron=apron)
@@ -3724,6 +3778,7 @@ def vehicle(x, z, rot, kind, tint):
     pop()
     Lh = 2.8 if kind == "pickup" else 2.45
     col_rot(x, z, Lh, W / 2, rot, y, y + (1.8 if kind == "pickup" else 1.95), F_DEFAULT, S_METAL)
+    VEH_AO.append((x, z, rot, Lh, W / 2))
     reserve_rect_rot(x, z, Lh + 0.4, W / 2 + 0.4, rot)
 
 
@@ -3795,6 +3850,7 @@ def tractor(x, z, rot):
     pop()
     col_rot(x, z, 1.9, 0.9, rot, y, y + 2.0, F_DEFAULT, S_METAL)
     col_rot(x, z, 0.6, 0.6, rot, y + 2.0, y + 2.6, F_DEFAULT, S_METAL)
+    VEH_AO.append((x, z, rot, 1.9, 0.9))
     reserve_rect_rot(x, z, 2.4, 1.3, rot)
 
 
@@ -4865,15 +4921,15 @@ def main():
     for nm, (gen, na, nn) in MATS.items():
         tex[nm] = make_pbr(nm, gen, na, nn)
         log("  tex", nm, sum(len(x) for x in tex[nm]) // 1024, "KB")
-    alb, nrm, orm, aux = bake_terrain()
+    trees, bushes = place_foliage()
+    log("trees", len(trees), "bushes", len(bushes))
+    alb, nrm, orm, aux = bake_terrain(trees)
     ta = jpeg_bytes(down(alb, 512), 76, "terrain_a")
     tn = b""
     to = jpeg_bytes(down(orm, 512), 84, "terrain_o")
     tex["terrain"] = (ta, None, to)
     log("terrain bake KB", len(ta) // 1024, len(tn) // 1024, len(to) // 1024)
     # --- foliage + grass
-    trees, bushes = place_foliage()
-    log("trees", len(trees), "bushes", len(bushes))
     ground_details(trees)
     global LITTER_PNG
     LITTER_PNG = litter_png()

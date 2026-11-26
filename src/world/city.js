@@ -153,9 +153,10 @@ function makeMaterials() {
     normalMap: shop.normalMap, normalScale: new THREE.Vector2(1.4, 1.4),
     roughnessMap: shop.orm, metalnessMap: shop.orm, roughness: 1, metalness: 1, envMapIntensity: 1.25,
   });
-  // Fast phone-safe storefront material (shares same GPU maps, skips normal/IBL/parallax on Medium/Low)
-  M.shopLite = new THREE.MeshLambertMaterial({
-    map: shop.map, emissiveMap: shop.emissive, emissive: 0xffffff, emissiveIntensity: 0.96,
+  // Lightweight glass storefront material for Medium/Low (skips normalMap/roughnessMap/parallax, keeps env reflection & warm glow)
+  M.shopLite = new THREE.MeshStandardMaterial({
+    map: shop.map, emissiveMap: shop.emissive, emissive: 0xffffff, emissiveIntensity: 1.05,
+    roughness: 0.34, metalness: 0.08, envMapIntensity: 1.15,
   });
   const adsTex = T.adsTexture();
   M.ads = ledScreen(new THREE.MeshBasicMaterial({ map: adsTex }), adsTex);
@@ -436,11 +437,11 @@ export function buildCity({ onProgress } = {}) {
   applyCityLighting(M.ground, lightMap, { mode: 'ground', spillGain: 0.28, aoStrength: 1.0, key: 'ground' });
   applyCityLighting(M.walk, lightMap, { mode: 'walk', spillGain: 0.34, aoStrength: 1.0, key: 'walk' });
   applyCityLighting(M.marks, lightMap, { mode: 'marks', spillGain: 0.24, aoStrength: 0.85, key: 'marks' });
-  applyCityLighting(M.flat, lightMap, { mode: 'flat', spillGain: 0.48, aoStrength: 0.85, baseAO: 0.32, key: 'flat' });
-  applyCityLighting(M.crate, lightMap, { mode: 'flat', spillGain: 0.44, aoStrength: 0.85, baseAO: 0.34, key: 'crate' });
-  applyCityLighting(M.container, lightMap, { mode: 'flat', spillGain: 0.44, aoStrength: 0.85, baseAO: 0.34, key: 'container' });
+  applyCityLighting(M.flat, lightMap, { mode: 'flat', spillGain: 0.48, aoStrength: 0.85, baseAO: 0.40, key: 'flat' });
+  applyCityLighting(M.crate, lightMap, { mode: 'flat', spillGain: 0.44, aoStrength: 0.85, baseAO: 0.42, key: 'crate' });
+  applyCityLighting(M.container, lightMap, { mode: 'flat', spillGain: 0.44, aoStrength: 0.85, baseAO: 0.42, key: 'container' });
   for (let i = 0; i < T.FACADES.length; i++) {
-    applyCityLighting(M['facade' + i], lightMap, { mode: 'flat', spillGain: 0.82, aoStrength: 0.75, baseAO: 0.38, key: 'fac' + i });
+    applyCityLighting(M['facade' + i], lightMap, { mode: 'flat', spillGain: 0.82, aoStrength: 0.78, baseAO: 0.44, key: 'fac' + i });
     applyFacadeParallax(M['facade' + i], T.FACADES[i], i);
     applyMidtownHaze(M['facade' + i], { strength: 1.0, neonPreserve: 0.72, key: 'fac' + i });
   }

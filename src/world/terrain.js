@@ -182,7 +182,7 @@ export async function applyTerrainSplat(mat, T) {
           dRough = mix(1.0, dot(bw, vec4(uRough.x, uRough.y, 0.95, uRough.w)), dFade);
         }`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
-        roughnessFactor = clamp(roughnessFactor * dRough, 0.05, 1.0);`)
+        roughnessFactor = clamp(roughnessFactor * dRough, 0.12, 1.0);`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         {
           // image up is -z in texture space

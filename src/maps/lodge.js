@@ -191,6 +191,7 @@ export async function buildLodge(onProgress = () => {}) {
       // (the pond hole is cut in the splat shader itself, src/world/terrain.js: patching
       // the shader a second time here redeclared vWPos and the terrain failed to compile)
       o.material.color.set(0xc9d0bd);
+      o.material.aoMapIntensity = 1.0;
     }
   });
   // static: skip the per-frame matrix updates
