@@ -7,8 +7,12 @@ import {
   groundAt, RAISED_RECTS, RAISED_CIRCLES, avenueById, LANDMARKS,
 } from './layout.js';
 import { F_DEFAULT, F_SOLID, F_BULLET, F_CAMERA, F_SEE, F_BUILDING, F_ALL, S_CONCRETE, S_METAL, S_GLASS, S_DIRT } from '../core/physics.js';
-import { AD_LAND, AD_PORT, AD_PALETTES } from './textures.js';
+import { AD_LAND } from './textures.js';
 import { addBuilding } from './city.js';
+import {
+  buildOneTimesSquare, buildNorthBowtieTower, buildTktsSteps,
+  buildNypdBooth, dressTimesSquareBillboards,
+} from './ts_arch.js';
 import * as P from './props.js';
 import { emit, shrubMesh, hash2 } from './plants.js';
 
@@ -28,43 +32,6 @@ const lowWall = (ctx, x0, z0, x1, z1, h = 0.95, col = STONE) => {
   ctx.B('flat', (x0 + x1) / 2, (z0 + z1) / 2).box(x0, CURB, z0, x1, CURB + h, z1, col, 31, mulC(col, 1.2));
   ctx.world.addBox(x0, CURB, z0, x1, CURB + h, z1, F_DEFAULT, S_CONCRETE);
 };
-/** Emissive panel on an axis-aligned wall (outward normal to the left of A->B). */
-function panel(ctx, mat, ax, az, bx, bz, y0, y1, uv, out = 0.45) {
-  const len = Math.hypot(bx - ax, bz - az);
-  const nx = ((bz - az) / len) * out, nz = (-(bx - ax) / len) * out;
-  const mx = (ax + bx) / 2, mz = (az + bz) / 2;
-  ctx.B('flat', mx, mz).wall(ax + nx * 0.8, az + nz * 0.8, bx + nx * 0.8, bz + nz * 0.8, y0 - 0.35, y1 + 0.35, C('#0b0c0f'));
-  ctx.B(mat, mx, mz).wall(ax + nx, az + nz, bx + nx, bz + nz, y0, y1, null, uv);
-}
-const ANIM_UV = [0.004, 0.004, 0.246, 0.246];
-function adPanel(ctx, rng, ax, az, bx, bz, y0, y1, forceAnim = false) {
-  const w = Math.hypot(bx - ax, bz - az), h = y1 - y0;
-  const r = rng.next();
-  let col;
-  if (forceAnim || r < 0.32) {
-    // every screen starts on a different frame of the 4x4 sheet
-    const cx0 = rng.int(0, 3), cy0 = rng.int(0, 3);
-    const cu = cx0 / 4, cv = cy0 / 4;
-    panel(ctx, rng.chance(0.5) ? 'adsA' : 'adsB', ax, az, bx, bz, y0, y1, [cu + ANIM_UV[0], cv + ANIM_UV[1], cu + ANIM_UV[2], cv + ANIM_UV[3]]);
-    const frameIdx = (3 - cy0) * 4 + cx0;
-    col = AD_PALETTES[(frameIdx * 5 + 1) % AD_PALETTES.length][0];
-  } else {
-    const c = w >= h ? rng.pick(AD_LAND) : rng.pick(AD_PORT);
-    panel(ctx, 'ads', ax, az, bx, bz, y0, y1, [c.u0 + 0.002, c.v0 + 0.003, c.u1 - 0.002, c.v1 - 0.003]);
-    col = c.color;
-  }
-  // Emit directional neon spill forward from the billboard onto street & nearby facades
-  if (ctx.light && y0 < 52 && w > 4) {
-    const len = Math.max(w, 0.1);
-    const nx = (bz - az) / len, nz = -(bx - ax) / len;
-    const mx = (ax + bx) / 2, mz = (az + bz) / 2;
-    const hAtten = clamp(1.10 - y0 / 48, 0.12, 1.0);
-    const rad = clamp(Math.sqrt(w * h) * 0.95 + 4, 8, 17);
-    const pushOut = clamp(4 + y0 * 0.16, 4, 10);
-    const str = clamp(Math.sqrt(w * h) * 0.015 * hAtten, 0.06, 0.30);
-    ctx.light(mx + nx * pushOut, mz + nz * pushOut, rad, col, str);
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Blocks with custom content. Returns a function, {reserve:[...]} or null.
@@ -313,143 +280,13 @@ function arena(ctx) {
 // ---------------------------------------------------------------------------
 function timesSquare(ctx) {
   const { rng, world } = ctx;
-  const E = (x, z) => ctx.B('glow', x, z);
   const F = (x, z) => ctx.B('flat', x, z);
 
-  // --- One Times Square: the narrow tower closing the south end -----------
-  const o = { x0: 19, z0: 171, x1: 41, z1: 221, h: 110 };
-  addBuilding(ctx, { ...o, style: 1, tint: [0.8, 0.8, 0.85], shops: 15, noRoof: true, noAds: true, tiers: [[o.x0, o.z0, o.x1, o.z1, CURB, CURB + o.h]] });
-  // stacked screens on the north face, tall ads on the long sides
-  let y = 12;
-  for (const hh of [15, 13, 16, 12, 15, 14]) {
-    adPanel(ctx, rng, o.x0 + 0.5, o.z0, o.x1 - 0.5, o.z0, y, y + hh, true);
-    y += hh + 1.2;
-  }
-  for (let yy = 12; yy < 96; yy += 29) {
-    adPanel(ctx, rng, o.x1, o.z0 + 1, o.x1, o.z1 - 1, yy, yy + 26);
-    adPanel(ctx, rng, o.x0, o.z1 - 1, o.x0, o.z0 + 1, yy, yy + 26);
-    adPanel(ctx, rng, o.x1 - 0.5, o.z1, o.x0 + 0.5, o.z1, yy, yy + 26);
-  }
-  // news ticker wrapping the base
-  panel(ctx, 'ticker', o.x0, o.z0, o.x1, o.z0, 7.5, 10, [0, 0, 0.5, 1], 0.5);
-  panel(ctx, 'ticker', o.x1, o.z0, o.x1, o.z1, 7.5, 10, [0.5, 0, 1.6, 1], 0.5);
-  panel(ctx, 'ticker', o.x0, o.z1, o.x0, o.z0, 7.5, 10, [1.6, 0, 2.7, 1], 0.5);
-  // the New Year's ball on its mast
-  const bx = (o.x0 + o.x1) / 2, bz = o.z0 + 6, top = CURB + o.h;
-  F(bx, bz).box(bx - 0.3, top, bz - 0.3, bx + 0.3, top + 23, bz + 0.3, C('#9aa0aa'), 15);
-  E(bx, bz).blob(bx, top + 25, bz, 2.4, 2.4, 2.4, C('#e8f4ff'));
-  ctx.glow(bx, top + 25, bz, '#cfe8ff', 9);
-  ctx.glow(bx, top + 25, bz, '#ffffff', 4);
-
-  // --- north end: slim hotel tower with its sign stack ---------------------
-  const n1 = { x0: -29, z0: -205, x1: -17, z1: -171 }, n2 = { x0: -38, z0: -231, x1: -17, z1: -205 };
-  addBuilding(ctx, { ...n1, h: 96, style: 0, tint: [0.85, 0.9, 1], shops: 15, noAds: true, noRoof: true, tiers: [[n1.x0, n1.z0, n1.x1, n1.z1, CURB, CURB + 96]] });
-  addBuilding(ctx, { ...n2, h: 112, style: 0, tint: [0.85, 0.9, 1], shops: 15, noAds: true });
-  y = 9;
-  for (const hh of [10, 13, 9, 14, 11, 12]) {
-    adPanel(ctx, rng, n1.x1 - 0.3, n1.z1, n1.x0 + 0.3, n1.z1, y, y + hh, hh > 11);
-    y += hh + 1;
-  }
-  for (let yy = 10; yy < 80; yy += 24) adPanel(ctx, rng, n1.x1, n1.z0, n1.x1, n1.z1, yy, yy + 21);
-
-  // --- the red steps -------------------------------------------------------
-  const sx0 = -34, sx1 = -18, sz = -118, run = 1.2, rise = 0.36, steps = 12;
-  const red = C('#b3101c'), redHot = C('#d63232');
-  const Gs = E(-26, -128);
-  Gs.setRM(0.14, 0.05); // glossy red glass treads
-  for (let i = 0; i < steps; i++) {
-    const zf = sz - i * run, zb = sz - (i + 1) * run, yt = CURB + (i + 1) * rise;
-    Gs.floor(sx0, zb, sx1, zf, yt, red);
-    Gs.wall(sx1, zf, sx0, zf, yt - rise, yt, redHot); // riser faces south
-    world.addBox(sx0, CURB, zb, sx1, yt, zf, F_DEFAULT, S_GLASS);
-  }
-  const topY = CURB + steps * rise, zTop = sz - steps * run, zBack = -141;
-  Gs.floor(sx0, zBack, sx1, zTop, topY, red);
-  world.addBox(sx0, CURB, zBack, sx1, topY, zTop, F_DEFAULT, S_GLASS);
-  // glass sides and the ticket booth wall behind
-  Gs.quad([sx0, CURB, sz], [sx0, CURB, zBack], [sx0, topY, zBack], [sx0, topY, zTop], mulC(red, 0.75));
-  Gs.quad([sx1, CURB, zBack], [sx1, CURB, sz], [sx1, topY, zTop], [sx1, topY, zBack], mulC(red, 0.75));
-  Gs.wall(sx0, zBack, sx1, zBack, CURB, topY, mulC(red, 0.6));
-  Gs.setRM(0.85, 0);
-  const tk = ctx.signCells.TKTS;
-  ctx.B('signs', -26, zBack).wall(sx0 + 3, zBack - 0.05, sx1 - 3, zBack - 0.05, CURB + 1.3, CURB + 3.6, null, [tk.u0, tk.v0, tk.u1, tk.v1]);
-  // railing at the top so that it reads as a platform
-  lowWall(ctx, sx0, zBack, sx1, zBack + 0.15, 1.0, C('#5a0a10'));
-  for (const [px, pz] of [[-26, -110], [-26, -128], [-40, -126], [-12, -126]]) {
-    ctx.pool(px, pz, 14, '#ff2030', 0.48);
-    if (ctx.light) ctx.light(px, pz, 18, '#ff2030', 0.55);
-  }
-  // statue in front of the steps
-  F(-26, -104).box(-26.9, CURB, -105, -25.1, CURB + 2.0, -103.2, STONE, 31);
-  F(-26, -104).box(-26.35, CURB + 2.0, -104.4, -25.65, CURB + 4.5, -103.8, C('#3d4a44'), 31);
-  F(-26, -104).box(-26.15, CURB + 2.0, -105.0, -25.85, CURB + 7.4, -104.7, STONE, 31);
-  F(-26, -104).box(-27.0, CURB + 5.6, -105.0, -25.0, CURB + 6.0, -104.7, STONE, 31 | 32);
-  world.addBox(-26.9, CURB, -105, -25.1, CURB + 4.5, -103.2, F_DEFAULT, S_CONCRETE);
-
-  // --- police booth in the south plaza -------------------------------------
-  {
-    const x0 = 22, z0 = 138, x1 = 34, z1 = 145;
-    const PB = F(28, 141);
-    PB.setRM(0.45, 0.45);
-    PB.box(x0, CURB, z0, x1, CURB + 3.4, z1, C('#2c3340'), 31, C('#3b4454'));
-    // NYPD-style blue & silver architectural trim bands wrapping all four sides
-    PB.box(x0 - 0.04, CURB + 0.82, z0 - 0.04, x1 + 0.04, CURB + 1.05, z1 + 0.04, C('#1d56c4'), 15);
-    PB.box(x0 - 0.04, CURB + 1.05, z0 - 0.04, x1 + 0.04, CURB + 1.13, z1 + 0.04, C('#d0d8e4'), 15);
-    PB.box(x0 - 0.05, CURB, z0 - 0.05, x1 + 0.05, CURB + 0.16, z1 + 0.05, C('#1a1e26'), 15);
-    // Window frame mullions on front & side glazing
-    for (const mx of [x0 + 3.5, x0 + 6.0, x0 + 8.5]) PB.box(mx - 0.05, CURB + 1.1, z0 - 0.08, mx + 0.05, CURB + 2.6, z0 + 0.02, C('#1b2028'), 15);
-    PB.setRM(0.85, 0);
-    E(28, 141).box(x0 - 0.1, CURB + 3.4, z0 - 0.1, x1 + 0.1, CURB + 3.75, z1 + 0.1, C('#2a6bff', 1.2), 15);
-    E(28, 141).box(x0 + 1, CURB + 1.15, z0 - 0.05, x1 - 1, CURB + 2.55, z0, C('#b8dcff', 0.9), 8);
-    // Side window on west face (visible in plaza view)
-    E(28, 141).box(x0 - 0.05, CURB + 1.25, z0 + 1.2, x0, CURB + 2.45, z1 - 1.2, C('#9ec6f2', 0.72), 2);
-    PB.setRM(0.45, 0.45);
-    PB.box(x0 - 0.08, CURB + 1.25, (z0 + z1) / 2 - 0.05, x0 + 0.02, CURB + 2.45, (z0 + z1) / 2 + 0.05, C('#1b2028'), 15);
-    PB.setRM(0.85, 0);
-    const pc = ctx.signCells.POLICE;
-    ctx.B('signs', 28, 141).wall(x0 + 3, z0 - 0.1, x1 - 3, z0 - 0.1, CURB + 2.7, CURB + 3.3, null, [pc.u0, pc.v0, pc.u1, pc.v1]);
-    world.addBox(x0, CURB, z0, x1, CURB + 3.75, z1, F_DEFAULT, S_METAL);
-    if (ctx.occluder) ctx.occluder(x0, z0, x1, z1, 1.5, 0.34);
-    ctx.pool(28, 134, 11, '#3b7bff', 0.58);
-    if (ctx.light) {
-      ctx.light(28, 134, 15, '#2f74ff', 0.72);
-      ctx.light(19, 141.5, 11, '#4b8eff', 0.45);
-    }
-    ctx.glow(28, CURB + 3.6, 138, '#3b7bff', 2.2);
-  }
-
-  // --- billboards on every facade that looks onto the bowtie ---------------
-  for (const b of ctx.buildings.slice()) {
-    if (!b.nearTS || b.noAds || b.h < 14) continue;
-    const walls = [[b.x0, b.z0, b.x1, b.z0, 0, -1], [b.x1, b.z0, b.x1, b.z1, 1, 0], [b.x1, b.z1, b.x0, b.z1, 0, 1], [b.x0, b.z1, b.x0, b.z0, -1, 0]];
-    for (const [ax, az, bx2, bz2, nx, nz] of walls) {
-      const mx = (ax + bx2) / 2, mz = (az + bz2) / 2;
-      const len = Math.hypot(bx2 - ax, bz2 - az);
-      if (len < 9) continue;
-      const axis = broadwayX(mz) * 0.5;
-      const toward = (axis - mx) * nx;
-      let maxY;
-      if (nx !== 0 && toward > 0 && Math.abs(axis - mx) < 78 && mz > -250 && mz < 250) maxY = Math.min(b.h - 3, 58);
-      else if (nz !== 0 && Math.abs(mx - axis) < 105 && mz > -250 && mz < 250) maxY = Math.min(b.h - 3, 24);
-      else continue;
-      // the wall must actually be exposed (not a party wall)
-      if (!world.fits(mx + nx * 3, CURB + 6, mz + nz * 3, 1.5, 4)) continue;
-      const ux = (bx2 - ax) / len, uz = (bz2 - az) / len;
-      let yy = 6.2 + rng.range(0, 1.5);
-      while (yy + 6 < maxY) {
-        const rowH = Math.min(rng.range(7, 17), maxY - yy);
-        let s = rng.range(0.8, 3);
-        while (s + 7 < len - 0.8) {
-          let w = Math.min(rng.range(8, 24), len - 0.8 - s);
-          if (rng.chance(0.14)) { s += w + 1; continue; }
-          adPanel(ctx, rng, ax + ux * s, az + uz * s, ax + ux * (s + w), az + uz * (s + w), yy, yy + rowH - 1);
-          if (yy < 9 && rng.chance(0.75)) ctx.pool(mx + nx * 6 + ux * (s + w / 2 - len / 2), mz + nz * 6 + uz * (s + w / 2 - len / 2), rng.range(6, 10), rng.pick(NEON), 0.12);
-          s += w + rng.range(0.6, 1.6);
-        }
-        yy += rowH + rng.range(0.4, 1.2);
-      }
-    }
-  }
+  buildOneTimesSquare(ctx);
+  buildNorthBowtieTower(ctx);
+  buildTktsSteps(ctx);
+  buildNypdBooth(ctx);
+  dressTimesSquareBillboards(ctx);
 
   // --- plaza furniture along the pedestrianised Broadway -------------------
   for (let z = PLAZA_Z1 - 22; z > PLAZA_Z0 + 12; z -= 11) {
@@ -542,6 +379,22 @@ function timesSquare(ctx) {
       if (onRoad(x + 9, sz + 4.55)) P.stormDrain(ctx, x + 9, sz + 4.55, false);
       if (onRoad(x - 9, sz - 4.55)) P.stormDrain(ctx, x - 9, sz - 4.55, false);
     }
+  }
+  // NYC sidewalk newsbox honor clusters & subway ventilation grates (zero rng calls)
+  const onWalk = (x, z, r) => groundAt(x, z) >= CURB - 0.02
+    && world.fits(x, CURB + 0.5, z, r, 1.8)
+    && !STREETS.some((s) => Math.abs(z - s.z) < s.road + 3.0);
+  for (const [nx, nz, az] of [
+    [-11.2, 118, true], [11.2, 52, true], [-11.2, -56, true], [11.2, -88, true],
+    [-22, 74, false], [48, -12, false], [-54, 16, false],
+  ]) {
+    if (onWalk(nx, nz, 1.1)) P.newsBoxCluster(ctx, nx, nz, az);
+  }
+  for (const [vx, vz, az] of [
+    [-11.4, 86, true], [11.4, 24, true], [-11.4, -22, true], [11.4, -124, true],
+    [12.2, 154, true], [-28, -72, false], [58, 12, false],
+  ]) {
+    if (onWalk(vx, vz, 1.6)) P.sidewalkVent(ctx, vx, vz, az);
   }
 }
 
