@@ -21,7 +21,7 @@ const WIDTH = 1600, HEIGHT = 900;          // landscape, like a phone held sidew
 const LOAD_TIMEOUT_MS = 180000;
 const MATCH_SETTLE_MS = 3500;
 
-// name -> how to frame it. yaw/pitch in radians; view 'tpp' or 'fpp'.
+// name -> how to frame it. yaw/pitch in radians; view 'tpp' or 'fpp'; optional pos [x, z] in metres.
 export const VIEWS = [
   { name: 'midtown_high_street', mode: 'tdm', quality: 'high', view: 'tpp', yaw: 0, pitch: -0.1 },
   { name: 'midtown_high_shops', mode: 'tdm', quality: 'high', view: 'tpp', yaw: 2.2, pitch: -0.1 },
@@ -108,13 +108,21 @@ const PAGE_SHOT = `async (v, settleMs) => {
   const g = G.game, p = g.player;
   p.fp = v.view === 'fpp';
   g.paused = false;
-  for (let i = 0; i < 10; i++) { p.yaw = v.yaw; p.pitch = v.pitch; G.step(1, 1 / 60); }
+  // optional pos [x, z]: stand the player there (close-up audit views of set pieces)
+  for (let i = 0; i < 10; i++) {
+    if (v.pos) { p.body.x = v.pos[0]; p.body.z = v.pos[1]; if (p.body.vx !== undefined) { p.body.vx = 0; p.body.vz = 0; } }
+    p.yaw = v.yaw; p.pitch = v.pitch; G.step(1, 1 / 60);
+  }
   const r = G.view.renderer, gl = r.getContext(), px = new Uint8Array(4), times = [];
   for (let i = 0; i < 12; i++) {
     const t0 = performance.now(); G.view.render(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); times.push(performance.now() - t0);
   }
   times.sort((a, b) => a - b);
-  const stats = { renderMs: +times[6].toFixed(2), p90Ms: +times[10].toFixed(2), drawCalls: r.info.render.calls, triangles: r.info.render.triangles };
+  // post passes reset renderer.info, so count one whole frame with auto-reset off
+  r.info.autoReset = false; r.info.reset(); G.view.render();
+  const calls = r.info.render.calls, tris = r.info.render.triangles;
+  r.info.autoReset = true;
+  const stats = { renderMs: +times[6].toFixed(2), p90Ms: +times[10].toFixed(2), drawCalls: calls, triangles: tris };
   G.view.render();
   return { stats, jpg: r.domElement.toDataURL('image/jpeg', 0.9) };
 }`;
