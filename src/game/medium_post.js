@@ -24,13 +24,14 @@ const extractFragment = `
     vec3 c = (safeSample(vUv - d) + safeSample(vUv + d)) * 0.5;
     float peak = max(c.r, max(c.g, c.b));
     float minC = min(c.r, min(c.g, c.b));
-    // Chromaticity-weighted metric lets saturated neon signs bloom cleanly even from RGBA8
-    float metric = peak + (peak - minC) * 0.32;
-    float knee = 0.24;
+    // Chromaticity-weighted metric lets saturated neon signs bloom cleanly
+    float metric = peak + (peak - minC) * 0.28;
+    float knee = 0.25;
     float soft = clamp(metric - threshold + knee, 0.0, 2.0 * knee);
     soft = (soft * soft) / max(4.0 * knee, 1e-4);
     float contrib = max(soft, metric - threshold) / max(metric, 1e-4);
-    gl_FragColor = vec4(clamp(c * max(contrib, 0.0) * 0.34, 0.0, 1.0), 1.0);
+    // Pack into [0,1] RGBA8 with 4x HDR headroom
+    gl_FragColor = vec4(clamp(c * max(contrib, 0.0) * 0.25, 0.0, 1.0), 1.0);
   }
 `;
 
@@ -51,15 +52,14 @@ const compositeFragment = `
   }
 
   void main() {
-    // Soft highlight expansion recovers punch for RGBA8 sceneRT before ACES tone mapping
     vec3 c = texture2D(tDiffuse, vUv).rgb;
-    c += c * c * c * 0.35;
+    float s = c.r + c.g + c.b;
+    if (!(s >= 0.0 && s < 60000.0)) c = vec3(0.0);
+    c = clamp(c, 0.0, 48.0);
 
-    // 4-tap Kawase gather from tiny 1/8-res RGBA8 bloom buffer (unpack * 4.0)
-    vec3 bloom = (texture2D(tBloom, clamp(vUv + vec2( bloomStep.x,  bloomStep.y), 0.002, 0.998)).rgb
-                + texture2D(tBloom, clamp(vUv + vec2(-bloomStep.x,  bloomStep.y), 0.002, 0.998)).rgb
-                + texture2D(tBloom, clamp(vUv + vec2( bloomStep.x, -bloomStep.y), 0.002, 0.998)).rgb
-                + texture2D(tBloom, clamp(vUv + vec2(-bloomStep.x, -bloomStep.y), 0.002, 0.998)).rgb);
+    // 2-tap diagonal gather from 1/8-res RGBA8 bloom buffer (unpack * 4.0)
+    vec3 bloom = (texture2D(tBloom, clamp(vUv + bloomStep, 0.002, 0.998)).rgb
+                + texture2D(tBloom, clamp(vUv - bloomStep, 0.002, 0.998)).rgb) * 2.0;
     c += bloom * bloomStrength;
 
     c = aces(c);
@@ -75,9 +75,12 @@ const compositeFragment = `
 
 export class MediumPostPipeline {
   constructor(renderer) {
-    // 32-bit RGBA8 offscreen targets cut phone memory bandwidth in half vs HalfFloat
+    const caps = renderer.capabilities;
+    const useHalf = caps.isWebGL2 || renderer.extensions.has('EXT_color_buffer_half_float');
+    const sceneType = useHalf ? THREE.HalfFloatType : THREE.UnsignedByteType;
+    // HDR HalfFloat sceneRT preserves full dynamic range & matches High RT format (zero pipeline stalls)
     this.sceneRT = new THREE.WebGLRenderTarget(4, 4, {
-      type: THREE.UnsignedByteType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+      type: sceneType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
       depthBuffer: true, stencilBuffer: false, samples: 0,
     });
     // Single 1/8-res RGBA8 bloom buffer (eliminates 2nd blur pass and stays L1-cache resident)

@@ -542,9 +542,9 @@ export class Soldier {
     const postureRate = (targetPosture === 2 || this._posture > 1.05) ? 6.2 : 9.5;
     this._posture = damp(this._posture, targetPosture, postureRate, dt);
 
-    // LOD0 / LOD1 distance switch (1 draw call always)
+    // LOD0 / LOD1 distance switch (1 draw call always; LOD1 kicks in past 22m where fine finger detail is sub-pixel)
     if (this.mesh && this.meshLod1 && s.dist != null) {
-      const useLod1 = s.dist > 34 && !this.fpCam;
+      const useLod1 = s.dist > 22 && !this.fpCam;
       if (useLod1 !== this._lod1) {
         this._lod1 = useLod1;
         this.mesh.visible = !useLod1;

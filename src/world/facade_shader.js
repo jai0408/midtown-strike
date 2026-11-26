@@ -111,7 +111,7 @@ export function applyFacadeParallax(mat, def, idx) {
           ${hasWn ? '' : 'varying vec3 vFacN;'}`)
         .replace('#include <begin_vertex>', `#include <begin_vertex>
           ${hasWp ? '' : 'vWp = (modelMatrix * vec4(transformed, 1.0)).xyz;'}
-          ${hasWn ? '' : 'vFacN = normalize(mat3(modelMatrix) * objectNormal);'}`);
+          ${hasWn ? '' : 'vFacN = objectNormal;'}`);
     }
 
     const fragHasWp = s.fragmentShader.includes('varying vec3 vWp');

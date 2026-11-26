@@ -86,8 +86,8 @@ export function createWeaponMaterial() {
         metalnessFactor *= vRm.y;
         metalnessFactor = clamp(metalnessFactor + wEdge * 0.15 * wIsMetal, 0.0, 1.0);`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
-        {
-          // Subtle object-space micro-bump transformed into view space (1-octave fast gradient)
+        if (dot(vViewPosition, vViewPosition) < 2.6) {
+          // Subtle object-space micro-bump for close-up FPP view (skipped on distant 3P bots)
           float eps = 0.0009;
           float h0 = wMicroFast(vObj, wIsMetal);
           vec3 g = vec3(
