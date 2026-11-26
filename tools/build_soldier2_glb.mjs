@@ -367,17 +367,18 @@ function buildSoldierMesh(lod) {
   const seg = (n) => Math.max(6, Math.round(n * S));
   const bseg = (n) => Math.max(1, Math.round(n * (lod === 0 ? 2.0 : 0.75)));
 
-  // ---- TORSO (hips -> spine -> chest -> collar, no internal end caps) ------
+  // ---- TORSO (hips -> spine -> chest -> collar, with waist blousing above belt) ------
   const torsoRows = [
     // [y, cz, rx, rFront, rBack]
     [0.80,  0.006, 0.148, 0.104, 0.114],
     [0.86,  0.006, 0.172, 0.114, 0.122],
     [0.93,  0.005, 0.180, 0.118, 0.126],
     [1.00,  0.003, 0.174, 0.112, 0.116],
-    [1.09,  0.000, 0.166, 0.106, 0.108],
-    [1.18, -0.002, 0.170, 0.110, 0.110],
-    [1.28, -0.004, 0.182, 0.116, 0.112],
-    [1.38, -0.005, 0.196, 0.118, 0.112],
+    [1.06,  0.001, 0.184, 0.120, 0.122], // subtle shirt blousing fold over battle belt
+    [1.11,  0.000, 0.168, 0.108, 0.110],
+    [1.18, -0.002, 0.172, 0.112, 0.112],
+    [1.28, -0.004, 0.184, 0.118, 0.114],
+    [1.38, -0.005, 0.198, 0.120, 0.112],
     [1.46, -0.002, 0.200, 0.108, 0.104],
     [1.51,  0.000, 0.150, 0.084, 0.084],
     [1.545, 0.002, 0.078, 0.068, 0.070],
@@ -412,18 +413,20 @@ function buildSoldierMesh(lod) {
     seg(20), 2.4, [1, 0, 0], 'camo', rigidW('hips'), [true, false]
   );
 
-  // ---- NECK & BALACLAVA HEAD (1.52m -> 1.80m) ------------------------------
+  // ---- NECK & BALACLAVA HEAD (1.52m -> 1.77m, tucked inside helmet shell) ---
   const headRows = [
     [1.515,  0.002, 0.062, 0.062, 0.064],
     [1.560,  0.000, 0.056, 0.058, 0.060],
-    [1.600, -0.015, 0.064, 0.072, 0.070],
-    [1.635, -0.008, 0.074, 0.088, 0.086],
-    [1.675, -0.002, 0.079, 0.098, 0.098],
-    [1.715,  0.000, 0.081, 0.098, 0.102],
-    [1.755,  0.004, 0.074, 0.086, 0.098],
-    [1.790,  0.008, 0.052, 0.058, 0.074],
-    [1.805,  0.010, 0.022, 0.024, 0.036],
+    [1.600, -0.014, 0.064, 0.072, 0.070],
+    [1.635, -0.008, 0.072, 0.086, 0.082],
+    [1.675, -0.002, 0.075, 0.092, 0.088],
+    [1.715,  0.000, 0.070, 0.088, 0.082],
+    [1.750,  0.004, 0.058, 0.072, 0.068],
+    [1.772,  0.006, 0.038, 0.044, 0.044],
+    [1.784,  0.008, 0.016, 0.018, 0.024],
   ];
+  // Separate dark tactical collar/gaiter ridge at base of neck for clean helmet-to-collar separation
+  addTube(mb, [[0, 1.522, 0.002], [0, 1.562, 0.002], [0, 1.595, -0.004]], [0.068, 0.064, 0.066], [0.068, 0.064, 0.066], seg(16), 2.2, [1, 0, 0], 'pads', rigidW('chest'));
   // Rigid split at collar (1.535m) so 1P head-hide (head.scale = 0.001) never stretches neck triangles
   const headW = (x, y) => (y > 1.535 ? [[BI.head, 1]] : [[BI.chest, 1]]);
   addTube(
@@ -453,46 +456,73 @@ function buildSoldierMesh(lod) {
     const strapPath = [];
     for (let k = 0; k <= 12; k++) {
       const ph = (76 + (208 * k) / 12) * (Math.PI / 180);
-      strapPath.push([0.114 * Math.sin(ph), 1.706, 0.008 - 0.130 * Math.cos(ph)]);
+      strapPath.push([0.119 * Math.sin(ph), 1.712, 0.008 - 0.138 * Math.cos(ph)]);
     }
-    addTube(mb, strapPath, 0.015, 0.004, 6, 3.0, [0, 1, 0], 'gearDark', rigidW('head'));
+    addTube(mb, strapPath, 0.015, 0.005, 6, 3.0, [0, 1, 0], 'gearDark', rigidW('head'));
   }
 
-  // ---- TACTICAL HELMET (FAST / MICH high-cut, top at 1.832m) ---------------
-  const hSeg = seg(24), hRings = lod === 0 ? 8 : 5;
+  // ---- TACTICAL HELMET (Ops-Core FAST high-cut solid shell + 10mm rim + lining, top at 1.838m)
+  const hSeg = seg(24), hRings = lod === 0 ? 9 : 5;
   const hVerts = [], hUvs = [], hFaces = [];
   const colsH = hSeg + 1;
+  // Outer dome rings (j = 0..hRings, bottom rim -> crown)
   for (let j = 0; j <= hRings; j++) {
     const vFrac = j / hRings;
     for (let k = 0; k <= hSeg; k++) {
-      const th = (2 * Math.PI * k) / hSeg; // 0 = front (-Z)
+      const th = (2 * Math.PI * k) / hSeg; // 0 = front (-Z), +pi/2 = +X
       const c = Math.cos(th), s = Math.sin(th);
-      // High-cut rim over ears, drops down at nape
-      const earCut = Math.exp(-Math.pow((Math.abs(s) - 0.92) * 3.5, 2)) * 0.032;
-      const rimY = 1.685 + 0.045 * Math.max(0, c) - 0.022 * Math.max(0, -c) + earCut;
-      const y = lerp(rimY, 1.832, Math.sin(vFrac * Math.PI * 0.5));
-      const tDome = clamp((y - 1.69) / 0.142, 0, 1);
-      const rad = Math.sqrt(Math.max(0.002, 1 - tDome * tDome));
-      const rx = 0.112 * rad;
-      const rz = (c >= 0 ? 0.124 : 0.132) * rad;
+      const earCut = Math.exp(-Math.pow((Math.abs(s) - 0.90) * 3.4, 2)) * 0.040;
+      const rimY = 1.678 + 0.044 * Math.max(0, c) - 0.028 * Math.max(0, -c) + earCut;
+      const y = lerp(rimY, 1.838, Math.sin(vFrac * Math.PI * 0.5));
+      const tDome = clamp((y - 1.672) / 0.166, 0, 1);
+      const rad = Math.sqrt(Math.max(0.001, 1 - tDome * tDome * 0.985));
+      const rx = 0.116 * rad;
+      const rz = (c >= 0 ? 0.128 : 0.137) * rad;
       hVerts.push([rx * s, y, 0.008 - rz * c]);
       hUvs.push([k / hSeg, vFrac]);
     }
   }
+  // Outward-facing winding: at +X (th=+pi/2), +k is +Z and +j is +Y -> (+Y x +Z) = +X outward!
   for (let j = 0; j < hRings; j++) {
     for (let k = 0; k < hSeg; k++) {
-      hFaces.push([j * colsH + k, j * colsH + k + 1, (j + 1) * colsH + k + 1, (j + 1) * colsH + k]);
+      hFaces.push([j * colsH + k, (j + 1) * colsH + k, (j + 1) * colsH + k + 1, j * colsH + k + 1]);
     }
+  }
+  // Solid 10 mm ballistic shell edge rim + recessed dark interior skirt ring so rim shows clearly from rear/side
+  const rimInnerIdx = hVerts.length;
+  for (let k = 0; k <= hSeg; k++) {
+    const o = hVerts[k];
+    hVerts.push([o[0] * 0.89, o[1] + 0.002, (o[2] - 0.008) * 0.90 + 0.008]);
+    hUvs.push([k / hSeg, 0.02]);
+  }
+  const rimUpIdx = hVerts.length;
+  for (let k = 0; k <= hSeg; k++) {
+    const o = hVerts[k];
+    hVerts.push([o[0] * 0.86, o[1] + 0.036, (o[2] - 0.008) * 0.87 + 0.008]);
+    hUvs.push([k / hSeg, 0.08]);
+  }
+  for (let k = 0; k < hSeg; k++) {
+    // Bottom thickness lip facing downward/outward + inner wall facing inward
+    hFaces.push([k, k + 1, rimInnerIdx + k + 1, rimInnerIdx + k]);
+    hFaces.push([rimInnerIdx + k, rimInnerIdx + k + 1, rimUpIdx + k + 1, rimUpIdx + k]);
   }
   mb.addPart(hVerts, hFaces, hUvs, 'helmet', rigidW('head'));
 
-  // Helmet NVG shroud, side ARC rails, Peltor ear-pro headset cups, boom mic, chinstrap
-  addRoundedBox(mb, [0.068, 0.052, 0.028], [0, 1.776, -0.112], [-0.35, 0, 0], bseg(2), 2.5, 'metal', rigidW('head'));
+  // Molded ballistic helmet rim trim tube accentuating the high-cut & nape silhouette edge
+  if (lod === 0) {
+    const rimPath = [];
+    for (let k = 0; k <= hSeg; k++) rimPath.push(hVerts[k]);
+    addTube(mb, rimPath, 0.006, 0.007, 6, 2.4, [0, 1, 0], 'pads', rigidW('head'), [false, false], true);
+  }
+
+  // Helmet front 3-hole NVG shroud, rear Velcro/counterweight battery pouch, side ARC rails, Peltor ear-pro cups, boom mic, chinstrap
+  addRoundedBox(mb, [0.068, 0.052, 0.026], [0, 1.776, -0.118], [-0.36, 0, 0], bseg(2), 2.3, 'metal', rigidW('head'));
+  addRoundedBox(mb, [0.090, 0.050, 0.032], [0, 1.714,  0.132], [ 0.22, 0, 0], bseg(2), 2.5, 'gearDark', rigidW('head'));
   for (const s of [-1, 1]) {
-    addRoundedBox(mb, [0.014, 0.022, 0.115], [s * 0.112, 1.745, 0.002], [0, 0, 0], bseg(2), 2.5, 'metal', rigidW('head'));
+    addRoundedBox(mb, [0.016, 0.024, 0.122], [s * 0.114, 1.745, 0.002], [0, 0, 0], bseg(2), 2.5, 'gearDark', rigidW('head'));
     // Ear-pro headset cup
-    addRoundedBox(mb, [0.036, 0.088, 0.074], [s * 0.104, 1.672, 0.006], [0, 0, 0], bseg(2), 2.2, 'gearDark', rigidW('head'));
-    addRoundedBox(mb, [0.012, 0.056, 0.048], [s * 0.120, 1.672, 0.006], [0, 0, 0], 1, 2.2, 'pads', rigidW('head'));
+    addRoundedBox(mb, [0.034, 0.084, 0.070], [s * 0.104, 1.672, 0.006], [0, 0, 0], bseg(2), 2.1, 'gearDark', rigidW('head'));
+    addRoundedBox(mb, [0.012, 0.054, 0.046], [s * 0.119, 1.672, 0.006], [0, 0, 0], 1, 2.1, 'pads', rigidW('head'));
   }
   if (lod === 0) {
     // Boom mic on left headset
@@ -501,10 +531,14 @@ function buildSoldierMesh(lod) {
     addTube(mb, [[-0.095, 1.70, 0.01], [-0.086, 1.64, -0.025], [-0.055, 1.59, -0.065], [0, 1.578, -0.075], [0.055, 1.59, -0.065], [0.086, 1.64, -0.025], [0.095, 1.70, 0.01]], 0.007, 0.003, 6, 2.5, [0, 0, 1], 'gearDark', rigidW('head'));
   }
 
-  // ---- PLATE CARRIER, POUCHES, BATTLE BELT ---------------------------------
-  // Front & back plate bags (crisp beveled Cordura silhouettes)
-  addRoundedBox(mb, [0.305, 0.315, 0.060], [0, 1.335, -0.128], [0.04, 0, 0], bseg(3), 5.6, 'gear', rigidW('chest'));
-  addRoundedBox(mb, [0.300, 0.310, 0.060], [0, 1.335,  0.128], [-0.03, 0, 0], bseg(3), 5.6, 'gear', rigidW('chest'));
+  // ---- ANATOMICAL SAPI PLATE CARRIER, CONTOURED POUCHES, BATTLE BELT -------
+  // Curved swimmer-cut front & rear plate bags hugging torso contour (no rigid square brick)
+  addTube(mb, [
+    [0, 1.185, -0.120], [0, 1.265, -0.132], [0, 1.365, -0.130], [0, 1.445, -0.118], [0, 1.488, -0.105],
+  ], [0.148, 0.156, 0.150, 0.124, 0.096], [0.026, 0.030, 0.028, 0.024, 0.018], seg(16), 2.5, [1, 0, 0], 'gear', rigidW('chest'));
+  addTube(mb, [
+    [0, 1.185,  0.120], [0, 1.265,  0.132], [0, 1.365,  0.128], [0, 1.445,  0.116], [0, 1.488,  0.102],
+  ], [0.146, 0.154, 0.148, 0.124, 0.098], [0.026, 0.030, 0.028, 0.024, 0.018], seg(16), 2.5, [1, 0, 0], 'gear', rigidW('chest'));
   // Cummerbund wrapping lower ribs
   addTube(mb, [[0, 1.14, 0], [0, 1.22, 0], [0, 1.30, 0]], [0.184, 0.190, 0.186], [0.128, 0.134, 0.130], seg(20), 2.8, [1, 0, 0], 'gearDark', (x, y) => {
     const wc = sstep(1.13, 1.24, y);
@@ -513,34 +547,38 @@ function buildSoldierMesh(lod) {
   // Padded shoulder straps
   for (const s of [-1, 1]) {
     addTube(mb, [
-      [s * 0.092, 1.475, -0.144], [s * 0.098, 1.522, -0.085],
-      [s * 0.106, 1.545,  0.000], [s * 0.098, 1.522,  0.085], [s * 0.092, 1.475,  0.144],
-    ], 0.034, 0.012, seg(8), 3.6, [1, 0, 0], 'gear', rigidW('chest'));
+      [s * 0.092, 1.475, -0.124], [s * 0.098, 1.522, -0.075],
+      [s * 0.106, 1.545,  0.000], [s * 0.098, 1.522,  0.075], [s * 0.092, 1.475,  0.124],
+    ], 0.034, 0.012, seg(8), 2.4, [1, 0, 0], 'gear', rigidW('chest'));
   }
-  // 3 front M4 magazine pouches + admin pouch + name tape
-  for (const mx of [-0.088, 0.0, 0.088]) {
-    addRoundedBox(mb, [0.076, 0.136, 0.044], [mx, 1.255, -0.174], [0, 0, 0], bseg(2), 5.8, 'gearDark', rigidW('chest'));
+  // 3 contoured M4 magazine pouches + bungee retention flaps + upper admin pouch + name tape
+  for (const mx of [-0.086, 0.0, 0.086]) {
+    const rotY = mx === 0 ? 0 : (mx < 0 ? 0.16 : -0.16);
+    const mzOff = mx === 0 ? -0.168 : -0.160;
+    addRoundedBox(mb, [0.074, 0.132, 0.042], [mx, 1.255, mzOff], [0.04, rotY, 0], bseg(2), 2.6, 'gearDark', rigidW('chest'));
     if (lod === 0) {
-      addRoundedBox(mb, [0.078, 0.038, 0.048], [mx, 1.308, -0.176], [0, 0, 0], 1, 5.5, 'gear', rigidW('chest'));
+      addRoundedBox(mb, [0.076, 0.036, 0.046], [mx, 1.306, mzOff - 0.002], [0.04, rotY, 0], 1, 2.4, 'gear', rigidW('chest'));
     }
   }
-  addRoundedBox(mb, [0.140, 0.068, 0.026], [0.02, 1.398, -0.168], [0, 0, 0], bseg(2), 5.6, 'gearDark', rigidW('chest'));
+  addRoundedBox(mb, [0.138, 0.066, 0.024], [0.015, 1.396, -0.158], [0.06, 0, 0], bseg(2), 2.6, 'gearDark', rigidW('chest'));
   // Chest name tape
-  addRoundedBox(mb, [0.155, 0.034, 0.008], [0, 1.458, -0.160], [0, 0, 0], 1, 5.0, 'tape', rigidW('chest'));
+  addRoundedBox(mb, [0.148, 0.032, 0.008], [0, 1.452, -0.142], [0.12, 0, 0], 1, 2.4, 'tape', rigidW('chest'));
   // Left side radio + whip antenna
-  addRoundedBox(mb, [0.052, 0.142, 0.068], [-0.198, 1.215, -0.01], [0, 0, 0], bseg(2), 5.6, 'gearDark', rigidW('chest'));
+  addRoundedBox(mb, [0.050, 0.138, 0.064], [-0.196, 1.215, -0.01], [0, 0, 0.06], bseg(2), 2.6, 'gearDark', rigidW('chest'));
   if (lod === 0) {
     addTube(mb, [[-0.198, 1.29, 0.015], [-0.205, 1.45, 0.04], [-0.210, 1.62, 0.065]], 0.005, 0.005, 6, 2, [1, 0, 0], 'pads', rigidW('chest'));
   }
-  // Back hydration pack + IFAK pouch
-  addRoundedBox(mb, [0.220, 0.275, 0.066], [0, 1.355, 0.186], [0, 0, 0], bseg(2), 5.5, 'gearDark', rigidW('chest'));
-  addRoundedBox(mb, [0.125, 0.105, 0.050], [0.065, 1.210, 0.182], [0, 0, 0], bseg(2), 5.5, 'gear', rigidW('chest'));
+  // Contoured back hydration pack + IFAK med pouch
+  addTube(mb, [
+    [0, 1.21, 0.168], [0, 1.29, 0.178], [0, 1.39, 0.174], [0, 1.465, 0.156],
+  ], [0.106, 0.112, 0.104, 0.082], [0.030, 0.034, 0.032, 0.022], seg(14), 2.5, [1, 0, 0], 'gearDark', rigidW('chest'));
+  addRoundedBox(mb, [0.118, 0.098, 0.046], [0.065, 1.205, 0.174], [0, -0.12, 0], bseg(2), 2.6, 'gear', rigidW('chest'));
 
-  // Battle belt + cobra buckle + right holster + left dump pouch (bridges torso & pelvis cleanly)
+  // Battle belt + cobra buckle + contoured Kydex holster + angled dump pouch
   addTube(mb, [[0, 0.990, 0.002], [0, 1.035, 0.002], [0, 1.080, 0.001]], [0.186, 0.190, 0.182], [0.126, 0.130, 0.124], seg(20), 2.8, [1, 0, 0], 'gearDark', rigidW('hips'), [false, false]);
-  addRoundedBox(mb, [0.056, 0.038, 0.014], [0, 1.035, -0.132], [0, 0, 0], 1, 5.0, 'metal', rigidW('hips'));
-  addRoundedBox(mb, [0.048, 0.178, 0.088], [0.182, 0.945, 0.015], [0, 0, 0], bseg(2), 5.6, 'gearDark', rigidW('hips'));
-  addRoundedBox(mb, [0.048, 0.130, 0.098], [-0.184, 0.965, 0.036], [0, 0, 0], bseg(2), 5.6, 'gearDark', rigidW('hips'));
+  addRoundedBox(mb, [0.054, 0.036, 0.014], [0, 1.035, -0.132], [0, 0, 0], 1, 2.8, 'metal', rigidW('hips'));
+  addRoundedBox(mb, [0.046, 0.174, 0.082], [0.182, 0.945, 0.015], [0, 0, -0.05], bseg(2), 2.6, 'pads', rigidW('hips'));
+  addRoundedBox(mb, [0.046, 0.128, 0.094], [-0.184, 0.965, 0.036], [0.08, 0, 0.06], bseg(2), 2.4, 'gearDark', rigidW('hips'));
 
   // ---- ARMS (A-pose along clavicle -> upperArm -> forearm -> hand) ---------
   for (const side of ['L', 'R']) {
@@ -566,9 +604,9 @@ function buildSoldierMesh(lod) {
       armPath.push(add(jUp, mul(dirU, samplesU[i] * lenU)));
       armRa.push(radsU[i]); armRb.push(radsU[i] * 0.95);
     }
-    // Sleeve tapers and stops 1.8cm before jHand with NO end cap, tucked cleanly inside the glove cuff
-    const samplesF = [0.12, 0.32, 0.58, 0.80, 0.90, 0.93];
-    const radsF    = [0.055, 0.054, 0.048, 0.042, 0.036, 0.031];
+    // Sleeve tapers with subtle elbow-crook gather + folded cuff hem tucking cleanly into the glove cuff
+    const samplesF = [0.12, 0.28, 0.48, 0.72, 0.84, 0.92, 0.96];
+    const radsF    = [0.055, 0.053, 0.048, 0.042, 0.037, 0.033, 0.028];
     for (let i = 0; i < samplesF.length; i++) {
       armPath.push(add(jFore, mul(dirF, samplesF[i] * lenF)));
       armRa.push(radsF[i]); armRb.push(radsF[i] * 0.94);
@@ -604,9 +642,9 @@ function buildSoldierMesh(lod) {
     // Tailored tactical glove cuff (overlaps sleeve cleanly) -> anatomical contoured palm
     addTube(
       mb,
-      [hPt(-0.044, 0, 0), hPt(-0.018, 0, 0), hPt(0.010, -0.001, 0), hPt(0.042, -0.002, 0), hPt(0.072, -0.004, 0), hPt(0.086, -0.006, 0)],
-      [0.038, 0.035, 0.036, 0.040, 0.041, 0.035],
-      [0.036, 0.031, 0.026, 0.022, 0.019, 0.014],
+      [hPt(-0.046, 0, 0), hPt(-0.018, 0, 0), hPt(0.010, -0.001, 0), hPt(0.042, -0.002, 0), hPt(0.072, -0.004, 0), hPt(0.086, -0.006, 0)],
+      [0.039, 0.035, 0.036, 0.040, 0.041, 0.035],
+      [0.037, 0.031, 0.026, 0.022, 0.019, 0.014],
       seg(14), 2.8, hFwd, 'glove', rigidW('hand' + side), [false, true]
     );
     // Molded Velcro wrist-closure cuff band
@@ -688,17 +726,18 @@ function buildSoldierMesh(lod) {
     const jToe  = REST_W[BI['toe' + side]];
 
     const legRows = [
-      // [y, rx, rFront, rBack] — top tucked inside pelvis (0.935), bottom sunk 10cm inside boot shaft (0.155)
+      // [y, rx, rFront, rBack] — top tucked inside pelvis (0.935), knee/boot blousing folds, bottom sunk in boot shaft
       [0.935, 0.096, 0.094, 0.098],
       [0.860, 0.098, 0.095, 0.101],
       [0.740, 0.092, 0.088, 0.093],
       [0.620, 0.082, 0.079, 0.081],
-      [0.540, 0.076, 0.073, 0.074],
+      [0.545, 0.078, 0.075, 0.076],
       [0.505, 0.075, 0.073, 0.074],
       [0.455, 0.074, 0.069, 0.078],
       [0.370, 0.072, 0.066, 0.082],
-      [0.275, 0.064, 0.060, 0.068],
-      [0.215, 0.054, 0.052, 0.056],
+      [0.295, 0.070, 0.066, 0.072], // trouser cuff bloused above boot collar
+      [0.255, 0.073, 0.070, 0.074],
+      [0.215, 0.052, 0.050, 0.054],
       [0.155, 0.044, 0.044, 0.046],
     ];
     const lxAt = (y) => lerp(jAnk[0], jHip[0], clamp((y - jAnk[1]) / (jHip[1] - jAnk[1]), 0, 1));
@@ -864,25 +903,33 @@ function buildPBRTextures(SIZE = 2048) {
         const edgeWear = clamp(1 - edge / 0.06, 0, 1);
 
         if (box.name === 'camo' || box.name === 'helmet') {
-          // Digital camo macro + micro blocks
-          const bx = Math.floor(lu * 64), by = Math.floor(lv * 64);
-          const n1 = fbm(bx * 0.14, by * 0.14, 3, 1775) + (hash2(bx, by, 99) - 0.5) * 0.18;
-          const n2 = fbm(bx * 0.22 + 5.1, by * 0.22 + 2.7, 2, 2021) + (hash2(bx >> 1, by >> 1, 77) - 0.5) * 0.16;
-          const ci = n2 > 0.64 ? 2 : n2 < 0.34 ? 3 : n1 > 0.53 ? 1 : 0;
+          // High-density tactical micro-digital camo (220x220 fine pattern, crisp in 1P sleeves) + ripstop weave + cloth folds
+          const macroX = lu * 28, macroY = lv * 28;
+          const bx = Math.floor(lu * 220), by = Math.floor(lv * 220);
+          const n1 = fbm(macroX, macroY, 3, 1775) * 0.72 + fbm(bx * 0.18, by * 0.18, 2, 1945) * 0.28 + (hash2(bx, by, 99) - 0.5) * 0.14;
+          const n2 = fbm(macroX * 1.4 + 5.1, macroY * 1.4 + 2.7, 2, 2021) + (hash2(bx >> 1, by >> 1, 77) - 0.5) * 0.14;
+          const ci = n2 > 0.63 ? 2 : n2 < 0.35 ? 3 : n1 > 0.52 ? 1 : 0;
           [r, g, b] = CAMO_PAL[ci];
-          // Ripstop fabric crosshatch weave
-          const weave = ((x & 3) === 0 || (y & 3) === 0) ? 0.92 : (((x + y) & 1) ? 1.03 : 0.98);
-          const fold = fbm(lu * 10, lv * 26, 3, 404);
-          const dirt = clamp(fbm(lu * 7, lv * 7, 3, 808) * 1.4 - 0.55, 0, 1) * (lv < 0.35 ? 0.55 : 0.18);
-          // Stitching seam line down center
-          const stitch = Math.abs(lu - 0.5) < 0.004 && ((y % 8) < 4) ? 1 : 0;
-          r = r * weave * (0.86 + 0.26 * fold) * (1 - dirt * 0.35) + 125 * dirt * 0.35;
-          g = g * weave * (0.86 + 0.26 * fold) * (1 - dirt * 0.35) + 112 * dirt * 0.35;
-          b = b * weave * (0.86 + 0.26 * fold) * (1 - dirt * 0.35) + 88 * dirt * 0.35;
+          // Fine 2-px ripstop twill crosshatch + natural diagonal cloth crease folds
+          const weave = ((x & 3) === 0 || (y & 3) === 0) ? 0.93 : (((x + y) & 1) ? 1.03 : 0.98);
+          const crease = Math.sin(lv * Math.PI * 16 + fbm(lu * 6, lv * 6, 2, 313) * 5.0) * 0.5 + 0.5;
+          const fold = fbm(lu * 12, lv * 28, 3, 404) * 0.72 + crease * 0.28;
+          const dirt = clamp(fbm(lu * 7, lv * 7, 3, 808) * 1.4 - 0.55, 0, 1) * (lv < 0.35 ? 0.52 : 0.16);
+          const stitch = Math.abs(lu - 0.5) < 0.003 && ((y % 8) < 4) ? 1 : 0;
+          r = r * weave * (0.85 + 0.28 * fold) * (1 - dirt * 0.35) + 125 * dirt * 0.35;
+          g = g * weave * (0.85 + 0.28 * fold) * (1 - dirt * 0.35) + 112 * dirt * 0.35;
+          b = b * weave * (0.85 + 0.28 * fold) * (1 - dirt * 0.35) + 88 * dirt * 0.35;
           if (stitch) { r *= 0.65; g *= 0.65; b *= 0.65; }
-          h = 0.5 + (weave - 0.98) * 1.8 + (fold - 0.5) * 0.7 - stitch * 0.35;
+          h = 0.5 + (weave - 0.98) * 1.8 + (fold - 0.5) * 0.95 - stitch * 0.35;
           rough = clamp(0.86 + (fold - 0.5) * 0.1 + dirt * 0.08, 0.72, 0.96);
-          ao = clamp(0.84 + 0.16 * fold - stitch * 0.15, 0.55, 1.0);
+          ao = clamp(0.82 + 0.18 * fold - stitch * 0.15, 0.52, 1.0);
+          // Helmet cover seams & rear/crown Velcro loop panels
+          if (box.name === 'helmet') {
+            const coverSeam = (Math.abs(lu - 0.18) < 0.008 || Math.abs(lu - 0.82) < 0.008 || Math.abs(lu - 0.50) < 0.007 || lv < 0.045) ? 1 : 0;
+            const velcro = (lv > 0.28 && lv < 0.72 && (Math.abs(lu - 0.50) < 0.11 || Math.abs(lu - 0.25) < 0.06 || Math.abs(lu - 0.75) < 0.06)) ? 1 : 0;
+            if (coverSeam) { r *= 0.62; g *= 0.62; b *= 0.62; rough = 0.90; ao = 0.68; h -= 0.16; }
+            else if (velcro) { r = lerp(r, 118, 0.55); g = lerp(g, 108, 0.55); b = lerp(b, 84, 0.55); rough = 0.95; h += 0.10; }
+          }
         } else if (box.name === 'gear' || box.name === 'gearDark') {
           // Coyote Cordura nylon + MOLLE webbing rows + bartack stitching + worn edges
           const baseC = box.name === 'gear' ? [146, 128, 96] : [114, 98, 72];
@@ -1212,23 +1259,23 @@ function makeLocomotionClip(name, { frames, speed, dirX, dirZ, duty, lift, crouc
   const setT = (b, p) => { ((tracks[b] ||= {}).t ||= []).push(...p); };
 
   const stanceDist = speed * T * duty;
-  const runK = clamp((speed - 1.8) / 3.2, 0, 1);
-  const frontShare = crouch ? 0.45 : lerp(0.47, 0.37, runK);
+  const runK = clamp((speed - 1.8) / 2.8, 0, 1);
   const backMode = dirZ > 0.5;
   const strafeMode = Math.abs(dirX) > 0.5;
-  const yawBase = strafeMode ? (dirX < 0 ? 0.42 : -0.42) : 0;
-  const rollAmp = crouch ? 0.36 : lerp(0.46, sprint ? 0.88 : 0.78, runK);
-  const strikeAmp = crouch ? 0.18 : lerp(0.30, 0.14, runK);
-  const latW = crouch ? 0.145 : (strafeMode ? 0.125 : lerp(0.106, 0.092, runK));
+  const frontShare = crouch ? 0.45 : (strafeMode ? 0.50 : lerp(0.50, 0.44, runK));
+  const yawBase = strafeMode ? (dirX < 0 ? 0.24 : -0.24) : 0;
+  const rollAmp = crouch ? 0.36 : lerp(0.46, sprint ? 0.92 : 0.82, runK);
+  const strikeAmp = crouch ? 0.18 : lerp(0.32, 0.18, runK);
+  const latW = crouch ? 0.145 : (strafeMode ? 0.21 : lerp(0.104, 0.088, runK));
 
   for (let f = 0; f <= frames; f++) {
-    const P = (f % frames) / frames; // 0..1 seamless (L heel-strike at P=0, R at P=0.5)
-    // Asymmetric biomechanical vertical CoM wave:
-    // Walking peaks at mid-stance (inverted pendulum); running dips at mid-stance absorption & peaks in flight
+    const P = (f % frames) / frames; // 0..1 seamless (L contact at P=0, R at P=0.5)
+    // Walking: inverted-pendulum vault peaks at mid-stance.
+    // Running: absorbs load cleanly through mid-stance, then springs upward into visible flight after toe-off.
     const p2 = P * Math.PI * 2;
     const p4 = P * Math.PI * 4;
     const walkVert = -Math.cos(p4 - 0.35) + 0.18 * Math.sin(p4 * 2);
-    const runVert  = -Math.sin(p4 + 0.35) - 0.16 * Math.cos(p4 * 2);
+    const runVert  = -Math.sin(p4 + 0.42) - 0.14 * Math.cos(p4 * 2);
     const stepWave = lerp(walkVert, runVert, runK);
     const sideWave = Math.sin(p2 + 0.35);
     // Phase-lagged waves for organic spine/chest/arm follow-through
@@ -1236,18 +1283,19 @@ function makeLocomotionClip(name, { frames, speed, dirX, dirZ, duty, lift, crouc
     const stepLag2 = Math.sin(p4 - 0.65);
     const sideLag1 = Math.sin(p2 - 0.15);
 
-    // Hips height: grounded crouch stays remarkably level ("Groucho walk")
-    const baseDrop = crouch ? 0.365 : (0.022 + 0.048 * runK + (sprint ? 0.025 : 0));
-    const bobAmp = crouch ? 0.009 : lerp(0.019, sprint ? 0.044 : 0.036, runK);
+    // Tall athletic pelvis carriage during walk/run with real flight amplitude (only crouch drops CoM)
+    const baseDrop = crouch ? 0.365 : lerp(0.014, 0.004, runK);
+    const bobAmp = crouch ? 0.008 : lerp(0.020, sprint ? 0.056 : 0.048, runK);
     const hy = REST_W[BI.hips][1] - baseDrop + stepWave * bobAmp;
-    // Lateral weight transfer over stance foot + subtle pelvic drop (Trendelenburg) on swing side
-    const sway = lerp(0.028, 0.015, runK) * sideWave * (crouch ? 1.15 : 1.0);
-    const hipRoll = -lerp(0.055, 0.075, runK) * sideWave * (crouch ? 0.55 : 1.0);
-    const leanBase = 0.045 + 0.115 * runK + (sprint ? 0.155 : 0) + crouch * 0.19;
-    const leanX = -(leanBase * (backMode ? -0.35 : 1) + stepWave * 0.022 * runK);
-    const hipYaw = yawBase - lerp(0.085, sprint ? 0.18 : 0.145, runK) * Math.cos(p2 - 0.12);
-    // Subtle fore-aft surge in-place during sprint/run
-    const surgeZ = -0.014 * runK * Math.cos(p4);
+    // Lateral weight transfer over stance foot + subtle pelvic drop on swing side
+    const sway = lerp(0.030, 0.016, runK) * sideWave * (crouch ? 1.15 : 1.0);
+    const hipRoll = -lerp(0.055, 0.078, runK) * sideWave * (crouch ? 0.55 : 1.0);
+    const leanBase = 0.05 + 0.175 * runK + (sprint ? 0.095 : 0) + crouch * 0.18;
+    const lean = (backMode ? -0.30 : 1) * leanBase + stepWave * 0.022 * runK;
+    const leanX = -0.56 * lean;
+    const hipYaw = yawBase - lerp(0.095, sprint ? 0.20 : 0.16, runK) * Math.cos(p2 - 0.12);
+    // Subtle fore-aft surge during run/sprint
+    const surgeZ = -0.016 * runK * Math.cos(p4);
     const hipsPos = [sway, hy, surgeZ];
     const hipsQ = qEulerYXZ(leanX, hipYaw, hipRoll);
 
@@ -1273,26 +1321,28 @@ function makeLocomotionClip(name, { frames, speed, dirX, dirZ, duty, lift, crouc
         const it = 1 - t;
         const x0 = (frontShare - 1) * stanceDist, x3 = frontShare * stanceDist;
         // High-knee recovery & crisp butt-kick on run/sprint
-        const kick = (0.12 * runK + (sprint ? 0.10 : 0)) * (backMode ? -0.35 : 1);
-        const x1 = x0 - kick, x2 = x3 + 0.12 * stanceDist;
+        const kick = (0.14 * runK + (sprint ? 0.11 : 0)) * (backMode ? -0.35 : 1);
+        const x1 = x0 - kick, x2 = x3 + 0.14 * stanceDist;
         along = it * it * it * x0 + 3 * it * it * t * x1 + 3 * it * t * t * x2 + t * t * t * x3;
         // Asymmetric lift curve: faster initial knee lift, controlled descent into heel strike
         up = Math.sin(Math.pow(t, 0.78) * Math.PI) * lift;
         // Swing foot clears stance leg laterally during strafes
-        if (strafeMode) latClear = sgn * 0.055 * Math.sin(t * Math.PI);
-        const midPitch = -0.24 - 0.30 * runK;
+        if (strafeMode) latClear = sgn * 0.065 * Math.sin(t * Math.PI);
+        const midPitch = -0.26 - 0.32 * runK;
         pitch = t < 0.38
           ? lerp(-rollAmp, midPitch, sstep(0, 0.38, t))
           : lerp(midPitch, strikeAmp, sstep(0.38, 0.96, t));
         if (backMode) pitch *= -0.45;
         toePitch = -0.08 * Math.sin(t * Math.PI);
       }
-      // Exact ankle vertical rise from heel/ball pivot so sole never sinks into ground
+      // Exact ankle vertical rise from heel/ball pivot so sole never sinks into ground;
+      // in strafeMode keep lateral stride on each leg's own side (never cross feet into an X)
       const rollRise = Math.max(0, -pitch) * 0.082 + Math.max(0, pitch) * 0.032;
+      const alongX = strafeMode ? along * 0.44 : along;
       const footModel = [
-        sgn * latW + latClear + dirX * along,
+        sgn * latW + (strafeMode ? 0 : latClear) + dirX * alongX,
         ANKLE_H + up + rollRise,
-        dirZ * along,
+        dirZ * along - (strafeMode ? Math.abs(latClear) * 0.55 : 0),
       ];
       // Natural ~7 deg outward foot turnout + directional heading
       const footYaw = yawBase * 0.65 - sgn * (crouch ? 0.18 : 0.11);
@@ -1304,17 +1354,17 @@ function makeLocomotionClip(name, { frames, speed, dirX, dirZ, duty, lift, crouc
       setR(BI['toe' + side], ik.qToe);
     }
 
-    // Phase-lagged spine & chest counter-rotation + vestibulo-ocular head stabilization
-    const spYaw = -hipYaw * 0.52 + 0.025 * sideLag1 * runK;
-    const chYaw = -hipYaw * 0.48 + 0.032 * sideLag1 * (sprint ? 1.4 : 1.0);
-    setR(BI.spine, qEulerYXZ(-leanX * 0.42 + crouch * 0.09 + stepLag1 * 0.018 * runK, spYaw, -hipRoll * 0.55));
-    setR(BI.chest, qEulerYXZ(-leanX * 0.34 + stepLag2 * 0.024 * runK, chYaw, -hipRoll * 0.45));
-    // Neck & head counter-pitch/counter-roll to keep eyes level on the horizon
-    setR(BI.neck,  qEulerYXZ(crouch * 0.09 - stepLag2 * 0.016 * runK, -chYaw * 0.25, 0));
-    setR(BI.head,  qEulerYXZ(crouch * 0.08 - stepLag2 * 0.014 * runK, -chYaw * 0.15, -hipRoll * 0.15));
+    // Additive forward torso lean (~11-14 deg total at run) + counter-rotated hips + level gaze head
+    const spYaw = -hipYaw * 0.52 + 0.020 * sideLag1 * runK;
+    const chYaw = -hipYaw * 0.48 + 0.024 * sideLag1 * (sprint ? 1.3 : 1.0);
+    setR(BI.spine, qEulerYXZ(-0.24 * lean + crouch * 0.06 + stepLag1 * 0.016 * runK, spYaw, -hipRoll * 0.55));
+    setR(BI.chest, qEulerYXZ(-0.20 * lean + stepLag2 * 0.020 * runK, chYaw, -hipRoll * 0.45));
+    // Neck & head counter-pitch upward so eyes stay locked level on the horizon
+    setR(BI.neck,  qEulerYXZ(0.48 * lean + crouch * 0.06 - stepLag2 * 0.014 * runK, -chYaw * 0.25, 0));
+    setR(BI.head,  qEulerYXZ(0.48 * lean + crouch * 0.05 - stepLag2 * 0.014 * runK, -chYaw * 0.15, -hipRoll * 0.15));
 
-    // Arms following weapon with inertial lag after footstep impact
-    const arms = makeReadyArms(sprint ? 'sprint' : 'ready', sideLag1, stepLag2 * (0.4 + 0.6 * runK), 0);
+    // Rifle held tucked at tactical low-ready close to chest, counter-compensated for forward torso lean
+    const arms = makeReadyArms(sprint ? 'sprint' : 'ready', sideLag1 * 0.55, stepLag2 * (0.28 + 0.38 * runK) + lean * 0.25, 0);
     for (const [bn, q] of Object.entries(arms)) setR(BI[bn], q);
   }
   return { name, times, tracks, refSpeed: speed };
@@ -1338,22 +1388,22 @@ function makePoseClip(name, frames, poseFn) {
 function buildAllAnimations() {
   const clips = [];
 
-  // 1. IDLE (organic multi-harmonic breathing, subtle weight shift, micro head stabilization)
+  // 1. IDLE (grounded bladed combat stance, athletic knee flex, breathing, subtle horizon scan)
   clips.push(makePoseClip('idle', 90, (u) => {
     const t = u * Math.PI * 2;
     const br = Math.sin(t) * 0.8 + Math.sin(t * 2 - 0.6) * 0.2;
     const sw = Math.sin(t + 0.85);
-    const scan = Math.sin(t - 0.4) * 0.035;
-    const hipsPos = [sw * 0.010, REST_W[BI.hips][1] - 0.026 + br * 0.004, sw * 0.003];
-    const hipsQ = qEulerYXZ(-0.025, -0.16 + sw * 0.020, sw * 0.014);
-    const ikL = solveLegIK('L', [-0.132, ANKLE_H, -0.095], 0, -0.06, 0, hipsPos, hipsQ, 0.22);
-    const ikR = solveLegIK('R', [ 0.142, ANKLE_H,  0.075], 0, -0.36, 0, hipsPos, hipsQ, 0.24);
-    const arms = makeReadyArms('ready', sw * 0.22, br * 0.28, br);
+    const scan = Math.sin(t - 0.4) * 0.038;
+    const hipsPos = [sw * 0.011, REST_W[BI.hips][1] - 0.042 + br * 0.004, sw * 0.003];
+    const hipsQ = qEulerYXZ(-0.045, -0.22 + sw * 0.020, sw * 0.015);
+    const ikL = solveLegIK('L', [-0.145, ANKLE_H, -0.142], 0, -0.07, 0, hipsPos, hipsQ, 0.24);
+    const ikR = solveLegIK('R', [ 0.155, ANKLE_H,  0.108], 0, -0.44, 0, hipsPos, hipsQ, 0.26);
+    const arms = makeReadyArms('ready', sw * 0.24, br * 0.28, br);
     return {
       hipsPos, hipsQ,
       rots: {
-        spine: qEulerYXZ(0.020 + br * 0.012, 0.09 - sw * 0.010, -sw * 0.008),
-        chest: qEulerYXZ(0.012 + br * 0.022, 0.07 - sw * 0.008, -sw * 0.006),
+        spine: qEulerYXZ(0.032 + br * 0.012, 0.12 - sw * 0.010, -sw * 0.008),
+        chest: qEulerYXZ(0.022 + br * 0.022, 0.10 - sw * 0.008, -sw * 0.006),
         neck:  qEulerYXZ(-br * 0.014, scan * 0.45, 0),
         head:  qEulerYXZ(-br * 0.012, scan * 0.55, -sw * 0.008),
         thighL: ikL.qThigh, shinL: ikL.qShin, footL: ikL.qFoot, toeL: ikL.qToe,
@@ -1363,20 +1413,20 @@ function buildAllAnimations() {
     };
   }));
 
-  // 2-5. WALK (1.5 m/s) 4-way
-  clips.push(makeLocomotionClip('walk_fwd',   { frames: 30, speed: 1.5, dirX:  0, dirZ: -1, duty: 0.62, lift: 0.095 }));
-  clips.push(makeLocomotionClip('walk_back',  { frames: 30, speed: 1.5, dirX:  0, dirZ:  1, duty: 0.62, lift: 0.085 }));
-  clips.push(makeLocomotionClip('walk_left',  { frames: 30, speed: 1.5, dirX: -1, dirZ:  0, duty: 0.62, lift: 0.090 }));
-  clips.push(makeLocomotionClip('walk_right', { frames: 30, speed: 1.5, dirX:  1, dirZ:  0, duty: 0.62, lift: 0.090 }));
+  // 2-5. WALK (1.8 m/s) 4-way
+  clips.push(makeLocomotionClip('walk_fwd',   { frames: 32, speed: 1.8, dirX:  0, dirZ: -1, duty: 0.62, lift: 0.105 }));
+  clips.push(makeLocomotionClip('walk_back',  { frames: 32, speed: 1.8, dirX:  0, dirZ:  1, duty: 0.62, lift: 0.095 }));
+  clips.push(makeLocomotionClip('walk_left',  { frames: 32, speed: 1.8, dirX: -1, dirZ:  0, duty: 0.62, lift: 0.095 }));
+  clips.push(makeLocomotionClip('walk_right', { frames: 32, speed: 1.8, dirX:  1, dirZ:  0, duty: 0.62, lift: 0.095 }));
 
-  // 6-9. RUN (4.7 m/s fwd, 3.6 back, 4.2 strafe)
-  clips.push(makeLocomotionClip('run_fwd',   { frames: 18, speed: 4.7, dirX:  0, dirZ: -1, duty: 0.34, lift: 0.26 }));
-  clips.push(makeLocomotionClip('run_back',  { frames: 20, speed: 3.6, dirX:  0, dirZ:  1, duty: 0.42, lift: 0.19 }));
-  clips.push(makeLocomotionClip('run_left',  { frames: 19, speed: 4.2, dirX: -1, dirZ:  0, duty: 0.38, lift: 0.22 }));
-  clips.push(makeLocomotionClip('run_right', { frames: 19, speed: 4.2, dirX:  1, dirZ:  0, duty: 0.38, lift: 0.22 }));
+  // 6-9. RUN (4.6 m/s fwd, 3.6 back, 3.8 strafe)
+  clips.push(makeLocomotionClip('run_fwd',   { frames: 20, speed: 4.6, dirX:  0, dirZ: -1, duty: 0.32, lift: 0.31 }));
+  clips.push(makeLocomotionClip('run_back',  { frames: 20, speed: 3.6, dirX:  0, dirZ:  1, duty: 0.42, lift: 0.20 }));
+  clips.push(makeLocomotionClip('run_left',  { frames: 20, speed: 3.8, dirX: -1, dirZ:  0, duty: 0.38, lift: 0.24 }));
+  clips.push(makeLocomotionClip('run_right', { frames: 20, speed: 3.8, dirX:  1, dirZ:  0, duty: 0.38, lift: 0.24 }));
 
   // 10. SPRINT (6.7 m/s)
-  clips.push(makeLocomotionClip('sprint', { frames: 15, speed: 6.7, dirX: 0, dirZ: -1, duty: 0.27, lift: 0.34, sprint: true }));
+  clips.push(makeLocomotionClip('sprint', { frames: 16, speed: 6.7, dirX: 0, dirZ: -1, duty: 0.26, lift: 0.36, sprint: true }));
 
   // 11. CROUCH IDLE (grounded tactical combat kneel with breathing & weight balance)
   clips.push(makePoseClip('crouch_idle', 72, (u) => {

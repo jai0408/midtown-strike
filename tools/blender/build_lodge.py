@@ -497,6 +497,8 @@ PATHS = [
     (1.7, [(12, 14), (24, 22), (38, 25)]),
 ]
 FOOT = []     # building footprints (name, x0, z0, x1, z1)
+VEH_AO = []   # parked vehicles & tractor (cx, cz, yaw, hl, hw)
+PROP_AO = []  # crates, barrels, boulders, firewood, hay (cx, cz, r, pad, min_ao)
 KEEP = []     # circles/rects where foliage must not grow: ('r', x0, z0, x1, z1) or ('c', x, z, r)
 COL = []      # colliders
 PROPS_INFO = {}
@@ -565,7 +567,15 @@ def terrain_h(X, Z):
     dz = np.maximum(np.abs(Z) - 66, 0)
     d = np.hypot(dx, dz)
     rise = (0.0035 * d * d + 0.13 * d) * (0.75 + 0.7 * fbm(X * 0.03 + 9, Z * 0.03 + 4, 3, 203)) + 1.2 * smooth(0, 40, d) * (fbm(X * 0.07, Z * 0.07, 4, 204) - 0.5)
-    land = base + rise
+    # Break smooth outer hills (>88m) into craggy ridges & rocky spurs without changing any playable terrain heights
+    d_out88 = np.hypot(np.maximum(np.abs(X) - 88.0, 0.0), np.maximum(np.abs(Z) - 88.0, 0.0))
+    outer_m = smooth(2.0, 26.0, d_out88)
+    r_crag = 1.0 - np.abs(vnoise(X * 0.042 + 11.3, Z * 0.042 - 7.1, 209) * 2.0 - 1.0)
+    crag_bump = outer_m * (
+        10.5 * (fbm(X * 0.022 + 17.0, Z * 0.022 - 11.0, 3, 211) - 0.48)
+        + 7.5 * (r_crag * r_crag - 0.35)
+    )
+    land = base + rise + crag_bump
     lake = np.interp(Z, LAKE_Z, LAKE_H)
     lm = smooth(-36, -46, Z) * (1 - smooth(58, 92, np.abs(X)))
     h = land * (1 - lm) + lake * lm
@@ -1259,17 +1269,65 @@ def stairs_box(x0, z0, x1, z1, rise_total, n, axis="x", dirn=1, mat="planks", ti
 def crate(x, z, s=0.9, rot=0.0, tint="#b99466", stack=1, cover=True):
     y = float(gh(x, z))
     push(roty(rot), (x, y, z))
+    skid_t = "#6b4f33"
+    core_t = "#2a1e13"
+    frame_t = "#6e5236"
+    pl_tints = ("#b89364", "#a68256", "#96734b", "#ae895c")
     for k in range(stack):
         yy = k * s
         h = s / 2
-        box("planks", -h, yy, -h, h, yy + s, h, tint, 0.9, dirt=(k == 0))
+        y_bot = yy + (0.05 if k == 0 else 0.0)
+        if k == 0:
+            # Two heavy pallet skids lifting crate slightly for real bottom shadow slot
+            for sz in (-h + 0.11, h - 0.11):
+                box("planks", -h * 0.96, yy, sz - 0.055, h * 0.96, y_bot, sz + 0.055, skid_t, 0.7, dirt=True,
+                    skip=("-x", "+x"))
+                for ex in (-1, 1):
+                    x_e = ex * h * 0.96
+                    box("endgrain", x_e - (0.015 if ex > 0 else 0), yy, sz - 0.055,
+                        x_e + (0.015 if ex < 0 else 0), y_bot, sz + 0.055, "#785a3a", 0.25, dirt=False)
+        # Recessed dark inner cavity core so 14mm gaps between planks show real depth
+        in_ = h - 0.045
+        box("planks", -in_, y_bot + 0.02, -in_, in_, yy + s - 0.02, in_, core_t, 0.6, dirt=False)
+        # 4 horizontal wood planks per wall + 4 top lid planks with 14mm physical gaps
+        npl = 4
+        gap = 0.014
+        wall_h = (yy + s - 0.04) - (y_bot + 0.04)
+        ph = (wall_h - gap * (npl - 1)) / npl
+        bt = 0.022
+        for pi in range(npl):
+            py0 = y_bot + 0.04 + pi * (ph + gap)
+            py1 = py0 + ph
+            pt = pl_tints[(pi + k) % len(pl_tints)]
+            box("planks", -h, py0, -h, h, py1, -in_ + bt, pt, 0.9, dirt=(k == 0 and pi == 0))
+            box("planks", -h, py0, in_ - bt, h, py1, h, pt, 0.9, dirt=(k == 0 and pi == 0))
+            box("planks", -h, py0, -in_, -in_ + bt, py1, in_, pt, 0.9, dirt=False)
+            box("planks", in_ - bt, py0, -in_, h, py1, in_, pt, 0.9, dirt=False)
+        # Top lid separate slats
+        lid_w = (2 * in_ - gap * (npl - 1)) / npl
+        for pi in range(npl):
+            lz0 = -in_ + pi * (lid_w + gap)
+            box("planks", -in_, yy + s - 0.036, lz0, in_, yy + s - 0.008, lz0 + lid_w, pl_tints[(pi + 2) % len(pl_tints)], 0.9, dirt=False)
+        # Proud outer beveled frame rails (top & bottom + mid collar) & chamfered corner posts with dark end-grain tops
+        o = 0.016
+        box("planks", -h - o, y_bot, -h - o, h + o, y_bot + 0.068, h + o, frame_t, 0.6, dirt=(k == 0))
+        box("planks", -h - o, yy + s - 0.068, -h - o, h + o, yy + s, h + o, frame_t, 0.6, dirt=False, skip=("+y",))
+        box("endgrain", -h - o, yy + s - 0.005, -h - o, h + o, yy + s + 0.002, h + o, "#594129", 0.35, dirt=False)
+        p = 0.044
         for sx in (-1, 1):
             for sz in (-1, 1):
-                box("planks", sx * h - 0.04 * 1, yy, sz * h - 0.04, sx * h + 0.04, yy + s, sz * h + 0.04, "#6e5236", 0.5, dirt=False)
-        box("planks", -h - 0.01, yy + s * 0.46, -h - 0.01, h + 0.01, yy + s * 0.54, h + 0.01, "#6e5236", 0.5, dirt=False)
+                cx, cz = sx * (h - 0.022), sz * (h - 0.022)
+                box("planks", cx - p, y_bot, cz - p, cx + p, yy + s - 0.004, cz + p, frame_t, 0.5, dirt=False, skip=("+y",))
+                box("endgrain", cx - p, yy + s - 0.004, cz - p, cx + p, yy + s + 0.004, cz + p, "#4d3822", 0.25, dirt=False)
+                # Metal corner reinforcement straps
+                box("metal", cx - p - 0.006, yy + s - 0.072, cz - p - 0.006, cx + p + 0.006, yy + s + 0.005, cz + p + 0.006, "#2c3138", 0.4, dirt=False)
+        # Physical 3D diagonal cross-braces on Z faces
+        for sz in (-h - 0.006, h + 0.006):
+            beam((-h + 0.07, y_bot + 0.068, sz), (h - 0.07, yy + s - 0.068, sz), 0.028, "planks", "#7b5c3c", 0.014)
     pop()
     if cover:
         col_rot(x, z, s / 2, s / 2, rot, y, y + s * stack, F_DEFAULT, S_WOOD)
+    PROP_AO.append((x, z, s * 0.65, 0.65, 0.34))
     reserve_c(x, z, s * 0.9)
 
 
@@ -1281,6 +1339,7 @@ def barrel(x, z, h=0.95, r=0.31, tint="#3b5a7a", mat="metal", cover=True):
     cyly("metal", x, y + h, y + h + 0.015, z, r * 0.92, seg=12, tint="#44484a", dirt=False)
     if cover:
         col(x - r * 0.9, y, z - r * 0.9, x + r * 0.9, y + h, z + r * 0.9, F_DEFAULT, S_METAL)
+    PROP_AO.append((x, z, r, 0.55, 0.34))
     reserve_c(x, z, r * 1.5)
 
 
@@ -1297,6 +1356,7 @@ def firewood(x, z, rot=0.0, L=1.0, cols=8, rows=5, r=0.075):
         box("log", sx * (cols * r * 1.05 + 0.04) - 0.04, 0, -L / 2 - 0.0, sx * (cols * r * 1.05 + 0.04) + 0.04, rows * r * 1.9, -L / 2 + 0.08, "#8a6a48", 0.6, dirt=False)
     pop()
     col_rot(x, z, cols * r * 1.05, L / 2, rot, y, y + rows * r * 1.8 + 0.1, F_DEFAULT, S_WOOD)
+    PROP_AO.append((x, z, max(L * 0.45, cols * r), 0.65, 0.34))
     reserve_c(x, z, L * 0.8)
 
 
@@ -1388,6 +1448,7 @@ def boulder(x, z, r, seed, flat=0.7, collide=None, tint="#ffffff", sink=0.25, ro
     if collide:
         col_rot(x, z, r * 0.78, r * 0.7, rot, y - 0.2, y + r * flat * 0.9, F_DEFAULT, S_CONCRETE)
     if r >= 0.5:
+        PROP_AO.append((x, z, r * 0.82, 0.65, 0.36))
         reserve_c(x, z, r * 1.2)
 
 
@@ -1414,6 +1475,7 @@ def hay_bale(x, z, rot=0.0, stack=1):
             box("cloth", sx - 0.012, k * 0.45 - 0.0, -0.31, sx + 0.012, (k + 1) * 0.45 + 0.01, 0.31, "#8c6a2a", 0.6, dirt=False)
     pop()
     col_rot(x, z, 0.45, 0.3, rot, y, y + 0.45 * stack, F_DEFAULT, S_DIRT)
+    PROP_AO.append((x, z, 0.45, 0.60, 0.36))
     reserve_c(x, z, 0.7)
 
 
@@ -1493,6 +1555,7 @@ def vehicle(x, z, rot, kind, tint):
     box("glow", L / 2 - 0.02, 0.72, W / 2 - 0.4, L / 2 + 0.01, 0.84, W / 2 - 0.1, "#ffffff", 1.0, dirt=False)
     pop()
     col_rot(x, z, L / 2, W / 2, rot, y, y + (1.75 if kind == "pickup" else 1.8), F_DEFAULT, S_METAL)
+    VEH_AO.append((x, z, rot, L / 2, W / 2))
     reserve_rect_rot(x, z, L / 2 + 0.4, W / 2 + 0.4, rot)
 
 
@@ -1523,6 +1586,7 @@ def tractor(x, z, rot):
     pop()
     col_rot(x, z, 1.9, 0.9, rot, y, y + 2.0, F_DEFAULT, S_METAL)
     col_rot(x, z, 0.6, 0.6, rot, y + 2.0, y + 2.6, F_DEFAULT, S_METAL)
+    VEH_AO.append((x, z, rot, 1.9, 0.9))
     reserve_rect_rot(x, z, 2.4, 1.3, rot)
 
 
@@ -2285,14 +2349,47 @@ def build_parking_props():
     for k in range(3):
         box("paint", -3.1 + 0.0, gy + 0.55 + k * 0.28, 62.44, 3.1, gy + 0.55 + k * 0.28 + 0.2, 62.56, "#d2d0c8" if k % 2 == 0 else "#a03a2a", 0.5, dirt=False)
     col(-3.1, gy + 0.5, 62.4, 3.1, gy + 1.3, 62.6, F_DEFAULT, S_WOOD)
-    # fallen tree
+    # fallen tree across the road (bowed organic multi-segment log, splintered root flare, irregular branch stubs)
+    def round_limb(p0, p1, r0, r1, tint, seg=8, caps=False):
+        p0, p1 = np.array(p0, float), np.array(p1, float)
+        d = p1 - p0
+        L = float(np.linalg.norm(d))
+        if L < 1e-5:
+            return
+        yaw = math.atan2(-d[2], d[0])
+        pitch = math.asin(max(-1.0, min(1.0, d[1] / L)))
+        push(roty(yaw), p0)
+        push(rotz(pitch))
+        cylx("log", 0, L, 0, 0, r0, r1=r1, seg=seg, tint=tint, tile=1.0, caps=caps, cap_mat="endgrain", cap_tile=2 * max(r0, r1), cap_uvo=(0.5, 0.5))
+        pop()
+        pop()
+
+    pts_log = [(-9.1, 64.55, 0.54), (-6.2, 64.22, 0.50), (-3.0, 63.98, 0.47), (0.2, 64.10, 0.44), (3.4, 64.34, 0.40), (6.4, 64.25, 0.36), (9.0, 64.05, 0.31)]
+    for (ax, az, r0), (bx, bz, r1) in zip(pts_log[:-1], pts_log[1:]):
+        ya, yb = float(gh(ax, az)) + r0 * 0.78, float(gh(bx, bz)) + r1 * 0.78
+        round_limb((ax, ya, az), (bx, yb, bz), r0, r1, "#8b7a62", seg=10, caps=(bx > 8.5))
+    # Splintered upturned root flare & earth mound at left butt end
+    fyL = float(gh(-9.1, 64.55))
+    cyly("log", -9.25, fyL - 0.12, fyL + 0.62, 64.55, 0.78, r1=0.52, seg=10, tint="#75644e", caps="top", cap_mat="endgrain", cap_tile=1.1, cap_uvo=(0.5, 0.5))
+    for rx, ry, rz, tx, ty, tz in [
+        (-9.15, 0.52, 64.55, -10.05, 1.05, 64.05),
+        (-9.15, 0.48, 64.60, -9.95, 0.20, 65.25),
+        (-9.15, 0.65, 64.50, -9.65, 1.38, 64.85),
+    ]:
+        round_limb((rx, fyL + ry, rz), (tx, fyL + ty, tz), 0.14, 0.04, "#6a5a44", seg=6, caps=True)
+    # Irregular gnarly broken branch stubs (varied spacing, angle, thickness)
+    for bx, bz, r_b, dx, dy, dz in [
+        (-6.8, 64.28, 0.12, -0.5, 0.95, 0.68),
+        (-4.1, 64.05, 0.10, 0.4, 0.78, -0.75),
+        (-0.8, 64.06, 0.11, -0.3, 0.85, 0.62),
+        (2.5,  64.28, 0.09, 0.6, 0.72, -0.52),
+        (5.6,  64.28, 0.08, 0.5, 0.58, 0.58),
+    ]:
+        by = float(gh(bx, bz)) + r_b * 3.0
+        round_limb((bx, by, bz), (bx + dx, by + dy, bz + dz), r_b, r_b * 0.38, "#6f5d47", seg=6, caps=True)
+    rock("rock", -9.35, fyL + 0.30, 65.05, 0.62, 0.42, 0.58, 33, 5, 8, "#777268", 0.25)
+    rock("rock", -8.35, fyL + 0.18, 63.82, 0.38, 0.24, 0.36, 41, 4, 6, "#6e695f", 0.25)
     fy = float(gh(0, 64.0))
-    for rr, sgn in ((0.5, 1),):
-        cylx("log", -9.0, 9.0, fy + 0.52, 64.2, 0.52, r1=0.42, seg=10, tint="#a58e74", tile=1.0)
-    for i in range(7):
-        a = i * 0.9
-        beam((-8.0 + i * 1.7, fy + 0.7, 64.2), (-7.4 + i * 1.7, fy + 1.6, 64.2 + 1.5 * math.sin(a)), 0.05, "log", "#5a4a38", 0.05)
-    rock("rock", -9.2, fy + 0.44, 64.2, 0.74, 0.50, 0.78, 33, 5, 8, "#7d776c", 0.25)
     col(-9.0, fy, 63.5, 9.0, fy + 1.05, 64.9, F_DEFAULT, S_WOOD)
     reserve(-10, 60.8, 10, 65, 0.5)
     # log pile (stacked logs)
@@ -2454,13 +2551,14 @@ def terrain_region(x0, x1, z0, z1, step, hole=None, splat=True, adapt=False):
         slope = 1 - N[:, 1]
         h = P[:, 1]
         n = vnoise(P[:, 0] * 0.05, P[:, 2] * 0.05, 5)
-        base = np.array(hexl("#8a9a68"))
-        rockc = np.array(hexl("#9a948a"))
-        dark = np.array(hexl("#52603c"))
-        wet = np.array(hexl("#5a4a38"))
-        col_ = base * (0.7 + 0.5 * n)[:, None]
-        col_ = col_ * (1 - smooth(8, 40, h))[:, None] + dark * smooth(8, 40, h)[:, None] * (0.8 + 0.4 * n)[:, None]
-        col_ = col_ * (1 - smooth(0.15, 0.45, slope))[:, None] + rockc * smooth(0.15, 0.45, slope)[:, None]
+        base = np.array(hexl("#2c3b22"))
+        rockc = np.array(hexl("#6e7072"))
+        dark = np.array(hexl("#1b2918"))
+        wet = np.array(hexl("#3d3326"))
+        col_ = base * (0.72 + 0.46 * n)[:, None]
+        col_ = col_ * (1 - smooth(6, 36, h))[:, None] + dark * smooth(6, 36, h)[:, None] * (0.75 + 0.45 * n)[:, None]
+        rmask = smooth(0.08, 0.28, slope + 0.08 * (n - 0.5))
+        col_ = col_ * (1 - rmask)[:, None] + rockc * rmask[:, None] * (0.85 + 0.3 * n)[:, None]
         col_ = np.where((h < -0.3)[:, None], wet * 0.8, col_)
         emit("ground", P, N, np.stack([P[:, 0] / 8, P[:, 2] / 8], 1), I2, colors=np.clip(col_, 0, 1))
     return xs, zs, H
@@ -2540,7 +2638,7 @@ def sample_layer(L, tile_m, X, Z):
     return a * (1 - fv) + b * fv
 
 
-def bake_terrain():
+def bake_terrain(trees=None):
     S = SPL_N
     step = SPL_SIZE / S
     px = (SPL_X0 + (np.arange(S) + 0.5) * step).astype(np.float32)
@@ -2561,17 +2659,17 @@ def bake_terrain():
         a = a.reshape(N // 2, 2, N // 2, 2, 5).mean((1, 3))
         return a
     LG, LS, LV, LM, LR = (pack(f()) for f in (layer_grass, layer_soil, layer_gravel, layer_mud, layer_rock))
-    # masks
-    jit = ((nz1 - 0.5) * 0.7).astype(np.float32)
+    # masks (soft organic edges so gravel yard & hill trails blend naturally into soil/grass)
+    jit = ((nz1 - 0.5) * 1.1 + (nz2 - 0.5) * 0.6).astype(np.float32)
     paths = np.zeros((S, S), np.float32)
     road = np.zeros((S, S), np.float32)
     for k, (w, pts) in enumerate(PATHS):
-        m = seg_mask(X, Z, pts, w, 0.5, jit)
+        m = seg_mask(X, Z, pts, w, 1.15, jit)
         if w >= 4:
             road = np.maximum(road, m)
         else:
             paths = np.maximum(paths, m)
-    pk = 1 - smooth(-0.3, 0.9, rect_sdf(X, Z, -22, 39.5, 27, 62.5) + (nz1 - 0.5) * 1.6)
+    pk = 1 - smooth(-0.6, 2.2, rect_sdf(X, Z, -22, 39.5, 27, 62.5) + (nz1 - 0.5) * 2.2 + (nz2 - 0.5) * 1.0)
     apron = np.zeros((S, S), np.float32)
     inside = np.zeros((S, S), np.float32)
     for (nm, x0, z0, x1, z1) in FOOT:
@@ -2581,9 +2679,9 @@ def bake_terrain():
     garden = 1 - smooth(-0.2, 0.6, rect_sdf(X, Z, 30, 3, 48, 19))
     rut = np.zeros((S, S), np.float32)
     for off in (-0.95, 0.95):
-        rut = np.maximum(rut, seg_mask(X, Z, [(x + off, z) for (x, z) in PATHS[1][1]], 0.42, 0.28, jit * 0.5))
+        rut = np.maximum(rut, seg_mask(X, Z, [(x + off, z) for (x, z) in PATHS[1][1]], 0.56, 0.45, jit * 0.7))
     for off in (-0.7, 0.7):
-        rut = np.maximum(rut, seg_mask(X, Z, [(x + off, z) for (x, z) in PATHS[0][1]], 0.36, 0.25, jit * 0.5) * 0.8)
+        rut = np.maximum(rut, seg_mask(X, Z, [(x + off, z) for (x, z) in PATHS[0][1]], 0.48, 0.42, jit * 0.7) * 0.78)
     field = 1 - smooth(2.0, 6.0, np.hypot(X - 46, Z - 26) + (nz1 - 0.5) * 3)
     dc = np.abs(X - creek_cx(Z)).astype(np.float32)
     creek_active = ((Z > -52) & (Z < 55)).astype(np.float32)
@@ -2631,9 +2729,54 @@ def bake_terrain():
     nxv, nyv = -hx, hy
     nl = np.sqrt(nxv * nxv + nyv * nyv + 1)
     nrm = np.stack([nxv / nl, nyv / nl, 1 / nl], -1) * 0.5 + 0.5
-    # occlusion: cavities of the macro height + under foundations
+    # occlusion: cavities of the macro height + baked contact AO around buildings, vehicles, props & trees
     cav = blur(H.astype(np.float32), 6) - H
     ao = np.clip(1 - 1.2 * np.maximum(cav, 0) * 2 - 0.2 * inside, 0.3, 1) * (0.9 + 0.1 * (hgt / (hgt.max() + 1e-6)))
+    def _ix0(v): return max(0, int((v - SPL_X0) / step))
+    def _ix1(v): return min(S, int((v - SPL_X0) / step) + 1)
+    def _iz0(v): return max(0, int((v - SPL_Z0) / step))
+    def _iz1(v): return min(S, int((v - SPL_Z0) / step) + 1)
+    for (nm, x0, z0, x1, z1) in FOOT:
+        pad = 1.6
+        ia, ib, ja, jb = _ix0(x0 - pad), _ix1(x1 + pad), _iz0(z0 - pad), _iz1(z1 + pad)
+        if ia >= ib or ja >= jb: continue
+        d = rect_sdf(px[None, ia:ib], pz[ja:jb, None], x0, z0, x1, z1)
+        k = 0.36 + 0.64 * smooth(0.0, pad, d)
+        ao[ja:jb, ia:ib] = np.minimum(ao[ja:jb, ia:ib], k)
+    all_veh = list(VEH_AO) + [(-24.0, 28.5, -0.35, 1.35, 5.2), (-16.5, 36.5, 1.18, 1.35, 5.2)]
+    for (cx, cz, yaw, hl, hw) in all_veh:
+        pad = 0.85
+        ext = math.hypot(hl, hw) + pad
+        ia, ib, ja, jb = _ix0(cx - ext), _ix1(cx + ext), _iz0(cz - ext), _iz1(cz + ext)
+        if ia >= ib or ja >= jb: continue
+        rx = px[None, ia:ib] - cx
+        rz = pz[ja:jb, None] - cz
+        cv, sv = math.cos(yaw), math.sin(yaw)
+        lx = np.abs(rx * cv - rz * sv)
+        lz = np.abs(rx * sv + rz * cv)
+        dx = np.maximum(0.0, lx - hl)
+        dz = np.maximum(0.0, lz - hw)
+        d = np.hypot(dx, dz)
+        k = 0.22 + 0.78 * smooth(0.0, pad, d)
+        ao[ja:jb, ia:ib] = np.minimum(ao[ja:jb, ia:ib], k)
+    for (cx, cz, r, pad, min_ao) in PROP_AO:
+        ext = r + pad
+        ia, ib, ja, jb = _ix0(cx - ext), _ix1(cx + ext), _iz0(cz - ext), _iz1(cz + ext)
+        if ia >= ib or ja >= jb: continue
+        d = np.maximum(0.0, np.hypot(px[None, ia:ib] - cx, pz[ja:jb, None] - cz) - r)
+        k = min_ao + (1.0 - min_ao) * smooth(0.0, pad, d)
+        ao[ja:jb, ia:ib] = np.minimum(ao[ja:jb, ia:ib], k)
+    if trees:
+        for t in trees:
+            tx, tz, sc = t[0], t[2], t[3]
+            if abs(tx) >= 84 or abs(tz) >= 84:
+                continue
+            rad = 1.5 * sc
+            ia, ib, ja, jb = _ix0(tx - rad), _ix1(tx + rad), _iz0(tz - rad), _iz1(tz + rad)
+            if ia >= ib or ja >= jb: continue
+            d = np.hypot(px[None, ia:ib] - tx, pz[ja:jb, None] - tz)
+            k = 0.48 + 0.52 * smooth(0.15, rad, d)
+            ao[ja:jb, ia:ib] = np.minimum(ao[ja:jb, ia:ib], k)
     orm = np.stack([ao, np.clip(rgh, 0, 1), np.zeros_like(ao)], -1)
     # grass density source (resampled later)
     return alb, nrm, orm, dict(wg=wg, ws=ws, wr=wr, wv=wv, wm=wm, H=H, slope=slope, inside=inside, apron=apron)
@@ -2897,11 +3040,10 @@ def place_foliage(slopes=None):
         if abs(x) < 20 and abs(z) < 22:
             continue
         add_bush(x, z, ["bush", "fern", "bush"][rs.randint(3)])
-    # 4) far forest on the slopes outside the playable area (where the old cone silhouette
-    # stood): real pines and spruce, which the engine draws as 8-triangle impostors at range
+    # 4) far forest on the slopes outside the playable area (8-triangle impostors)
     rf = np.random.RandomState(77)
     far = 0
-    for _ in range(6000):
+    for _ in range(7000):
         x, z = rf.uniform(-158, 158, 2)
         if max(abs(x) - 70, abs(z) - 80) < 0 or (z < -50 and abs(x) < 80):
             continue
@@ -2909,9 +3051,23 @@ def place_foliage(slopes=None):
         if h < -0.5:
             continue
         kind = "pine" if rf.rand() < 0.55 else "spruce"
-        trees.append([round(x, 2), round(h, 2), round(z, 2), round(rf.uniform(1.0, 1.6), 2), round(rf.uniform(0, 6.283), 2), kind])
+        trees.append([round(x, 2), round(h, 2), round(z, 2), round(rf.uniform(1.0, 1.65), 2), round(rf.uniform(0, 6.283), 2), kind])
         far += 1
-        if far >= 320:
+        if far >= 360:
+            break
+    # Dedicated conifer clusters crowning the visible NE/E/NW outer foothills behind yard/lodge
+    far_slope = 0
+    for _ in range(3000):
+        side = -1 if rf.rand() < 0.38 else 1
+        x = side * rf.uniform(62, 146)
+        z = rf.uniform(-135, 25)
+        h = float(gh(x, z))
+        if h < 1.5:
+            continue
+        kind = "pine" if rf.rand() < 0.58 else "spruce"
+        trees.append([round(x, 2), round(h, 2), round(z, 2), round(rf.uniform(1.05, 1.65), 2), round(rf.uniform(0, 6.283), 2), kind])
+        far_slope += 1
+        if far_slope >= 120:
             break
     return trees, bushes
 
@@ -3622,6 +3778,7 @@ def vehicle(x, z, rot, kind, tint):
     pop()
     Lh = 2.8 if kind == "pickup" else 2.45
     col_rot(x, z, Lh, W / 2, rot, y, y + (1.8 if kind == "pickup" else 1.95), F_DEFAULT, S_METAL)
+    VEH_AO.append((x, z, rot, Lh, W / 2))
     reserve_rect_rot(x, z, Lh + 0.4, W / 2 + 0.4, rot)
 
 
@@ -3693,6 +3850,7 @@ def tractor(x, z, rot):
     pop()
     col_rot(x, z, 1.9, 0.9, rot, y, y + 2.0, F_DEFAULT, S_METAL)
     col_rot(x, z, 0.6, 0.6, rot, y + 2.0, y + 2.6, F_DEFAULT, S_METAL)
+    VEH_AO.append((x, z, rot, 1.9, 0.9))
     reserve_rect_rot(x, z, 2.4, 1.3, rot)
 
 
@@ -4683,7 +4841,7 @@ def b64(b):
 
 def main():
     global HG
-    quick = bool(os.environ.get("LODGE_QUICK"))
+    quick = bool(os.environ.get("LODGE_QUICK")) or ("--quick" in sys.argv)
     HG = HeightGrid(-160.0, -160.0, 320.0, 321)
     reserve_c(-18.5, 20.0, 6.5)
     reserve_c(-24.0, 28.5, 8.5)
@@ -4735,15 +4893,25 @@ def main():
         if abs(x + 20) < 3 or 13 < x < 23:
             continue
         boulder(x, z, rs.uniform(0.25, 0.7), 400 + i, collide=False, sink=0.35)
+    # Visible granite rock outcrops along outer NE/E/NW foothills so hillsides never look smooth
+    for i in range(24):
+        side = -1 if rs.rand() < 0.35 else 1
+        x = side * rs.uniform(74, 132)
+        z = rs.uniform(-115, 10)
+        y = float(gh(x, z))
+        if y < 2.0:
+            continue
+        rx, ry, rz = rs.uniform(2.8, 5.5), rs.uniform(1.8, 4.0), rs.uniform(2.4, 5.0)
+        rock("rock", x, y + ry * 0.28, z, rx, ry, rz, 600 + i, 4, 7, "#858688", 0.34, rs.uniform(0, 6), 1.4)
     # --- terrain
     ix0, ix1, iz0, iz1 = TERR_INNER
     terrain_region(ix0, ix1, iz0, iz1, 1.0, None, True, True)
     terrain_region(-88, 88, -88, 88, 2.0, (ix0, ix1, iz0, iz1), True)
     terrain_skirt(ix0, ix1, iz0, iz1, 1.0)
     terrain_skirt(ix0, ix1, iz0, iz1, 2.0)
-    terrain_region(-160, 160, -160, 160, 8.0, (-88, 88, -88, 88), False)
+    terrain_region(-160, 160, -160, 160, 4.0, (-88, 88, -88, 88), False)
     terrain_skirt(-88, 88, -88, 88, 2.0)
-    terrain_skirt(-88, 88, -88, 88, 8.0, mat="ground")
+    terrain_skirt(-88, 88, -88, 88, 4.0, mat="ground")
     G["terrain"].nocolor = True
     log("terrain meshes")
     build_backdrop()
@@ -4753,15 +4921,15 @@ def main():
     for nm, (gen, na, nn) in MATS.items():
         tex[nm] = make_pbr(nm, gen, na, nn)
         log("  tex", nm, sum(len(x) for x in tex[nm]) // 1024, "KB")
-    alb, nrm, orm, aux = bake_terrain()
+    trees, bushes = place_foliage()
+    log("trees", len(trees), "bushes", len(bushes))
+    alb, nrm, orm, aux = bake_terrain(trees)
     ta = jpeg_bytes(down(alb, 512), 76, "terrain_a")
     tn = b""
     to = jpeg_bytes(down(orm, 512), 84, "terrain_o")
     tex["terrain"] = (ta, None, to)
     log("terrain bake KB", len(ta) // 1024, len(tn) // 1024, len(to) // 1024)
     # --- foliage + grass
-    trees, bushes = place_foliage()
-    log("trees", len(trees), "bushes", len(bushes))
     ground_details(trees)
     global LITTER_PNG
     LITTER_PNG = litter_png()

@@ -132,10 +132,19 @@ export async function applyTerrainSplat(mat, T) {
         vec2 p = vWPos.xz;
         vec2 gx = dFdx(p), gy = dFdy(p);   // taken outside the branch: derivatives need uniform flow
         if (dFade > 0.01) {
-          vec4 sw = texture2D(uSplat, clamp((vWPos.xz - uRect.xy) * uRect.zw, 0.0, 1.0));
+          // Break up sharp splat-map polygon edges with two-scale organic world-space noise warp
+          vec2 uvS = clamp((vWPos.xz - uRect.xy) * uRect.zw, 0.0, 1.0);
+          float sWarp = 0.55 * sin(p.x * 0.85 + p.y * 0.62) + 0.35 * sin(p.x * 2.1 - p.y * 1.9 + 1.4);
+          vec2 warpUv = vec2(sin(p.y * 0.55 + 0.7), cos(p.x * 0.52 - 0.9)) * (0.0042 * uRect.z * 320.0);
+          vec4 sw = texture2D(uSplat, clamp(uvS + warpUv * (0.4 + 0.6 * abs(sWarp)), 0.0, 1.0));
           // outside the splat's weights (or a black texel) = grass
           float sSum = sw.r + sw.g + sw.b + sw.a;
           sw = sSum > 0.01 ? sw / sSum : vec4(1.0, 0.0, 0.0, 0.0);
+          // Inject dusty soil shoulder along the gravel-to-grass border so edges feather naturally
+          float gvBorder = clamp(sw.z * (1.0 - sw.z) * 4.0, 0.0, 1.0);
+          sw.y += gvBorder * (0.28 + 0.18 * sWarp);
+          sw = max(sw, vec4(0.0));
+          sw /= (sw.x + sw.y + sw.z + sw.w + 1e-4);
           vec3 a0 = textureGrad(uAlb, vec3(p * uTile.x, 0.0), gx * uTile.x, gy * uTile.x).rgb;
           vec3 a1 = textureGrad(uAlb, vec3(p * uTile.y, 1.0), gx * uTile.y, gy * uTile.y).rgb;
           vec3 a2 = textureGrad(uAlb, vec3(p * uTile.z, 2.0), gx * uTile.z, gy * uTile.z).rgb;
@@ -145,21 +154,21 @@ export async function applyTerrainSplat(mat, T) {
           vec2 p2 = rot * p * 0.37;
           vec3 a0b = textureGrad(uAlb, vec3(p2 * uTile.x, 0.0), rot * gx * (0.37 * uTile.x), rot * gy * (0.37 * uTile.x)).rgb;
           a0 = mix(a0, a0b, 0.5);
-          // anti-tiling & fine dust binder on gravel so the yard reads as packed crushed stone
+          // anti-tiling & compacted wheel-path / fine dust binder on gravel
           vec2 pg2 = rot * p * 0.43;
           vec3 a2b = textureGrad(uAlb, vec3(pg2 * uTile.z, 2.0), rot * gx * (0.43 * uTile.z), rot * gy * (0.43 * uTile.z)).rgb;
           a2 = mix(a2, a2b, 0.42);
           float gMacro = 0.5 + 0.32 * sin(p.x * 0.11 + 1.4) * sin(p.y * 0.09 - 0.6)
                        + 0.18 * sin(p.x * 0.29 - p.y * 0.23 + 2.1);
-          // height-aware blend: brighter texels poke through (stand-in height), so edges are not a plain cross fade
+          // height-aware blend: organic transition shoulder instead of hard polygon cut
           vec4 lum = vec4(dot(a0, vec3(0.3333)), dot(a1, vec3(0.3333)), dot(a2, vec3(0.3333)), dot(a3, vec3(0.3333)));
-          vec4 hb = sw + lum * 0.28;
-          vec4 bw = max(hb - (max(max(hb.x, hb.y), max(hb.z, hb.w)) - 0.24), 0.0);
+          vec4 hb = sw + lum * 0.36;
+          vec4 bw = max(hb - (max(max(hb.x, hb.y), max(hb.z, hb.w)) - 0.34), 0.0);
           bw *= step(0.001, sw);
           bw /= (bw.x + bw.y + bw.z + bw.w + 1e-4);
           a2 = vec3(${GRAVEL_MEAN_LINEAR}) + (a2 - vec3(${GRAVEL_MEAN_LINEAR})) * ${GRAVEL_SHADE_KEEP.toFixed(2)};
-          // warm dusty crushed-stone patches & subtle compacted tone variation
-          a2 *= mix(vec3(0.76, 0.75, 0.72), vec3(0.92, 0.89, 0.84), clamp(gMacro, 0.0, 1.0));
+          // warm dusty crushed-stone patches & compacted wheel-path variation
+          a2 *= mix(vec3(0.73, 0.72, 0.68), vec3(0.93, 0.90, 0.84), clamp(gMacro, 0.0, 1.0));
           vec3 detail = (a0 * bw.x + a1 * bw.y + a2 * bw.z + a3 * bw.w) * 0.90;
           // the baked colour stays as soft macro variation and ground AO
           vec3 macro = clamp(diffuseColor.rgb * 2.35, 0.42, 1.45);
@@ -173,7 +182,7 @@ export async function applyTerrainSplat(mat, T) {
           dRough = mix(1.0, dot(bw, vec4(uRough.x, uRough.y, 0.95, uRough.w)), dFade);
         }`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
-        roughnessFactor = clamp(roughnessFactor * dRough, 0.05, 1.0);`)
+        roughnessFactor = clamp(roughnessFactor * dRough, 0.12, 1.0);`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         {
           // image up is -z in texture space

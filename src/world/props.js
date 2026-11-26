@@ -120,40 +120,70 @@ export function vehicle(ctx, kind, x, z, yaw, rng, lightsOn = false) {
   ctx.vehicles.push({ x, z, yaw, hl, hw });
 }
 
+/** 4-sided 3D beam from point A to point B (radius r) for curved arms / struts. */
+function beamSeg(G, ax, ay, az, bx, by, bz, r, col) {
+  const dx = bx - ax, dz = bz - az, hLen = Math.hypot(dx, dz) || 1;
+  // Side offset perpendicular to horizontal projection, plus vertical offset
+  const px = (-dz / hLen) * r, pz = (dx / hLen) * r;
+  const vx = (dx / hLen) * r * 0.35, vz = (dz / hLen) * r * 0.35;
+  G.quad([ax - px, ay + r, az - pz], [bx - px, by + r, bz - pz], [bx + px, by + r, bz + pz], [ax + px, ay + r, az + pz], mulC(col, 1.18));
+  G.quad([ax + px, ay - r, az + pz], [bx + px, by - r, bz + pz], [bx - px, by - r, bz - pz], [ax - px, ay - r, az - pz], mulC(col, 0.7));
+  G.quad([ax + px + vx, ay + r, az + pz + vz], [bx + px + vx, by + r, bz + pz + vz], [bx + px + vx, by - r, bz + pz + vz], [ax + px + vx, ay - r, az + pz + vz], col);
+  G.quad([bx - px - vx, by + r, bz - pz - vz], [ax - px - vx, ay + r, az - pz - vz], [ax - px - vx, ay - r, az - pz - vz], [bx - px - vx, by - r, bz - pz - vz], mulC(col, 0.85));
+}
+
 export function lampPost(ctx, x, z, dirX, dirZ, color = '#ffd9a0') {
   const y = groundAt(x, z);
   const G = ctx.B('flat', x, z);
+  rm(G, R_CAST);
+  // Fluted cast-iron octagonal NYC base, stepped collar, tapered steel shaft
+  G.cyl(x, z, y, y + 0.92, 0.22, 0.13, 8, POLE, false);
+  G.box(x - 0.17, y + 0.90, z - 0.17, x + 0.17, y + 1.02, z + 0.17, mulC(POLE, 1.25), 31);
   rm(G, R_PAINT);
-  // flared cast base, tapering pole, curved arm and a dark lamp housing
-  G.cyl(x, z, y, y + 0.9, 0.2, 0.12, 8, POLE, false);
-  G.cyl(x, z, y + 0.9, y + 8.6, 0.12, 0.085, 8, POLE, false);
-  G.box(x - 0.16, y + 0.9, z - 0.16, x + 0.16, y + 1.0, z + 0.16, mulC(POLE, 1.3), 31);
-  const hx = x + dirX * 2.4, hz = z + dirZ * 2.4;
-  G.box(Math.min(x, hx) - 0.06, y + 8.45, Math.min(z, hz) - 0.06, Math.max(x, hx) + 0.06, y + 8.6, Math.max(z, hz) + 0.06, POLE, 31);
-  G.box(hx - 0.4, y + 8.46, hz - 0.4, hx + 0.4, y + 8.6, hz + 0.4, mulC(POLE, 0.7), 31);
+  G.cyl(x, z, y + 1.02, y + 7.6, 0.115, 0.075, 8, POLE, false);
+  // Swept NYC cobra-head mast arm arching up to luminaire height
+  const mx = x + dirX * 1.15, mz = z + dirZ * 1.15;
+  const hx = x + dirX * 2.55, hz = z + dirZ * 2.55;
+  beamSeg(G, x, y + 7.55, z, mx, y + 8.32, mz, 0.055, POLE);
+  beamSeg(G, mx, y + 8.32, mz, hx - dirX * 0.2, y + 8.58, hz - dirZ * 0.2, 0.048, POLE);
+  // Cobra-head cast-aluminum luminaire housing aligned with mast direction
+  rm(G, R_GALV);
+  const alongX = Math.abs(dirX) >= Math.abs(dirZ);
+  const lx = alongX ? 0.44 : 0.21, lz = alongX ? 0.21 : 0.44;
+  G.box(hx - lx, y + 8.48, hz - lz, hx + lx, y + 8.66, hz + lz, C('#7b828c'), 31, C('#9aa1ab'));
   const E = ctx.B('glow', x, z);
-  E.box(hx - 0.34, y + 8.26, hz - 0.34, hx + 0.34, y + 8.46, hz + 0.34, C(color, 1.35), 31 | 32);
+  E.box(hx - lx * 0.72, y + 8.38, hz - lz * 0.72, hx + lx * 0.72, y + 8.49, hz + lz * 0.72, C(color, 1.35), 31 | 32);
   rm(G, R_DEF);
-  ctx.glow(hx, y + 8.3, hz, color, 1.35);
-  ctx.pool(hx + dirX * 1.5, hz + dirZ * 1.5, 11.5, color, 0.62);
-  if (ctx.light) ctx.light(hx + dirX * 1.6, hz + dirZ * 1.6, 11.0, '#ffc978', 0.60);
+  ctx.glow(hx, y + 8.4, hz, color, 1.35);
+  ctx.pool(hx + dirX * 1.4, hz + dirZ * 1.4, 8.5, color, 0.30);
+  if (ctx.light) ctx.light(hx + dirX * 1.5, hz + dirZ * 1.5, 9.5, '#ffc978', 0.42);
 }
 
 export function trafficLight(ctx, x, z, dirX, dirZ, green, labels) {
   const y = groundAt(x, z);
   const G = ctx.B('flat', x, z);
+  rm(G, R_CAST);
+  G.cyl(x, z, y, y + 0.72, 0.17, 0.105, 8, POLE, false);
   rm(G, R_PAINT);
-  G.cyl(x, z, y, y + 0.7, 0.16, 0.1, 8, POLE, false);
-  G.box(x - 0.1, y + 0.7, z - 0.1, x + 0.1, y + 6.4, z + 0.1, POLE, 15);
+  G.box(x - 0.1, y + 0.72, z - 0.1, x + 0.1, y + 6.42, z + 0.1, POLE, 15);
   const ax = x + dirX * 4.5, az = z + dirZ * 4.5;
-  G.box(Math.min(x, ax) - 0.07, y + 6.1, Math.min(z, az) - 0.07, Math.max(x, ax) + 0.07, y + 6.25, Math.max(z, az) + 0.07, POLE, 31 | 32);
-  // signal head: dark housing with a hood over each lens
-  G.box(ax - 0.2, y + 5.1, az - 0.2, ax + 0.2, y + 6.1, az + 0.2, C('#1d1f22'), 31 | 32, C('#2b2e32'));
-  for (const hy of [5.2, 5.475, 5.75]) G.box(ax - 0.24, y + hy + 0.24, az - 0.24, ax + 0.24, y + hy + 0.3, az + 0.24, C('#15171a'), 31);
+  G.box(Math.min(x, ax) - 0.07, y + 6.1, Math.min(z, az) - 0.07, Math.max(x, ax) + 0.07, y + 6.26, Math.max(z, az) + 0.07, POLE, 31 | 32);
+  // NYC DOT weathered yellow vertical signal body + dark sun-hood visors & inactive lenses
+  const dotYellow = C('#d49b1a');
+  G.box(ax - 0.21, y + 5.08, az - 0.21, ax + 0.21, y + 6.12, az + 0.21, dotYellow, 31 | 32, mulC(dotYellow, 1.15));
+  for (const hy of [5.18, 5.47, 5.76]) {
+    G.box(ax - 0.24, y + hy + 0.22, az - 0.24, ax + 0.24, y + hy + 0.29, az + 0.24, C('#16181c'), 31);
+    G.box(ax - 0.22, y + hy, az - 0.22, ax + 0.22, y + hy + 0.21, az + 0.22, C('#111316'), 15);
+  }
   const E = ctx.B('glow', x, z);
   const lit = green ? C('#35ff7a') : C('#ff3020');
-  const ly = green ? y + 5.2 : y + 5.75;
-  E.box(ax - 0.22, ly, az - 0.22, ax + 0.22, ly + 0.26, az + 0.22, lit, 15);
+  const ly = green ? y + 5.18 : y + 5.76;
+  E.box(ax - 0.225, ly + 0.02, az - 0.225, ax + 0.225, ly + 0.21, az + 0.225, lit, 15);
+  // Pole-mounted pedestrian WALK / DON'T WALK signal housing at crosswalk height
+  const px = x + dirX * 0.24, pz = z + dirZ * 0.24;
+  G.box(px - 0.16, y + 2.74, pz - 0.16, px + 0.16, y + 3.16, pz + 0.16, C('#1e2127'), 31, C('#2c3038'));
+  const pedCol = green ? C('#eef4ff', 1.05) : C('#ff4a20', 1.1);
+  E.box(px - 0.165, y + 2.81, pz - 0.165, px + 0.165, y + 3.09, pz + 0.165, pedCol, 15);
   rm(G, R_DEF);
   ctx.glow(ax, ly + 0.1, az, green ? '#35ff7a' : '#ff3020', 0.7);
   // street name blades
@@ -224,70 +254,126 @@ export function sandbags(ctx, x, z, alongX, len = 2.6, h = 1.05) {
 
 export function crate(ctx, x, z, size = 1.2, stack = 1, kind = 'wood') {
   const y = groundAt(x, z);
-  const G = ctx.B('flat', x, z);
+  const W = ctx.B('crate', x, z);
+  const F = ctx.B('flat', x, z);
   const h = size / 2;
-  const col = kind === 'wood' ? C('#7a6240') : C('#4b5436');
-  const post = mulC(col, 0.62), plank = mulC(col, 0.82);
-  rm(G, R_WOOD);
+  const col = kind === 'wood' ? C('#b59a72') : C('#6a7652');
+  const frame = mulC(col, 0.70), endG = mulC(col, 0.44), dark = mulC(col, 0.56);
+  const coreC = C('#1a130c'), metal = C('#2a2f38');
+  rm(F, R_WOOD);
   for (let i = 0; i < stack; i++) {
     const o = i * 0.07;
-    const y0 = y + i * size, y1 = y + (i + 1) * size;
-    G.box(x - h + o, y0, z - h + o, x + h - o, y1, z + h - o, plank, 31, mulC(col, 1.15));
-    // horizontal battens
-    G.box(x - h + o - 0.02, y0 + size * 0.2, z - h + o - 0.02, x + h - o + 0.02, y0 + size * 0.3, z + h - o + 0.02, post, 15);
-    G.box(x - h + o - 0.02, y0 + size * 0.7, z - h + o - 0.02, x + h - o + 0.02, y0 + size * 0.8, z + h - o + 0.02, post, 15);
-    // corner posts
-    const p = 0.07;
-    for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-      const cx = x + sx * (h - o), cz = z + sz * (h - o);
-      G.box(cx - p - (sx > 0 ? -0.015 : 0.015), y0, cz - p - (sz > 0 ? -0.015 : 0.015), cx + p + (sx > 0 ? 0.015 : -0.015), y1, cz + p + (sz > 0 ? 0.015 : -0.015), post, 31, mulC(post, 1.2));
+    const x0 = x - h + o, x1 = x + h - o, z0 = z - h + o, z1 = z + h - o;
+    const y0 = y + i * size, y1 = y + (i + 1) * size, w = x1 - x0;
+    const yb = i === 0 ? y0 + 0.055 : y0;
+    if (i === 0) {
+      // Bottom pallet skids for real shadow slot under crate base
+      for (const sz of [z0 + 0.14, z1 - 0.14]) {
+        F.box(x0 + 0.02, y0, sz - 0.06, x1 - 0.02, yb, sz + 0.06, endG, 15, frame);
+      }
     }
-    if (kind !== 'wood') G.box(x - h * 0.55, y0 + size * 0.36, z + h - o + 0.021, x + h * 0.55, y0 + size * 0.64, z + h - o + 0.026, C('#b9b27a'), 4);
+    // Recessed dark inner cavity core visible behind plank gaps
+    const ci = 0.045;
+    F.box(x0 + ci, yb + 0.02, z0 + ci, x1 - ci, y1 - 0.02, z1 - ci, coreC, 31);
+    // 5 separate horizontal plank slats per side with 13 mm physical gaps
+    const nSide = 5, gap = 0.013, bnd = 0.052;
+    const spanY = (y1 - bnd) - (yb + bnd), ph = (spanY - gap * (nSide - 1)) / nSide, pt = 0.026;
+    for (let s = 0; s < nSide; s++) {
+      const py0 = yb + bnd + s * (ph + gap), py1 = py0 + ph;
+      const pc = mulC(col, 0.92 + 0.14 * ((s + i) % 3) * 0.5);
+      W.box(x0 + 0.018, py0, z0, x1 - 0.018, py1, z0 + pt, pc, 8);
+      W.box(x0 + 0.018, py0, z1 - pt, x1 - 0.018, py1, z1, pc, 4);
+      W.box(x0, py0, z0 + 0.018, x0 + pt, py1, z1 - 0.018, pc, 2);
+      W.box(x1 - pt, py0, z0 + 0.018, x1, py1, z1 - 0.018, pc, 1);
+    }
+    // 4 separate top lid planks with gaps
+    const nTop = 4, tSpan = (z1 - z0 - 0.08), tph = (tSpan - gap * (nTop - 1)) / nTop;
+    for (let s = 0; s < nTop; s++) {
+      const pz0 = z0 + 0.04 + s * (tph + gap);
+      W.box(x0 + 0.03, y1 - 0.042, pz0, x1 - 0.03, y1 - 0.008, pz0 + tph, mulC(col, 1.06), 16);
+    }
+    // Proud beveled outer frame rails + horizontal mid-collar
+    const bt = 0.026;
+    F.box(x0 - bt, yb, z0 - bt, x1 + bt, yb + 0.072, z1 + bt, frame, 15, endG);
+    F.box(x0 - bt, y1 - 0.072, z0 - bt, x1 + bt, y1, z1 + bt, frame, 15, endG);
+    F.box(x0 - bt, yb + (y1 - yb) * 0.45, z0 - bt, x1 + bt, yb + (y1 - yb) * 0.53, z1 + bt, dark, 15);
+    // Physical 3D diagonal brace bars on front & back faces
+    for (let s = 0; s < 5; s++) {
+      const f0 = s / 5, f1 = (s + 1) / 5;
+      const dx0 = x0 + 0.08 + f0 * (w - 0.16), dx1 = x0 + 0.08 + f1 * (w - 0.16);
+      const dy0 = yb + 0.07 + f0 * (y1 - yb - 0.14), dy1 = yb + 0.07 + f1 * (y1 - yb - 0.14);
+      F.box(dx0 - 0.01, dy0, z0 - 0.022, dx1 + 0.01, Math.max(dy0 + 0.045, dy1), z0 + 0.002, dark, 8 | 16);
+      F.box(dx0 - 0.01, dy0, z1 - 0.002, dx1 + 0.01, Math.max(dy0 + 0.045, dy1), z1 + 0.022, dark, 4 | 16);
+    }
+    // Stepped chamfered corner posts with dark end-grain caps + cast metal corner brackets
+    const p = 0.068;
+    for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      const cx = (sx < 0 ? x0 : x1) - sx * 0.012, cz = (sz < 0 ? z0 : z1) - sz * 0.012;
+      F.box(cx - p, yb, cz - p, cx + p, y1 - 0.008, cz + p, frame, 15, mulC(frame, 1.12));
+      F.box(cx - p * 0.88, y1 - 0.008, cz - p * 0.88, cx + p * 0.88, y1 + 0.004, cz + p * 0.88, endG, 31);
+      rm(F, R_CAST);
+      F.box(cx - p - 0.008, y1 - 0.082, cz - p - 0.008, cx + p + 0.008, y1 + 0.006, cz + p + 0.008, metal, 15);
+      rm(F, R_WOOD);
+    }
+    if (kind !== 'wood') F.box(x - h * 0.48, yb + (y1 - yb) * 0.36, z1 + 0.026, x + h * 0.48, yb + (y1 - yb) * 0.60, z1 + 0.034, C('#c7be82'), 4);
   }
-  rm(G, R_DEF);
+  rm(F, R_DEF);
   ctx.world.addBox(x - h, y, z - h, x + h, y + size * stack, z + h, F_DEFAULT, kind === 'wood' ? S_WOOD : S_METAL);
   if (ctx.occluder) ctx.occluder(x - h, z - h, x + h, z + h, 0.9, 0.38);
 }
 
 export function container(ctx, x, z, alongX, color) {
   const y = groundAt(x, z);
+  const K = ctx.B('container', x, z);
   const G = ctx.B('flat', x, z);
   const hl = 3.05, hw = 1.22, h = 2.6;
-  // real boxes are chalky, faded and dirty: desaturate hard and vary per box
   const col = mute(color, 0.45, 0.62 + 0.2 * hash2(x, z));
-  const lite = mulC(col, 1.18), dark = mulC(col, 0.7), grime = mulC(col, 0.52);
+  const lite = mulC(col, 1.18), ribCol = mulC(col, 0.88), grime = C('#1b1d22'), rust = C('#5c341f');
   const x0 = alongX ? x - hl : x - hw, x1 = alongX ? x + hl : x + hw;
   const z0 = alongX ? z - hw : z - hl, z1 = alongX ? z + hw : z + hl;
+  // Textured corrugated base shell (rust streaks, chipped base sill & normal relief)
+  K.box(x0, y, z0, x1, y + h, z1, mulC(col, 0.84), 31, lite);
   rm(G, R_PAINT);
-  G.box(x0, y, z0, x1, y + h, z1, mulC(col, 0.8), 31, lite);
-  // corrugation: darker vertical flutes on both long sides
-  const n = 24, e = 0.012, ya = y + 0.16, yb = y + h - 0.16;
+  // Real 3D corrugated steel ribs protruding 4.5 cm on both long sides + roof corrugation
+  const n = 14, out = 0.045, ya = y + 0.16, yb = y + h - 0.14;
   for (let k = 0; k < n; k++) {
-    const t0 = (k + 0.25) / n, t1 = (k + 0.75) / n;
+    const t0 = (k + 0.24) / n, t1 = (k + 0.72) / n;
     if (alongX) {
       const xa = x0 + (x1 - x0) * t0, xb = x0 + (x1 - x0) * t1;
-      G.wall(xa, z0 - e, xb, z0 - e, ya, yb, dark, null, mulC(dark, 1.1));
-      G.wall(xb, z1 + e, xa, z1 + e, ya, yb, dark, null, mulC(dark, 1.1));
+      G.box(xa, ya, z0 - out, xb, yb, z0, ribCol, 1 | 2 | 8 | 16);
+      G.box(xa, ya, z1, xb, yb, z1 + out, ribCol, 1 | 2 | 4 | 16);
     } else {
       const za = z0 + (z1 - z0) * t0, zb = z0 + (z1 - z0) * t1;
-      G.wall(x0 - e, zb, x0 - e, za, ya, yb, dark, null, mulC(dark, 1.1));
-      G.wall(x1 + e, za, x1 + e, zb, ya, yb, dark, null, mulC(dark, 1.1));
+      G.box(x0 - out, ya, za, x0, yb, zb, ribCol, 2 | 4 | 8 | 16);
+      G.box(x1, ya, za, x1 + out, yb, zb, ribCol, 1 | 4 | 8 | 16);
     }
   }
-  // corner posts and base rails (heavier steel frame)
-  const p = 0.15;
-  for (const px of [x0, x1 - p]) for (const pz of [z0, z1 - p]) G.box(px - 0.012, y, pz - 0.012, px + p + 0.012, y + h, pz + p + 0.012, mulC(col, 0.72), 31, mulC(col, 0.9));
-  G.box(x0 - 0.01, y, z0 - 0.01, x1 + 0.01, y + 0.14, z1 + 0.01, grime, 15);
-  // door end: locking bars, seam and handles
+  // Welded steel corner posts, ISO corner twist-lock castings, top/bottom structural header rails
+  const p = 0.16;
+  for (const px of [x0, x1 - p]) for (const pz of [z0, z1 - p]) {
+    G.box(px - 0.018, y, pz - 0.018, px + p + 0.018, y + h, pz + p + 0.018, mulC(col, 0.68), 31, mulC(col, 0.92));
+    G.box(px - 0.028, y + h - 0.14, pz - 0.028, px + p + 0.028, y + h + 0.020, pz + p + 0.028, grime, 31);
+    G.box(px - 0.026, y, pz - 0.026, px + p + 0.026, y + 0.14, pz + p + 0.026, rust, 15);
+  }
+  G.box(x0 - 0.02, y + h - 0.12, z0 - 0.02, x1 + 0.02, y + h + 0.01, z1 + 0.02, mulC(col, 0.72), 15);
+  G.box(x0 - 0.02, y, z0 - 0.02, x1 + 0.02, y + 0.15, z1 + 0.02, grime, 15);
+  // Door end: galvanized locking bars, cam keepers, handle latches & center seam
   rm(G, R_GALV);
   const bars = [0.14, 0.36, 0.64, 0.86];
   for (const f of bars) {
-    if (alongX) { const bx = x1 + 0.0, bz = z0 + (z1 - z0) * f; G.box(bx, y + 0.18, bz - 0.02, bx + 0.045, y + h - 0.18, bz + 0.02, C('#7b8086'), 31); }
-    else { const bz = z1 + 0.0, bx = x0 + (x1 - x0) * f; G.box(bx - 0.02, y + 0.18, bz, bx + 0.02, y + h - 0.18, bz + 0.045, C('#7b8086'), 31); }
+    if (alongX) {
+      const bx = x1, bz = z0 + (z1 - z0) * f;
+      G.box(bx, y + 0.18, bz - 0.024, bx + 0.054, y + h - 0.18, bz + 0.024, C('#858b92'), 31);
+      G.box(bx + 0.01, y + 1.05, bz - 0.04, bx + 0.072, y + 1.13, bz + 0.06, C('#9ea4ac'), 31);
+    } else {
+      const bz = z1, bx = x0 + (x1 - x0) * f;
+      G.box(bx - 0.024, y + 0.18, bz, bx + 0.024, y + h - 0.18, bz + 0.054, C('#858b92'), 31);
+      G.box(bx - 0.04, y + 1.05, bz + 0.01, bx + 0.06, y + 1.13, bz + 0.072, C('#9ea4ac'), 31);
+    }
   }
   rm(G, R_PAINT);
-  if (alongX) G.box(x1 + 0.002, y + 0.1, (z0 + z1) / 2 - 0.012, x1 + 0.012, y + h - 0.1, (z0 + z1) / 2 + 0.012, grime, 1);
-  else G.box((x0 + x1) / 2 - 0.012, y + 0.1, z1 + 0.002, (x0 + x1) / 2 + 0.012, y + h - 0.1, z1 + 0.012, grime, 4);
+  if (alongX) G.box(x1 + 0.002, y + 0.1, (z0 + z1) / 2 - 0.014, x1 + 0.016, y + h - 0.1, (z0 + z1) / 2 + 0.014, grime, 1);
+  else G.box((x0 + x1) / 2 - 0.014, y + 0.1, z1 + 0.002, (x0 + x1) / 2 + 0.014, y + h - 0.1, z1 + 0.016, grime, 4);
   rm(G, R_DEF);
   ctx.world.addBox(x0, y, z0, x1, y + h, z1, F_DEFAULT, S_METAL);
   if (ctx.occluder) ctx.occluder(x0, z0, x1, z1, 1.5, 0.30);
@@ -579,6 +665,91 @@ export function waterTower(ctx, x, y, z) {
   G.cyl(x, z, y + 5.4, y + 6.5, 1.85, 0.05, 8, C('#2a2420'), false);
   rm(G, R_CAST);
   for (const hy of [2.9, 3.9, 4.9]) G.cyl(x, z, y + hy, y + hy + 0.07, 1.78, 1.78, 8, STEEL, false);  // hoops
+  rm(G, R_DEF);
+}
+
+export function manhole(ctx, x, z) {
+  const y = groundAt(x, z);
+  const G = ctx.B('flat', x, z);
+  const frame = C('#1d2025'), iron = C('#15171b'), dish = C('#111317'), rim = C('#3a3e46'), rib = C('#23262c');
+  rm(G, R_CAST);
+  // Flush NYC 0.72m cast-iron manhole frame + round 20-seg cover
+  G.cyl(x, z, y + 0.002, y + 0.006, 0.38, 0.37, 20, frame, true, rim);
+  G.cyl(x, z, y + 0.006, y + 0.008, 0.34, 0.33, 20, dish, true, iron);
+  G.box(x - 0.22, y + 0.007, z - 0.014, x + 0.22, y + 0.009, z + 0.014, rib, 16);
+  G.box(x - 0.014, y + 0.007, z - 0.22, x + 0.014, y + 0.009, z + 0.22, rib, 16);
+  rm(G, R_DEF);
+}
+
+export function stormDrain(ctx, x, z, alongZ = true) {
+  const y = groundAt(x, z);
+  const G = ctx.B('flat', x, z);
+  const hx = alongZ ? 0.26 : 0.52, hz = alongZ ? 0.52 : 0.26;
+  const sump = C('#0b0c0e'), iron = C('#353940'), bar = C('#4a4f57');
+  rm(G, R_CAST);
+  G.floor(x - hx, z - hz, x + hx, z + hz, y + 0.006, sump);
+  // Perimeter frame
+  G.box(x - hx - 0.04, y + 0.004, z - hz - 0.04, x + hx + 0.04, y + 0.020, z - hz + 0.04, iron, 31);
+  G.box(x - hx - 0.04, y + 0.004, z + hz - 0.04, x + hx + 0.04, y + 0.020, z + hz + 0.04, iron, 31);
+  G.box(x - hx - 0.04, y + 0.004, z - hz + 0.04, x - hx + 0.04, y + 0.020, z + hz - 0.04, iron, 31);
+  G.box(x + hx - 0.04, y + 0.004, z - hz + 0.04, x + hx + 0.04, y + 0.020, z + hz - 0.04, iron, 31);
+  // Grate bars
+  for (let i = -2; i <= 2; i++) {
+    const off = i * 0.16;
+    if (alongZ) G.box(x - hx + 0.03, y + 0.008, z + off - 0.022, x + hx - 0.03, y + 0.022, z + off + 0.022, bar, 31);
+    else G.box(x + off - 0.022, y + 0.008, z - hz + 0.03, x + off + 0.022, y + 0.022, z + hz - 0.03, bar, 31);
+  }
+  rm(G, R_DEF);
+}
+
+/** Cluster of 3 staggered NYC sidewalk newspaper/magazine honor boxes. */
+export function newsBoxCluster(ctx, x, z, alongZ = true) {
+  const y = groundAt(x, z);
+  const G = ctx.B('flat', x, z);
+  const colors = ['#7e2420', '#204578', '#225238'];
+  for (let i = -1; i <= 1; i++) {
+    const off = i * 0.58;
+    const jit = (hash2(x + i * 7.1, z) - 0.5) * 0.08;
+    const bx = alongZ ? x + jit : x + off;
+    const bz = alongZ ? z + off : z + jit;
+    const col = C(colors[(i + 3) % colors.length]);
+    rm(G, R_CAST);
+    G.box(bx - 0.21, y, bz - 0.21, bx + 0.21, y + 0.28, bz + 0.21, BLACK, 15);
+    rm(G, R_PAINT);
+    G.box(bx - 0.23, y + 0.28, bz - 0.23, bx + 0.23, y + 1.06, bz + 0.23, col, 31, mulC(col, 1.2));
+    // Overhang rain hood & recessed front window pane
+    G.box(bx - 0.25, y + 1.03, bz - 0.25, bx + 0.25, y + 1.11, bz + 0.25, mulC(col, 0.85), 31, mulC(col, 1.15));
+    rm(G, R_GLASS);
+    if (alongZ) {
+      G.box(bx - 0.24, y + 0.62, bz - 0.14, bx - 0.22, y + 0.94, bz + 0.14, C('#b9c6d4'), 2);
+      G.box(bx + 0.22, y + 0.62, bz - 0.14, bx + 0.24, y + 0.94, bz + 0.14, C('#b9c6d4'), 1);
+    } else {
+      G.box(bx - 0.14, y + 0.62, bz - 0.24, bx + 0.14, y + 0.94, bz - 0.22, C('#b9c6d4'), 8);
+      G.box(bx - 0.14, y + 0.62, bz + 0.22, bx + 0.14, y + 0.94, bz + 0.24, C('#b9c6d4'), 4);
+    }
+  }
+  rm(G, R_DEF);
+  if (alongZ) ctx.world.addBox(x - 0.28, y, z - 0.84, x + 0.28, y + 1.12, z + 0.84, F_DEFAULT, S_METAL);
+  else ctx.world.addBox(x - 0.84, y, z - 0.28, x + 0.84, y + 1.12, z + 0.28, F_DEFAULT, S_METAL);
+}
+
+/** Flush NYC subway sidewalk ventilation vault grate with steel curbing and iron bars. */
+export function sidewalkVent(ctx, x, z, alongZ = true) {
+  const y = groundAt(x, z);
+  const G = ctx.B('flat', x, z);
+  const hx = alongZ ? 0.68 : 1.45, hz = alongZ ? 1.45 : 0.68;
+  rm(G, R_CAST);
+  G.floor(x - hx, z - hz, x + hx, z + hz, y + 0.005, C('#060709'));
+  const rim = C('#3a3e46'), bar = C('#505660');
+  G.box(x - hx - 0.06, y + 0.004, z - hz - 0.06, x + hx + 0.06, y + 0.028, z - hz + 0.04, rim, 31);
+  G.box(x - hx - 0.06, y + 0.004, z + hz - 0.04, x + hx + 0.06, y + 0.028, z + hz + 0.06, rim, 31);
+  G.box(x - hx - 0.06, y + 0.004, z - hz + 0.04, x - hx + 0.04, y + 0.028, z + hz - 0.04, rim, 31);
+  G.box(x + hx - 0.04, y + 0.004, z - hz + 0.04, x + hx + 0.06, y + 0.028, z + hz - 0.04, rim, 31);
+  for (let i = -3; i <= 3; i++) {
+    const off = i * 0.36;
+    if (alongZ) G.box(x - hx + 0.04, y + 0.010, z + off - 0.024, x + hx - 0.04, y + 0.026, z + off + 0.024, bar, 31);
+    else G.box(x + off - 0.024, y + 0.010, z - hz + 0.04, x + off + 0.024, y + 0.026, z + hz - 0.04, bar, 31);
+  }
   rm(G, R_DEF);
 }
 

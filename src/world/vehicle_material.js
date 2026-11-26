@@ -58,13 +58,14 @@ export function vehicleMaterial() {
   });
   m.onBeforeCompile = (s) => {
     s.vertexShader = s.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec2 rm;\nvarying vec2 vRm;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRm = rm;');
+      .replace('#include <common>', '#include <common>\nattribute vec2 rm;\nvarying vec2 vRm;\nvarying float vWpY;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRm = rm;\nvWpY = (modelMatrix * vec4(transformed, 1.0)).y;');
     s.fragmentShader = s.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec2 vRm;')
+      .replace('#include <common>', '#include <common>\nvarying vec2 vRm;\nvarying float vWpY;')
       .replace('#include <color_fragment>', `
         float vpMask = texture2D(roughnessMap, vRoughnessMapUv).r;
         diffuseColor.rgb *= mix(vec3(1.0), vColor.rgb, vpMask) * vRm.x;
+        diffuseColor.rgb *= mix(0.56, 1.0, smoothstep(0.05, 0.55, vWpY));
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.03), vRm.y);`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
         // Slightly glossier clearcoat paint on unburnt panels; keep >= 0.16 for phone half-float safety

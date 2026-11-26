@@ -57,9 +57,11 @@ const compositeFragment = `
     if (!(s >= 0.0 && s < 60000.0)) c = vec3(0.0);
     c = clamp(c, 0.0, 48.0);
 
-    // 2-tap diagonal gather from 1/8-res RGBA8 bloom buffer (unpack * 4.0)
+    // 4-tap symmetric Kawase tent gather from 1/8-res RGBA8 bloom buffer (unpack * 4.0)
     vec3 bloom = (texture2D(tBloom, clamp(vUv + bloomStep, 0.002, 0.998)).rgb
-                + texture2D(tBloom, clamp(vUv - bloomStep, 0.002, 0.998)).rgb) * 2.0;
+                + texture2D(tBloom, clamp(vUv - bloomStep, 0.002, 0.998)).rgb
+                + texture2D(tBloom, clamp(vUv + vec2(bloomStep.x, -bloomStep.y), 0.002, 0.998)).rgb
+                + texture2D(tBloom, clamp(vUv + vec2(-bloomStep.x, bloomStep.y), 0.002, 0.998)).rgb);
     c += bloom * bloomStrength;
 
     c = aces(c);

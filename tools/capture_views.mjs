@@ -21,7 +21,7 @@ const WIDTH = 1600, HEIGHT = 900;          // landscape, like a phone held sidew
 const LOAD_TIMEOUT_MS = 180000;
 const MATCH_SETTLE_MS = 3500;
 
-// name -> how to frame it. yaw/pitch in radians; view 'tpp' or 'fpp'.
+// name -> how to frame it. yaw/pitch in radians; view 'tpp' or 'fpp'; optional pos [x, z] in metres.
 export const VIEWS = [
   { name: 'midtown_high_street', mode: 'tdm', quality: 'high', view: 'tpp', yaw: 0, pitch: -0.1 },
   { name: 'midtown_high_shops', mode: 'tdm', quality: 'high', view: 'tpp', yaw: 2.2, pitch: -0.1 },
@@ -34,6 +34,9 @@ export const VIEWS = [
   { name: 'lodge_high_trail', mode: 'lodge', quality: 'high', view: 'tpp', yaw: 4.0, pitch: -0.05 },
   { name: 'lodge_high_fpp', mode: 'lodge', quality: 'high', view: 'fpp', yaw: 0, pitch: -0.05 },
   { name: 'lodge_medium_yard', mode: 'lodge', quality: 'medium', view: 'tpp', yaw: 0, pitch: -0.05 },
+  { name: 'midtown_high_wedge', mode: 'tdm', quality: 'high', view: 'tpp', pos: [14, 102], yaw: 3.37, pitch: 0.24 },
+  { name: 'midtown_high_tkts', mode: 'tdm', quality: 'high', view: 'tpp', pos: [-22, -74], yaw: 0.09, pitch: 0.08 },
+  { name: 'midtown_high_soldier', mode: 'tdm', quality: 'high', view: 'tpp', pos: [4, 122], yaw: 0.35, pitch: -0.05, ads: true },
 ];
 
 function findChrome() {
@@ -107,26 +110,90 @@ const PAGE_SHOT = `async (v, settleMs) => {
   }
   const g = G.game, p = g.player;
   p.fp = v.view === 'fpp';
+  g.input.ads = !!v.ads;
   g.paused = false;
-  for (let i = 0; i < 10; i++) { p.yaw = v.yaw; p.pitch = v.pitch; G.step(1, 1 / 60); }
+  // optional pos [x, z]: stand the player there (close-up audit views of set pieces)
+  for (let i = 0; i < 28; i++) {
+    if (v.pos) { p.body.x = v.pos[0]; p.body.z = v.pos[1]; if (p.body.vx !== undefined) { p.body.vx = 0; p.body.vz = 0; } }
+    p.yaw = v.yaw; p.pitch = v.pitch; G.step(1, 1 / 60);
+  }
+  g.input.ads = false;
   const r = G.view.renderer, gl = r.getContext(), px = new Uint8Array(4), times = [];
   for (let i = 0; i < 12; i++) {
     const t0 = performance.now(); G.view.render(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); times.push(performance.now() - t0);
   }
   times.sort((a, b) => a - b);
-  const stats = { renderMs: +times[6].toFixed(2), p90Ms: +times[10].toFixed(2), drawCalls: r.info.render.calls, triangles: r.info.render.triangles };
+  // post passes reset renderer.info, so count one whole frame with auto-reset off
+  r.info.autoReset = false; r.info.reset(); G.view.render();
+  const calls = r.info.render.calls, tris = r.info.render.triangles;
+  r.info.autoReset = true;
+  const stats = { renderMs: +times[6].toFixed(2), p90Ms: +times[10].toFixed(2), drawCalls: calls, triangles: tris };
   G.view.render();
   return { stats, jpg: r.domElement.toDataURL('image/jpeg', 0.9) };
+}`;
+
+// Page-side locomotion strip: runs/walks/strafes a Marine bot cleanly past a fixed camera in Times Square.
+const PAGE_STRIP = `async (nFrames, settleMs) => {
+  const G = window.__game;
+  G.settings.view = 'tpp';
+  G.settings.quality = 'high'; G.view.setQuality('high'); if (G.map.setQuality) G.map.setQuality('high');
+  if (G.state !== 'playing' || !G.game.mode || G.game.mode.id !== 'tdm') {
+    await G.start('tdm');
+    await new Promise((r) => setTimeout(r, settleMs));
+  }
+  const g = G.game;
+  const bot = g.actors.find((a) => !a.isPlayer && a.alive && a.team === 0);
+  if (!bot) throw new Error('No alive Marine bot for locomotion strip');
+  for (const a of g.actors) if (a !== bot && !a.isPlayer) a.update = () => {};
+  g.player.place(12, 165, 0);
+  bot.update = () => {};
+  bot.adsK = 0; bot.sprinting = false; bot.sliding = false;
+  bot.setStance(0);
+  g.paused = false;
+  const cam = g.camera, r = G.view.renderer;
+  const runCase = (tag, { x0, z0, dx, dz, spd, yaw, ticksPerFrame, camPos, camLook }) => {
+    bot.place(x0, z0, yaw);
+    bot.speed = 0; bot.localX = 0; bot.localZ = 0;
+    for (let i = 0; i < 20; i++) {
+      bot.move(1 / 60, dx, dz, spd);
+      bot.updateModel(1 / 60, true);
+    }
+    const out = [];
+    for (let f = 0; f < nFrames; f++) {
+      if (f > 0) {
+        for (let s = 0; s < ticksPerFrame; s++) {
+          bot.move(1 / 60, dx, dz, spd);
+          bot.updateModel(1 / 60, true);
+        }
+      }
+      cam.position.set(camPos[0], camPos[1], camPos[2]);
+      cam.lookAt(camLook[0], camLook[1], camLook[2]);
+      cam.updateMatrixWorld();
+      G.view.render();
+      out.push({
+        tag, frame: f, x: +bot.x.toFixed(2), z: +bot.z.toFixed(2), speed: +bot.speed.toFixed(2),
+        jpg: r.domElement.toDataURL('image/jpeg', 0.9),
+      });
+    }
+    return out;
+  };
+  return [
+    ...runCase('run',    { x0: 0.4,  z0: 132.4, dx: 0, dz: -1, spd: 4.5, yaw: 0, ticksPerFrame: 5, camPos: [3.6, 1.25, 129.8], camLook: [0.4, 0.92, 129.8] }),
+    ...runCase('walk',   { x0: 0.4,  z0: 131.8, dx: 0, dz: -1, spd: 1.8, yaw: 0, ticksPerFrame: 9, camPos: [3.4, 1.24, 130.6], camLook: [0.4, 0.92, 130.6] }),
+    ...runCase('strafe', { x0: -1.8, z0: 131.6, dx: 1, dz:  0, spd: 3.6, yaw: 0, ticksPerFrame: 5, camPos: [0.2, 1.28, 128.0], camLook: [0.2, 0.94, 131.6] }),
+  ];
 }`;
 
 async function main() {
   const args = process.argv.slice(2);
   const onlyIdx = args.indexOf('--only');
   const only = onlyIdx >= 0 ? new Set(args[onlyIdx + 1].split(',')) : null;
-  const outDir = resolve(ROOT, args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--only') || 'docs/visual_audit');
+  const stripIdx = args.indexOf('--strip');
+  const stripCount = stripIdx >= 0 ? Math.max(2, parseInt(args[stripIdx + 1], 10) || 8) : 0;
+  const outDir = resolve(ROOT, args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--only' && args[i - 1] !== '--strip') || 'docs/visual_audit');
   if (!existsSync(GAME)) throw new Error(`Built game not found at ${GAME}: run npm run build first`);
   mkdirSync(outDir, { recursive: true });
-  const views = VIEWS.filter((v) => !only || only.has(v.name));
+  const views = stripCount ? [] : VIEWS.filter((v) => !only || only.has(v.name));
 
   const chrome = await launch();
   const cdp = connect(chrome.wsUrl);
@@ -142,14 +209,23 @@ async function main() {
       if (Date.now() - t0 > LOAD_TIMEOUT_MS) throw new Error('game did not finish loading');
       await sleep(500);
     }
-    for (const v of views) {
-      const res = await evaluate(cdp, `(${PAGE_SHOT})(${JSON.stringify(v)}, ${MATCH_SETTLE_MS})`);
-      writeFileSync(join(outDir, v.name + '.jpg'), Buffer.from(res.jpg.split(',')[1], 'base64'));
-      report[v.name] = res.stats;
-      console.log(`${v.name.padEnd(24)} ${String(res.stats.renderMs).padStart(6)} ms  calls ${res.stats.drawCalls}`);
+    if (stripCount) {
+      const shots = await evaluate(cdp, `(${PAGE_STRIP})(${stripCount}, ${MATCH_SETTLE_MS})`);
+      for (const s of shots) {
+        const fname = `strip_${s.tag}_${s.frame}.jpg`;
+        writeFileSync(join(outDir, fname), Buffer.from(s.jpg.split(',')[1], 'base64'));
+        console.log(`${fname.padEnd(20)} pos (${s.x}, ${s.z}) speed ${s.speed} m/s`);
+      }
+    } else {
+      for (const v of views) {
+        const res = await evaluate(cdp, `(${PAGE_SHOT})(${JSON.stringify(v)}, ${MATCH_SETTLE_MS})`);
+        writeFileSync(join(outDir, v.name + '.jpg'), Buffer.from(res.jpg.split(',')[1], 'base64'));
+        report[v.name] = res.stats;
+        console.log(`${v.name.padEnd(24)} ${String(res.stats.renderMs).padStart(6)} ms  calls ${res.stats.drawCalls}`);
+      }
+      writeFileSync(join(outDir, 'report.json'), JSON.stringify(report, null, 2));
+      console.log(`wrote ${views.length} views to ${outDir}`);
     }
-    writeFileSync(join(outDir, 'report.json'), JSON.stringify(report, null, 2));
-    console.log(`wrote ${views.length} views to ${outDir}`);
   } finally {
     cdp.close();
     chrome.close();

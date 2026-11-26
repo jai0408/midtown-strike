@@ -13,11 +13,12 @@
 // markings, street props and facades on ALL quality levels (including Medium).
 import * as THREE from 'three';
 import { AVENUES, STREETS, CURB, broadwayX, PLAZA_Z0, PLAZA_Z1 } from './layout.js';
+import { MED_WET_SPEC } from './road_shader.js';
 
 // World region covered by the light-spill + contact-AO texture (metres)
 const MIN_X = -220, MAX_X = 220;
 const MIN_Z = -320, MAX_Z = 320;
-const W = 256, H = 256;
+const W = 512, H = 512;
 
 const INV_W = 1 / (MAX_X - MIN_X);
 const INV_H = 1 / (MAX_Z - MIN_Z);
@@ -61,7 +62,7 @@ export function buildCityLightMap(ctx) {
         const d = Math.sqrt(dx * dx + dz2) * invR;
         if (d >= 1.0) continue;
         const t = 1.0 - d;
-        const fall = t * t * (3.0 - 2.0 * t); // smoothstep falloff
+        const fall = t * t * t; // fast inverse-square-like falloff hugs the source
         const o = (row + ix) * 3;
         rgb[o] += cr * fall;
         rgb[o + 1] += cg * fall;
@@ -123,11 +124,12 @@ export function buildCityLightMap(ctx) {
     }
   };
 
-  // 1. Building base contact AO + subtle warm storefront spill onto sidewalks
+  // 1. Building base contact AO (tight dark plinth shadow + soft apron) + warm storefront spill
   const shopWarm = hexLinear('#ffbe78');
   for (const b of ctx.buildings) {
     if (b.x1 + 10 < MIN_X || b.x0 - 10 > MAX_X || b.z1 + 10 < MIN_Z || b.z0 - 10 > MAX_Z) continue;
-    addBoxAO(b.x0, b.z0, b.x1, b.z1, 2.8, 0.44);
+    addBoxAO(b.x0, b.z0, b.x1, b.z1, 1.7, 0.22);
+    addBoxAO(b.x0, b.z0, b.x1, b.z1, 4.0, 0.64);
     // Gentle warm storefront spill along street-facing edges
     if (b.shops) {
       const step = 7.5;
@@ -161,9 +163,9 @@ export function buildCityLightMap(ctx) {
         const db = Math.abs(wx - bwx);
         if (db < 8.5) dKerb = Math.min(dKerb, Math.abs(db - 8.0));
       }
-      if (dKerb < 1.8) {
-        const t = dKerb / 1.8;
-        const k = 0.72 + 0.28 * (t * t * (3.0 - 2.0 * t));
+      if (dKerb < 1.1) {
+        const t = dKerb / 1.1;
+        const k = 0.40 + 0.60 * (t * t * (3.0 - 2.0 * t));
         if (k < ao[row + ix]) ao[row + ix] = k;
       }
     }
@@ -171,10 +173,10 @@ export function buildCityLightMap(ctx) {
 
   // 3. Vehicle & street-prop contact AO
   for (const v of ctx.vehicles) {
-    addYawAO(v.x, v.z, v.yaw, v.hl + 0.1, v.hw + 0.1, 1.35, 0.30);
+    addYawAO(v.x, v.z, v.yaw, v.hl + 0.1, v.hw + 0.1, 0.85, 0.10);
   }
   for (const o of (ctx.occluders || [])) {
-    addBoxAO(o.x0, o.z0, o.x1, o.z1, o.pad || 1.3, o.minAO || 0.36);
+    addBoxAO(o.x0, o.z0, o.x1, o.z1, Math.min(o.pad || 0.9, 0.95), Math.min(o.minAO || 0.28, 0.18));
   }
 
   // 4. Recorded colored light sources (billboards, street lamps, plaza features, wrecks)
@@ -211,9 +213,9 @@ export function buildCityLightMap(ctx) {
       let fr = rr * tone, fg = gg * tone, fb = bb * tone;
       // Preserve chromatic punch so overlapping neon stays rich instead of milky grey
       const lum = fr * 0.2126 + fg * 0.7152 + fb * 0.0722;
-      fr = Math.max(0, lum + (fr - lum) * 1.18);
-      fg = Math.max(0, lum + (fg - lum) * 1.18);
-      fb = Math.max(0, lum + (fb - lum) * 1.18);
+      fr = Math.max(0, lum + (fr - lum) * 1.04);
+      fg = Math.max(0, lum + (fg - lum) * 1.04);
+      fb = Math.max(0, lum + (fb - lum) * 1.04);
       const o = (r1 + ix) * 4;
       data[o]     = Math.min(255, Math.max(0, Math.round(fr * 0.5 * 255)));
       data[o + 1] = Math.min(255, Math.max(0, Math.round(fg * 0.5 * 255)));
@@ -255,8 +257,10 @@ export function applyCityLighting(mat, lightMap, {
   const prevKey = mat.customProgramCacheKey ? mat.customProgramCacheKey() : '';
   mat.onBeforeCompile = (s, renderer) => {
     if (prevCompile) prevCompile(s, renderer);
+    const hasRw = s.fragmentShader.includes('float rwPuddle;');
     s.uniforms.uCityLight = { value: lightMap.texture };
     s.uniforms.uCityRect = { value: lightMap.rect };
+    if (hasRw) s.uniforms.uMedWetSpec = MED_WET_SPEC;
     const hasWp = s.vertexShader.includes('vWp');
     if (!hasWp) {
       s.vertexShader = s.vertexShader
@@ -269,6 +273,7 @@ export function applyCityLighting(mat, lightMap, {
         ${fragHasWp ? '' : 'varying vec3 vWp;'}
         uniform sampler2D uCityLight;
         uniform vec4 uCityRect;
+        ${hasRw ? 'uniform float uMedWetSpec;' : ''}
         vec4 sampleCityLight(vec2 xz) {
           vec2 uv = (xz - uCityRect.xy) * uCityRect.zw;
           vec2 inside = smoothstep(vec2(0.0), vec2(0.06), uv) * smoothstep(vec2(0.0), vec2(0.06), 1.0 - uv);
@@ -278,7 +283,6 @@ export function applyCityLighting(mat, lightMap, {
         }`);
 
     const isGround = mode === 'ground' || mode === 'walk' || mode === 'marks';
-    const hasDamp = s.fragmentShader.includes('float tbDamp;');
 
     // Compute light-spill + contact-AO sample ONCE in color_fragment and reuse in emissivemap_fragment
     const aoBlock = isGround
@@ -290,21 +294,40 @@ export function applyCityLighting(mat, lightMap, {
       : `vec4 _clm = sampleCityLight(vWp.xz);
         {
           // Grounded wall/prop base darkening across the entire city
-          float hAO = mix(${(1.0 - baseAO).toFixed(2)}, 1.0, smoothstep(0.0, 2.0, max(0.0, vWp.y - ${CURB.toFixed(2)})));
-          float mapAO = mix(1.0, _clm.a, ${aoStrength.toFixed(2)} * (1.0 - smoothstep(0.0, 3.5, max(0.0, vWp.y - ${CURB.toFixed(2)}))));
+          float hAO = mix(${(1.0 - baseAO).toFixed(2)}, 1.0, smoothstep(0.0, 1.35, max(0.0, vWp.y - ${CURB.toFixed(2)})));
+          float mapAO = mix(1.0, _clm.a, ${aoStrength.toFixed(2)} * (1.0 - smoothstep(0.0, 3.0, max(0.0, vWp.y - ${CURB.toFixed(2)}))));
           diffuseColor.rgb *= hAO * mapAO;
         }`;
 
     s.fragmentShader = s.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>\n${aoBlock}`);
 
-    // Colored neon & lamp bounce spill added into emissive radiance so it lights shadowed surfaces!
+    // Colored neon & lamp bounce spill added into emissive radiance; wet roads also
+    // get grazing specular neon sheen from baked lightmap (drives Medium wet look at 0 extra passes).
     const spillBlock = isGround
-      ? `{
-          float wetBoost = ${hasDamp ? '1.0 + tbDamp * 0.65' : '1.0'};
-          // Colored light spills onto dark asphalt and catches damp sheen; masked gently by contact AO
-          vec3 spill = _clm.rgb * (diffuseColor.rgb * 0.95 + vec3(0.055) * wetBoost) * ${spillGain.toFixed(2)} * mix(0.45, 1.0, _clm.a);
-          totalEmissiveRadiance += spill;
-        }`
+      ? (hasRw && mode === 'ground'
+        ? `{
+            float _clLum = dot(_clm.rgb, vec3(0.2126, 0.7152, 0.0722));
+            vec3 _diffBounce = mix(vec3(_clLum), _clm.rgb, 0.44);
+            vec3 spill = _diffBounce * (diffuseColor.rgb * 0.88 + vec3(0.015)) * ${spillGain.toFixed(2)} * mix(0.42, 1.0, _clm.a);
+            vec3 _vdf = vWp - cameraPosition;
+            float _vdl = max(length(_vdf), 0.1);
+            vec3 _vdir = _vdf / _vdl;
+            float _hzl = length(_vdir.xz);
+            vec2 _hdir = _hzl > 1e-4 ? _vdir.xz / _hzl : vec2(0.0, -1.0);
+            float _f1 = 1.0 - clamp(-_vdir.y, 0.0, 1.0);
+            float _f2 = _f1 * _f1;
+            float _fres = 0.03 + 0.97 * _f2 * _f2 * _f1;
+            vec3 _ahead = sampleCityLight(vWp.xz + _hdir * mix(6.0, 16.0, _fres)).rgb;
+            float _gr = 0.65 + 0.35 * rwGr;
+            float _wSpec = (rwPuddle * mix(0.24, 1.0, _fres) + rwDamp * (1.0 - rwPuddle) * mix(0.04, 0.26, _fres)) * _gr;
+            totalEmissiveRadiance += spill + _ahead * _wSpec * uMedWetSpec * 0.88 * mix(0.40, 1.0, _clm.a);
+          }`
+        : `{
+            float _clLum = dot(_clm.rgb, vec3(0.2126, 0.7152, 0.0722));
+            vec3 _diffBounce = mix(vec3(_clLum), _clm.rgb, 0.50);
+            vec3 spill = _diffBounce * (diffuseColor.rgb * 0.92 + vec3(0.015)) * ${spillGain.toFixed(2)} * mix(0.45, 1.0, _clm.a);
+            totalEmissiveRadiance += spill;
+          }`)
       : `{
           float hFade = smoothstep(-0.5, 3.0, vWp.y) * (1.0 - smoothstep(32.0, 82.0, vWp.y));
           vec3 spill = _clm.rgb * (diffuseColor.rgb * 0.75 + vec3(0.025)) * ${spillGain.toFixed(2)} * (0.35 + 0.65 * hFade);

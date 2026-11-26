@@ -10,7 +10,12 @@ import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js
 import { glowTexture } from '../world/textures.js';
 import { clamp, damp, lerp, smooth } from '../core/util.js';
 import { makeWeaponModel } from '../game/weapons.js';
-import { SOLDIER2_META, SOLDIER2_GLB } from './soldier2_asset.js';
+import { SOLDIER2_GLB } from './soldier2_asset.js';
+import {
+  POSES, UPPER_DIR_L, FORE_DIR_L, UPPER_DIR_R, FORE_DIR_R, UPPER_LEN, FORE_LEN,
+  GRIP_R_LOCAL, GRIP_L_LOCAL, HOLD, FP_SHOULDER, NO_SHIFT, FP_WRIST_MAX, FP_WRIST_PASSES,
+  REF_SPEEDS, LOCO_SYNC_CLIPS, LOOP_CLIPS,
+} from './soldier2_pose.js';
 
 // ============================================================================
 // Asset loading & per-team material tinting (shared across all soldiers)
@@ -113,85 +118,6 @@ export function isSoldier2Ready() {
   return !!asset;
 }
 
-// ============================================================================
-// Weapon carry poses & hand grip math (adapted for 25-bone A-pose skeleton)
-// ============================================================================
-const POSES = {
-  rifle: {
-    hip: [0.085, 0.085, -0.15, 0.03, 0.2, 0.0], ads: [0.05, 0.185, -0.19, 0, 0.05, 0],
-    sprint: [0.03, 0.03, -0.17, 0.5, 0.95, 0.25], reload: [0.06, 0.06, -0.17, 0.35, 0.25, -0.35], scale: 1.12,
-  },
-  sniper: {
-    hip: [0.09, 0.07, -0.1, 0.03, 0.2, 0.0], ads: [0.055, 0.17, -0.13, 0, 0.05, 0],
-    sprint: [0.03, 0.02, -0.12, 0.55, 0.9, 0.25], reload: [0.07, 0.05, -0.12, 0.3, 0.25, -0.3], scale: 1.1,
-  },
-  pistol: {
-    hip: [0.07, 0.1, -0.42, 0.0, 0.08, 0], ads: [0.02, 0.3, -0.47, 0, 0.02, 0],
-    sprint: [0.16, -0.12, -0.2, -0.9, 0.1, 0], reload: [0.08, 0.12, -0.3, 0.5, 0.3, -0.5], scale: 1.25,
-  },
-};
-
-// Rest A-pose arm vectors from build_soldier2_glb.mjs:
-// upperArmL -> forearmL: (-0.229, -0.160, +0.015), forearmL -> handL: (-0.213, -0.149, -0.015)
-const UPPER_DIR_L = new THREE.Vector3(-0.229, -0.160,  0.015).normalize();
-const FORE_DIR_L  = new THREE.Vector3(-0.213, -0.149, -0.015).normalize();
-const UPPER_DIR_R = new THREE.Vector3( 0.229, -0.160,  0.015).normalize();
-const FORE_DIR_R  = new THREE.Vector3( 0.213, -0.149, -0.015).normalize();
-const UPPER_LEN = Math.hypot(0.229, 0.160, 0.015); // 0.2797 m
-const FORE_LEN  = Math.hypot(0.213, 0.149, 0.015); // 0.2604 m
-
-// Hand rest basis -> standard (-Y along fingers, +X right) conversion quaternions
-// In A-pose rest, handL fingers point along FORE_DIR_L, palm faces down-inward, thumb faces -Z.
-// We map the canonical grip frame (X=back-of-R / palm-of-L, -Y=fingers, Z=cross) to A-pose hand space.
-function restHandBasis(side) {
-  const s = side === 'L' ? -1 : 1;
-  const along = (side === 'L' ? FORE_DIR_L : FORE_DIR_R).clone();
-  const fwd = new THREE.Vector3(0, 0, -1);
-  const back = new THREE.Vector3().crossVectors(along, fwd).normalize().multiplyScalar(-s);
-  // Canonical hand frame used by handTurn: +X = s * back, -Y = along, +Z = cross(X, Y)
-  const x = back.clone().multiplyScalar(s);
-  const y = along.clone().negate();
-  const z = new THREE.Vector3().crossVectors(x, y).normalize();
-  return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
-}
-const HAND_REST_L_INV = restHandBasis('L').invert();
-const HAND_REST_R_INV = restHandBasis('R').invert();
-
-// Grip channel center in hand-local space (A-pose)
-const GRIP_R_LOCAL = FORE_DIR_R.clone().multiplyScalar(0.068).add(new THREE.Vector3(-0.016, -0.014, 0.004));
-const GRIP_L_LOCAL = FORE_DIR_L.clone().multiplyScalar(0.068).add(new THREE.Vector3( 0.016, -0.014, 0.004));
-
-function handTurn(xAxis, fingers) {
-  const x = new THREE.Vector3(...xAxis).normalize();
-  const f = new THREE.Vector3(...fingers);
-  const y = f.addScaledVector(x, -f.dot(x)).normalize().negate();
-  const z = new THREE.Vector3().crossVectors(x, y).normalize();
-  return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, z));
-}
-const TRIGGER_HAND = handTurn([1, 0, 0], [0, -0.34, -0.94]);
-const HOLD = {
-  rifle: {
-    R: TRIGGER_HAND.clone().multiply(HAND_REST_R_INV),
-    L: handTurn([0.24, 0.96, 0.12], [0.95, 0.04, -0.30]).multiply(HAND_REST_L_INV),
-    rOff: [0, 0, 0], lOff: [-0.015, -0.014, 0.004],
-  },
-  pistol: {
-    R: TRIGGER_HAND.clone().multiply(HAND_REST_R_INV),
-    L: handTurn([1, 0.12, 0.1], [0.35, -0.42, -1]).multiply(HAND_REST_L_INV),
-    rOff: [0, -0.004, -0.004], lOff: [-0.03, -0.018, -0.012], elbows: 0.35,
-  },
-};
-HOLD.sniper = HOLD.rifle;
-
-// First person only: the camera sits just above the shoulders, so a straight arm
-// out to the handguard points away from the eye and reads as a pipe. Bring the
-// shoulders forward and down so the elbow bends and the forearm rises from below,
-// and keep the support wrist inside a natural bend so the cuff does not twist.
-const FP_SHOULDER = { L: [0.0, -0.08, -0.13], R: [0.0, -0.03, -0.06] };
-const NO_SHIFT = [0, 0, 0];
-const FP_WRIST_MAX = 0.35;    // rad (~20 deg) of left-wrist bend away from the forearm
-const FP_WRIST_PASSES = 2;    // re-solve the arm after limiting the wrist
-
 const HAND_FREE = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.25, 0, 0));
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _v4 = new THREE.Vector3();
 const _g1 = new THREE.Vector3(), _g2 = new THREE.Vector3(), _g3 = new THREE.Vector3();
@@ -200,21 +126,6 @@ const _qPitch = new THREE.Quaternion(), _qRoll = new THREE.Quaternion();
 const _e = new THREE.Euler();
 const X_AXIS = new THREE.Vector3(1, 0, 0);
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
-
-const REF_SPEEDS = SOLDIER2_META.refSpeeds || {
-  walk_fwd: 1.5, walk_back: 1.5, walk_left: 1.5, walk_right: 1.5,
-  run_fwd: 4.7, run_back: 3.6, run_left: 4.2, run_right: 4.2,
-  sprint: 6.7, crouch_walk: 2.6, prone_crawl: 1.0,
-};
-
-const LOCO_SYNC_CLIPS = [
-  'walk_fwd', 'walk_back', 'walk_left', 'walk_right',
-  'run_fwd', 'run_back', 'run_left', 'run_right', 'sprint', 'crouch_walk',
-];
-const LOOP_CLIPS = [
-  'idle', ...LOCO_SYNC_CLIPS,
-  'crouch_idle', 'prone_idle', 'prone_crawl', 'fall_loop',
-];
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 const _qYaw = new THREE.Quaternion();
 
@@ -507,13 +418,13 @@ export class Soldier {
     // Smooth locomotion inputs to eliminate directional blend kinks & frame-rate jitter
     const rawSpeed = s.speed || 0;
     const rawMx = s.moveX || 0, rawMz = s.moveZ || 0;
-    this._smMoveX = damp(this._smMoveX, rawMx, 14, dt);
-    this._smMoveZ = damp(this._smMoveZ, rawMz, 14, dt);
-    this._smSpeed = damp(this._smSpeed, rawSpeed, 14, dt);
-    const speed = this._smSpeed;
+    this._smMoveX = damp(this._smMoveX, rawMx, 18, dt);
+    this._smMoveZ = damp(this._smMoveZ, rawMz, 18, dt);
+    this._smSpeed = damp(this._smSpeed, rawSpeed, 18, dt);
+    const speed = rawSpeed > 0.25 ? Math.max(this._smSpeed, rawSpeed * 0.72) : this._smSpeed;
     const mx = this._smMoveX, mz = this._smMoveZ;
     const moving = speed > 0.14;
-    this.moveK = damp(this.moveK, moving ? 1 : 0, 10, dt);
+    this.moveK = damp(this.moveK, moving ? 1 : 0, 14, dt);
 
     // Double-filtered yaw turn rate & horizontal acceleration (ignore dt > 0.08s spikes)
     const curYaw = this.root.rotation.y || 0;
@@ -627,10 +538,10 @@ export class Soldier {
         }
       }
 
-      // Smooth cross-fades (~0.16-0.24s) with slightly softer transitions for posture changes
-      const fadeRate = 9.5;
+      // Crisp locomotion entry/exit (~0.07s) so start/stop plants immediately without sliding
       for (const nm of LOOP_CLIPS) {
-        this._w[nm] = damp(this._w[nm], tgt[nm], fadeRate, dt);
+        const rate = (nm.startsWith('crouch') || nm.startsWith('prone')) ? 9.5 : 14.5;
+        this._w[nm] = damp(this._w[nm], tgt[nm], rate, dt);
         if (this.actions[nm]) this.actions[nm].setEffectiveWeight(this._w[nm]);
       }
 
@@ -796,9 +707,14 @@ export class Soldier {
       mp.set(damp(mp.x, tx, 18, dt), damp(mp.y, ty, 18, dt), damp(mp.z, tz, 18, dt));
       mr.set(damp(mr.x, rx, 18, dt), damp(mr.y, ry, 18, dt), damp(mr.z, rz, 18, dt));
       const carry = clamp(speed / 4.8, 0, 1.2) * this.moveK * (1 - ads);
-      const stepWave = Math.cos(this.phase * 2), sideWave = Math.cos(this.phase);
-      this.gunMount.position.set(mp.x, mp.y - stepWave * 0.008 * carry, mp.z + this.kick * 0.045);
-      _e.set(mr.x + this.kick * 0.09 + stepWave * 0.015 * carry, mr.y, mr.z + sideWave * 0.04 * carry, 'YXZ');
+      const stepWave = Math.cos(this.phase * 2), sideWave = Math.cos(this.phase), sideSin = Math.sin(this.phase);
+      const swayLag = clamp(this._turnRate * 0.015, -0.04, 0.04) * (1 - ads);
+      this.gunMount.position.set(
+        mp.x + sideSin * 0.009 * carry,
+        mp.y - stepWave * 0.010 * carry - Math.abs(this._leanZ) * 0.04,
+        mp.z + this.kick * 0.045,
+      );
+      _e.set(mr.x + this.kick * 0.09 + stepWave * 0.018 * carry, mr.y - swayLag, mr.z + sideWave * 0.048 * carry + swayLag * 0.5, 'YXZ');
       this.gunMount.quaternion.setFromEuler(_e);
       this.gunMount.updateMatrix();
       this.gripWeapon(reload);

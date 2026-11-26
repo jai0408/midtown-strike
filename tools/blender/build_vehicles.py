@@ -26,6 +26,7 @@ import json
 import math
 import os
 import struct
+import sys
 import time
 import traceback
 import zlib
@@ -47,7 +48,7 @@ AO_DIST = 1.0
 AO_FLOOR = 0.42
 SMOOTH = math.radians(58)
 ONLY = [s for s in os.environ.get("KINDS", "").split(",") if s]
-NO_PREVIEW = bool(os.environ.get("NO_PREVIEW"))
+NO_PREVIEW = bool(os.environ.get("NO_PREVIEW")) or ("--noprev" in sys.argv)
 SAMPLES = int(os.environ.get("SAMPLES", "40"))
 ATLAS = 1024
 PAD = 5
@@ -685,15 +686,15 @@ def glow_quads(kind, zf, zr):
 
 
 SEDAN = dict(
-    hl=2.3, sill=0.30, dsh=0.055,
-    anch=[(0.26, 0.80), (0.58, 0.885), (0.92, 0.915)],
-    cab=dict(xb=0.79, dyb=0.06, xg=0.69, gd=0.10, xr=0.585, rd=0.035),
-    wheels=[(-1.45, 0.34, 0.40, 0.848), (1.40, 0.34, 0.40, 0.848)],
-    deck=[(-2.12, 0.80), (-1.45, 0.88), (-0.85, 0.92), (1.80, 0.98), (2.12, 0.97)],
-    zcow=-0.85, zrf=-0.10, zrb=1.05, zd=1.68, roof_y=1.47, crown=0.03, wsp=1.1, ws_t=(0, 0.45, 1), rg_t=(0, 0.35, 0.7, 1),
-    roof_z=[-0.10, 0.22, 0.34, 1.05], roof_tags=[(-0.10, 0.22, "g"), (0.22, 0.34, "b"), (0.34, 1.05, "g")],
-    nose=[(-2.30, 0.86, 0.27, 0.70, 0.63), (-2.22, 0.94, 0.26, 0.77, 0.68), (-2.04, 0.985, 0.25, 0.82, 0.74)],
-    tail=[(2.10, 0.985, 0.26, 0.97, 0.88), (2.30, 0.88, 0.27, 0.90, 0.74)],
+    hl=2.3, sill=0.29, dsh=0.055,
+    anch=[(0.26, 0.82), (0.58, 0.905), (0.91, 0.935)],
+    cab=dict(xb=0.79, dyb=0.06, xg=0.69, gd=0.10, xr=0.575, rd=0.038),
+    wheels=[(-1.44, 0.34, 0.40, 0.855), (1.40, 0.34, 0.40, 0.855)],
+    deck=[(-2.14, 0.80), (-1.44, 0.88), (-0.84, 0.93), (1.56, 0.985), (2.14, 0.975)],
+    zcow=-0.84, zrf=-0.10, zrb=0.96, zd=1.56, roof_y=1.47, crown=0.032, wsp=1.1, ws_t=(0, 0.35, 0.70, 1), rg_t=(0, 0.35, 0.70, 1),
+    roof_z=[-0.10, 0.22, 0.34, 0.96], roof_tags=[(-0.10, 0.22, "g"), (0.22, 0.34, "b"), (0.34, 0.96, "g")],
+    nose=[(-2.30, 0.84, 0.27, 0.72, 0.63), (-2.22, 0.93, 0.26, 0.77, 0.69), (-2.04, 0.985, 0.25, 0.82, 0.74)],
+    tail=[(2.14, 0.985, 0.27, 0.97, 0.90), (2.30, 0.87, 0.28, 0.90, 0.75)],
 )
 
 SUV = dict(
@@ -768,24 +769,48 @@ def build_car(m, kind):
     hl = 2.3
     for (zc, R, ar, xo) in S["wheels"]:
         for sd in (-1, 1):
-            wheel(m, xo, zc, R, 0.225, sd, seg=10)
+            wheel(m, xo, zc, R, 0.225, sd, seg=16)
     for sd in (-1, 1):
         mirror(m, sd * 0.80, 1.00, -0.62, sd, 1.0, "paint", arm=0.05)
+        # Side rocker sill trim & subtle 3D wheel-arch brow lips so wheels sit in framed arches
+        x0r, x1r = (0.86, 0.925) if sd > 0 else (-0.925, -0.86)
+        m.box(x0r, x1r, 0.25, 0.33, -0.96, 0.92, "plastic", skip=("-y", "-x" if sd > 0 else "+x"))
+        for (zc, R, ar, xo) in S["wheels"]:
+            m.box(x0r, x1r, R + ar * 0.84, R + ar * 1.02, zc - 0.24, zc + 0.24, "plastic", skip=("-y", "-x" if sd > 0 else "+x"))
+    # Protruding front & rear molded bumpers
+    m.box(-0.88, 0.88, 0.26, 0.43, -2.35, -2.26, "plastic", skip=("-y", "+z"))
+    m.box(-0.86, 0.86, 0.41, 0.49, -2.33, -2.25, "paint", skip=("-y", "+z"))
+    m.box(-0.89, 0.89, 0.27, 0.45, 2.26, 2.35, "plastic", skip=("-y", "-z"))
+    m.box(-0.87, 0.87, 0.43, 0.52, 2.24, 2.33, "paint", skip=("-y", "-z"))
     H = 1.47
     roof = []
     if kind == "taxi":
-        m.box(-0.20, 0.20, H - 0.01, H + 0.035, 0.02, 0.26, "plastic", skip=("-y",))
-        m.box(-0.30, 0.30, H + 0.035, H + 0.17, -0.02, 0.34, "sign", skip=("-y",))
-        roof = [[-0.285, H + 0.045, -0.015, 0.285, H + 0.16, 0.335]]
+        # Low-profile beveled trapezoidal NYC taxi medallion roof sign
+        m.box(-0.22, 0.22, H - 0.01, H + 0.025, 0.02, 0.26, "plastic", skip=("-y",))
+        pts = [
+            (-0.29, H + 0.025, -0.02), ( 0.29, H + 0.025, -0.02), ( 0.29, H + 0.025, 0.29), (-0.29, H + 0.025, 0.29),
+            (-0.22, H + 0.145,  0.04), ( 0.22, H + 0.145,  0.04), ( 0.22, H + 0.145, 0.23), (-0.22, H + 0.145, 0.23),
+        ]
+        m.convex(pts, [[0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7], [4, 5, 6, 7]], "sign")
+        roof = [[-0.25, H + 0.035, 0.00, 0.25, H + 0.135, 0.26]]
     elif kind == "police":
-        m.box(-0.55, 0.55, H - 0.01, H + 0.03, -0.02, 0.22, "plastic", skip=("-y",))
-        m.box(-0.53, -0.02, H + 0.03, H + 0.115, 0.0, 0.20, "lamp_r", skip=("-y",))
-        m.box(0.02, 0.53, H + 0.03, H + 0.115, 0.0, 0.20, "lamp_b", skip=("-y",))
-        roof = [[-0.51, H + 0.04, 0.005, -0.04, H + 0.105, 0.195], [0.04, H + 0.04, 0.005, 0.51, H + 0.105, 0.195]]
-        # push bar on the nose
+        # Sleek beveled split LED lightbar on thin roof stanchions + cross-braced push bumper
+        for sx in (-0.36, 0.36):
+            m.box(sx - 0.06, sx + 0.06, H - 0.01, H + 0.028, 0.04, 0.18, "plastic", skip=("-y",))
+        m.box(-0.54, 0.54, H + 0.024, H + 0.045, 0.01, 0.21, "plastic", skip=("-y",))
+        pts_l = [(-0.54, H + 0.042, 0.01), (-0.03, H + 0.042, 0.01), (-0.03, H + 0.042, 0.21), (-0.54, H + 0.042, 0.21),
+                 (-0.50, H + 0.105, 0.04), (-0.05, H + 0.105, 0.04), (-0.05, H + 0.105, 0.18), (-0.50, H + 0.105, 0.18)]
+        pts_r = [( 0.03, H + 0.042, 0.01), ( 0.54, H + 0.042, 0.01), ( 0.54, H + 0.042, 0.21), ( 0.03, H + 0.042, 0.21),
+                 ( 0.05, H + 0.105, 0.04), ( 0.50, H + 0.105, 0.04), ( 0.50, H + 0.105, 0.18), ( 0.05, H + 0.105, 0.18)]
+        bf = [[0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7], [4, 5, 6, 7]]
+        m.convex(pts_l, bf, "lamp_r")
+        m.convex(pts_r, bf, "lamp_b")
+        m.box(-0.04, 0.04, H + 0.042, H + 0.105, 0.02, 0.20, "chrome", skip=("-y",))
+        roof = [[-0.51, H + 0.042, 0.02, -0.05, H + 0.10, 0.19], [0.05, H + 0.042, 0.02, 0.51, H + 0.10, 0.19]]
         for sx in (-0.34, 0.34):
-            m.box(sx - 0.018, sx + 0.018, 0.34, 0.66, -hl - 0.075, -hl - 0.05, "plastic", skip=("+z",))
-        m.box(-0.38, 0.38, 0.60, 0.66, -hl - 0.075, -hl - 0.045, "plastic", skip=("+z",))
+            m.box(sx - 0.022, sx + 0.022, 0.32, 0.68, -hl - 0.09, -hl - 0.04, "plastic", skip=("+z",))
+        m.box(-0.37, 0.37, 0.61, 0.67, -hl - 0.09, -hl - 0.04, "plastic", skip=("+z",))
+        m.box(-0.34, 0.34, 0.44, 0.49, -hl - 0.085, -hl - 0.04, "plastic", skip=("+z",))
     lights = glow_quads("sedan", -hl, hl)
     lights["roof"] = roof
     return lights
@@ -892,11 +917,17 @@ def build_bus(m):
     build_body(m, S, T)
     for (zc, R, ar, xo) in S["wheels"]:
         for sd in (-1, 1):
-            wheel(m, xo, zc, R, 0.30, sd, seg=12, style="steel")
+            wheel(m, xo, zc, R, 0.30, sd, seg=16, style="steel")
     for sd in (-1, 1):
         mirror(m, sd * 1.27, 1.80, -5.70, sd, 1.4, "plastic", arm=0.16)
-    m.box(-0.82, 0.82, 3.0, 3.16, -2.5, -0.5, "white", skip=("-y",))
-    m.box(-0.82, 0.82, 3.0, 3.16, 1.4, 3.4, "white", skip=("-y",))
+    # Recessed front destination sign visor & beveled rooftop HVAC pods
+    m.box(-0.92, 0.92, 2.74, 2.94, -5.92, -5.84, "plastic", skip=("+z",))
+    for z0, z1 in ((-2.5, -0.5), (1.4, 3.4)):
+        pts = [
+            (-0.84, 3.04, z0), (0.84, 3.04, z0), (0.84, 3.04, z1), (-0.84, 3.04, z1),
+            (-0.70, 3.22, z0 + 0.18), (0.70, 3.22, z0 + 0.18), (0.70, 3.22, z1 - 0.18), (-0.70, 3.22, z1 - 0.18),
+        ]
+        m.convex(pts, [[0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7], [4, 5, 6, 7]], "white")
     lights = glow_quads("bus", -6.0, 6.0)
     lights["roof"] = []
     return lights
@@ -913,7 +944,7 @@ BUILDERS = {
     "bus": build_bus,
 }
 ORDER = ["sedan", "taxi", "police", "suv", "humvee", "van", "truck", "bus"]
-BUDGET = {"sedan": 1100, "taxi": 1100, "police": 1100, "suv": 1100, "humvee": 1100, "van": 1300, "truck": 1300, "bus": 1600}
+BUDGET = {"sedan": 1450, "taxi": 1450, "police": 1450, "suv": 1100, "humvee": 1100, "van": 1300, "truck": 1300, "bus": 2050}
 
 
 # ----------------------------------------------------------------------------------------------

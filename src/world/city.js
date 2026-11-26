@@ -15,6 +15,7 @@ import { waterTower } from './props.js';
 import { specialBlock, buildLandmarks, populateStreets } from './landmarks.js';
 import { buildCityLightMap, applyCityLighting } from './city_lighting.js';
 import { applyFacadeParallax, applyShopParallax } from './facade_shader.js';
+import { applyRoadSurface, applyMarkingsWear, applyMidtownHaze } from './road_shader.js';
 import { buildNav } from './nav.js';
 
 const CHUNKS = 5;
@@ -23,6 +24,7 @@ export const SHOP_H = 4.6;
 // which vertex attributes each material family needs
 const LAYOUT = {
   walk: { uv: true }, flat: { rm: true }, veh: { uv: true, rm: true }, glow: { normal: false }, marks: { uv: true, color: false },
+  crate: { uv: true }, container: { uv: true },
   shop: { uv: true, color: false }, ads: { uv: true, normal: false, color: false },
   adsA: { uv: true, normal: false, color: false }, adsB: { uv: true, normal: false, color: false },
   ticker: { uv: true, normal: false, color: false }, signs: { uv: true, normal: false, color: false },
@@ -78,7 +80,7 @@ function ledScreen(mat, tex, pitch = 3) {
           float fw = max(fwidth(pg.x), fwidth(pg.y));
           led = mix(led, 0.84, clamp(fw * 1.2 - 0.25, 0.0, 1.0));
           float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-          diffuseColor.rgb = mix(vec3(lum), diffuseColor.rgb, 0.90) * led * 1.18;
+          diffuseColor.rgb = mix(vec3(lum), diffuseColor.rgb, 0.96) * led * 1.46;
         }`);
   };
   mat.customProgramCacheKey = () => 'led' + pitch;
@@ -88,21 +90,31 @@ function ledScreen(mat, tex, pitch = 3) {
 function makeMaterials() {
   const M = {};
   const road = T.asphaltTexture();
-  M.ground = breakTiling(new THREE.MeshStandardMaterial({
-    map: road.map, normalMap: road.normalMap, normalScale: new THREE.Vector2(0.9, 0.9),
-    roughnessMap: road.orm, metalnessMap: road.orm, roughness: 1, metalness: 1, envMapIntensity: 0.7,
-  }), 'road');
+  M.ground = applyRoadSurface(new THREE.MeshStandardMaterial({
+    map: road.map, normalMap: road.normalMap, normalScale: new THREE.Vector2(1.55, 1.55),
+    roughnessMap: road.orm, metalnessMap: road.orm, roughness: 1, metalness: 1, envMapIntensity: 0.28,
+  }), { isWalk: false, key: 'road' });
   const pave = T.pavingTexture();
-  M.walk = breakTiling(new THREE.MeshStandardMaterial({
-    map: pave.map, normalMap: pave.normalMap, normalScale: new THREE.Vector2(0.8, 0.8),
-    roughnessMap: pave.orm, metalnessMap: pave.orm, roughness: 1, metalness: 1, vertexColors: true,
-  }), 'walk', { damp: 0.45, drift: 0.22 });
+  M.walk = applyRoadSurface(new THREE.MeshStandardMaterial({
+    map: pave.map, normalMap: pave.normalMap, normalScale: new THREE.Vector2(0.95, 0.95),
+    roughnessMap: pave.orm, metalnessMap: pave.orm, roughness: 1, metalness: 1, vertexColors: true, envMapIntensity: 0.34,
+  }), { isWalk: true, key: 'walk' });
   M.flat = pbrMaterial({ grain: 9, grainAmount: 0.14 });
   M.veh = vehicleMaterial();
   M.glow = new THREE.MeshBasicMaterial({ vertexColors: true });
-  M.marks = new THREE.MeshStandardMaterial({
-    map: T.markingsTexture(), transparent: true, depthWrite: false, roughness: 0.72, metalness: 0,
+  M.marks = applyMarkingsWear(new THREE.MeshStandardMaterial({
+    map: T.markingsTexture(), transparent: true, depthWrite: false, roughness: 0.94, metalness: 0, envMapIntensity: 0.06,
     polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+  }));
+  const cr = T.crateTextures();
+  M.crate = new THREE.MeshStandardMaterial({
+    map: cr.map, normalMap: cr.normalMap, normalScale: new THREE.Vector2(1.2, 1.2),
+    roughnessMap: cr.orm, metalnessMap: cr.orm, roughness: 1, metalness: 1, vertexColors: true,
+  });
+  const ct = T.containerTextures();
+  M.container = new THREE.MeshStandardMaterial({
+    map: ct.map, normalMap: ct.normalMap, normalScale: new THREE.Vector2(1.3, 1.3),
+    roughnessMap: ct.orm, metalnessMap: ct.orm, roughness: 1, metalness: 1, vertexColors: true,
   });
   T.FACADES.forEach((def, i) => {
     const tex = T.facadeTextures(def, 100 + i * 17);
@@ -141,9 +153,10 @@ function makeMaterials() {
     normalMap: shop.normalMap, normalScale: new THREE.Vector2(1.4, 1.4),
     roughnessMap: shop.orm, metalnessMap: shop.orm, roughness: 1, metalness: 1, envMapIntensity: 1.25,
   });
-  // Fast phone-safe storefront material (shares same GPU maps, skips normal/IBL/parallax on Medium/Low)
-  M.shopLite = new THREE.MeshLambertMaterial({
-    map: shop.map, emissiveMap: shop.emissive, emissive: 0xffffff, emissiveIntensity: 0.96,
+  // Lightweight glass storefront material for Medium/Low (skips normalMap/roughnessMap/parallax, keeps env reflection & warm glow)
+  M.shopLite = new THREE.MeshStandardMaterial({
+    map: shop.map, emissiveMap: shop.emissive, emissive: 0xffffff, emissiveIntensity: 1.05,
+    roughness: 0.34, metalness: 0.08, envMapIntensity: 1.15,
   });
   const adsTex = T.adsTexture();
   M.ads = ledScreen(new THREE.MeshBasicMaterial({ map: adsTex }), adsTex);
@@ -258,7 +271,7 @@ export function buildCity({ onProgress } = {}) {
     const g = new THREE.PlaneGeometry(size, size);
     g.rotateX(-Math.PI / 2);
     const uv = g.attributes.uv;
-    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (size / 7), uv.getY(i) * (size / 7));
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (size / 4.2), uv.getY(i) * (size / 4.2));
     const mesh = new THREE.Mesh(g, M.ground);
     mesh.receiveShadow = true;
     mesh.matrixAutoUpdate = false;
@@ -421,15 +434,23 @@ export function buildCity({ onProgress } = {}) {
   // Bake world-space Times Square neon spill + analytical ground/building contact AO
   const lightMap = buildCityLightMap(ctx);
   ctx.lightMap = lightMap;
-  applyCityLighting(M.ground, lightMap, { mode: 'ground', spillGain: 0.52, aoStrength: 1.0, key: 'ground' });
-  applyCityLighting(M.walk, lightMap, { mode: 'walk', spillGain: 0.48, aoStrength: 1.0, key: 'walk' });
-  applyCityLighting(M.marks, lightMap, { mode: 'marks', spillGain: 0.34, aoStrength: 0.85, key: 'marks' });
-  applyCityLighting(M.flat, lightMap, { mode: 'flat', spillGain: 0.48, aoStrength: 0.85, baseAO: 0.32, key: 'flat' });
+  applyCityLighting(M.ground, lightMap, { mode: 'ground', spillGain: 0.28, aoStrength: 1.0, key: 'ground' });
+  applyCityLighting(M.walk, lightMap, { mode: 'walk', spillGain: 0.34, aoStrength: 1.0, key: 'walk' });
+  applyCityLighting(M.marks, lightMap, { mode: 'marks', spillGain: 0.24, aoStrength: 0.85, key: 'marks' });
+  applyCityLighting(M.flat, lightMap, { mode: 'flat', spillGain: 0.48, aoStrength: 0.85, baseAO: 0.40, key: 'flat' });
+  applyCityLighting(M.crate, lightMap, { mode: 'flat', spillGain: 0.44, aoStrength: 0.85, baseAO: 0.42, key: 'crate' });
+  applyCityLighting(M.container, lightMap, { mode: 'flat', spillGain: 0.44, aoStrength: 0.85, baseAO: 0.42, key: 'container' });
   for (let i = 0; i < T.FACADES.length; i++) {
-    applyCityLighting(M['facade' + i], lightMap, { mode: 'flat', spillGain: 0.82, aoStrength: 0.75, baseAO: 0.38, key: 'fac' + i });
+    applyCityLighting(M['facade' + i], lightMap, { mode: 'flat', spillGain: 0.82, aoStrength: 0.78, baseAO: 0.44, key: 'fac' + i });
     applyFacadeParallax(M['facade' + i], T.FACADES[i], i);
+    applyMidtownHaze(M['facade' + i], { strength: 1.0, neonPreserve: 0.72, key: 'fac' + i });
   }
   applyShopParallax(M.shop, lightMap, T.SHOP_COLS, T.SHOP_ROWS);
+  // Height-stratified blue-hour depth haze on Midtown towers & storefronts (scene.fog handles flat/veh)
+  applyMidtownHaze(M.shop, { strength: 1.0, neonPreserve: 0.68, key: 'shop' });
+  for (const [mk, m] of [['ads', M.ads], ['adsA', M.adsA], ['adsB', M.adsB], ['ticker', M.ticker]]) {
+    applyMidtownHaze(m, { strength: 0.0, baseFogScale: 0.45, key: mk });
+  }
   if (onProgress) onProgress(0.85);
   world.finalize();
 
@@ -439,8 +460,8 @@ export function buildCity({ onProgress } = {}) {
   for (const [key, b] of builders) {
     if (!b.ni) continue;
     const mesh = new THREE.Mesh(b.build(), M[b.mat]);
-    mesh.receiveShadow = b.mat === 'flat' || b.mat === 'walk' || b.mat === 'marks' || b.mat === 'foliage' || b.mat === 'bark' || b.mat === 'grass' || b.mat === 'soil' || b.mat.startsWith('facade');
-    mesh.castShadow = b.mat === 'flat' || b.mat.startsWith('facade');
+    mesh.receiveShadow = b.mat === 'flat' || b.mat === 'crate' || b.mat === 'container' || b.mat === 'walk' || b.mat === 'marks' || b.mat === 'foliage' || b.mat === 'bark' || b.mat === 'grass' || b.mat === 'soil' || b.mat.startsWith('facade');
+    mesh.castShadow = b.mat === 'flat' || b.mat === 'crate' || b.mat === 'container' || b.mat.startsWith('facade');
     if (b.mat === 'veh') { mesh.receiveShadow = true; mesh.castShadow = false; mesh.userData.shadowHigh = true; }
     if (b.mat === 'foliage' || b.mat === 'bark') mesh.userData.shadowHigh = true; // main.js shadowCasters(): High/Ultra only
     mesh.matrixAutoUpdate = false;
@@ -519,9 +540,15 @@ export function addBuilding(ctx, b) {
   } else tiers.push([b.x0, b.z0, b.x1, b.z1, base, top]);
 
   const uOff = rng.next(), vOff = Math.floor(rng.next() * def.rows) / def.rows;
+  const hh = (k) => hash2(cx, cz, k);
+  const coreZone = Math.abs(cx) < 140 && Math.abs(cz) < 225;
   const R = B('flat', cx, cz, 3);
   tiers.forEach((t, ti) => {
     const [x0, z0, x1, z1, y0, y1] = t;
+    const altTier = coreZone && b.h > 75 && ti >= 1 && !b.simple && !b.tiers && hh(105) < 0.55;
+    const tierStyle = altTier ? (b.style <= 1 ? 1 - b.style : (hh(106) < 0.5 ? 0 : 1)) : b.style;
+    const tDef = T.FACADES[tierStyle];
+    const tG = tierStyle === b.style ? G : B('facade' + tierStyle, cx, cz, 3);
     const walls = [[x0, z0, x1, z0, 1], [x1, z0, x1, z1, 2], [x1, z1, x0, z1, 4], [x0, z1, x0, z0, 8]];
     let run = uOff;
     for (const [ax, az, bx, bz, bit] of walls) {
@@ -539,8 +566,8 @@ export function addBuilding(ctx, b) {
             null, [cu + 0.002, cv + 0.004, cu + 1 / T.SHOP_COLS - 0.002, cv + 1 / T.SHOP_ROWS - 0.004]);
         }
       }
-      const u1 = run + len / def.tileW;
-      G.wall(ax, az, bx, bz, yLow, y1, tint, [run, yLow / def.tileH + vOff, u1, y1 / def.tileH + vOff]);
+      const u1 = run + len / tDef.tileW;
+      tG.wall(ax, az, bx, bz, yLow, y1, tint, [run, yLow / tDef.tileH + vOff, u1, y1 / tDef.tileH + vOff]);
       run = u1;
     }
     R.setRM(0.95, 0);
@@ -551,7 +578,6 @@ export function addBuilding(ctx, b) {
   // --- architectural depth: cornices, parapets, fins, storefront bands, rooftop plant.
   // All variation comes from a position hash so the city rng sequence is untouched.
   if (!b.simple) {
-    const hh = (k) => hash2(cx, cz, k);
     const CORN = STYLE_CORNICE[b.style], metal = b.style === 0;
     const dark = mulC(CORN, 0.78), light = mulC(CORN, 1.15);
     R.setRM(metal ? 0.45 : 0.9, metal ? 0.6 : 0);
@@ -572,9 +598,9 @@ export function addBuilding(ctx, b) {
         R.box(x0, y1, z0 + th, x0 + th, y1 + ph, z1 - th, dark, 19, light);
         R.box(x1 - th, y1, z0 + th, x1, y1 + ph, z1 - th, dark, 19, light);
       }
-      // vertical fins on glass / slab towers
+      // vertical mullions + recessed mechanical louver bands on glass / slab towers
       if (b.style <= 1 && b.h > 90) {
-        const span = 8, fy0 = ti === 0 ? y0 + SHOP_H : y0;
+        const span = coreZone ? 6 : 8, fy0 = ti === 0 ? y0 + SHOP_H : y0;
         const fc = b.style === 0 ? mulC(CORN, 1.1) : mulC(CORN, 0.9);
         for (let x = x0 + span / 2; x < x1 - 1; x += span) {
           R.box(x - 0.1, fy0, z0 - 0.38, x + 0.1, y1 - ch, z0, fc, 11);
@@ -584,11 +610,23 @@ export function addBuilding(ctx, b) {
           R.box(x0 - 0.38, fy0, z - 0.1, x0, y1 - ch, z + 0.1, fc, 14);
           R.box(x1, fy0, z - 0.1, x1 + 0.38, y1 - ch, z + 0.1, fc, 13);
         }
+        if (coreZone) {
+          const mechCol = C('#191c22');
+          R.setRM(0.5, 0.65);
+          for (let my = fy0 + 36; my < y1 - 10; my += 44) {
+            R.box(x0 - 0.16, my, z0 - 0.16, x1 + 0.16, my + 2.2, z0, mechCol, 8 | 16);
+            R.box(x0 - 0.16, my, z1, x1 + 0.16, my + 2.2, z1 + 0.16, mechCol, 4 | 16);
+            R.box(x0 - 0.16, my, z0, x0, my + 2.2, z1, mechCol, 2 | 16);
+            R.box(x1, my, z0, x1 + 0.16, my + 2.2, z1, mechCol, 1 | 16);
+          }
+          R.setRM(metal ? 0.45 : 0.9, metal ? 0.6 : 0);
+        }
       }
     });
-    // storefront band above the shop windows + awnings
+    // storefront band above the shop windows + belt cornice + awnings
     const t0 = tiers[0];
     const wl = [[t0[0], t0[1], t0[2], t0[1], 1], [t0[2], t0[1], t0[2], t0[3], 2], [t0[2], t0[3], t0[0], t0[3], 4], [t0[0], t0[3], t0[0], t0[1], 8]];
+    let fireEscapeDone = false;
     for (const [ax, az, bx, bz, bit] of wl) {
       if (!(b.shops & bit)) continue;
       const len = Math.hypot(bx - ax, bz - az), nx = (bz - az) / len, nz = -(bx - ax) / len;
@@ -599,9 +637,13 @@ export function addBuilding(ctx, b) {
         return [xa, za, xb, zb];
       };
       const out = nx > 0.5 ? 1 : nx < -0.5 ? 2 : nz > 0.5 ? 4 : 8;
-      const [ba, bz0, bb, bz1] = rect(0.45, 0, 1);
+      const [ba, bz0, bb, bz1] = rect(coreZone ? 0.58 : 0.45, 0, 1);
       R.setRM(0.9, 0);
-      R.box(ba, t0[4] + SHOP_H - 0.05, bz0, bb, t0[4] + SHOP_H + 0.4, bz1, STYLE_CORNICE[2], out | 16 | 32, light);
+      R.box(ba, t0[4] + SHOP_H - 0.05, bz0, bb, t0[4] + SHOP_H + 0.45, bz1, STYLE_CORNICE[2], out | 16 | 32, light);
+      if (coreZone && b.h > 22) {
+        const [ca, cz0, cb, cz1] = rect(0.32, 0, 1);
+        R.box(ca, t0[4] + SHOP_H + 7.1, cz0, cb, t0[4] + SHOP_H + 7.45, cz1, STYLE_CORNICE[2], out | 16 | 32, light);
+      }
       const n = Math.max(1, Math.round(len / 8));
       // Projecting vertical pilasters dividing street-level shop bays in the central arena (3 visible faces only)
       if (b.nearTS || (Math.abs(cx) < 260 && Math.abs(cz) < 320)) {
@@ -613,6 +655,25 @@ export function addBuilding(ctx, b) {
           const hw = Math.min(0.15 / Math.max(len, 1), 0.03);
           const [pa, pz0, pb, pz1] = rect(0.22, Math.max(0, u - hw), Math.min(1, u + hw));
           R.box(pa, t0[4], pz0, pb, t0[4] + SHOP_H - 0.04, pz1, pilCol, pilFaces, mulC(pilCol, 1.25));
+        }
+      }
+      // Selective wrought-iron fire escapes on side-street pre-war brick & loft buildings
+      if (!fireEscapeDone && coreZone && (b.style === 3 || b.style === 4) && b.h >= 16 && b.h < 58 && !b.nearTS
+          && Math.abs(cx - broadwayX(cz)) > 36 && len >= 12 && hh(112) < 0.45) {
+        fireEscapeDone = true;
+        const u0 = 0.28 + hh(113) * 0.28, u1 = Math.min(0.92, u0 + 3.6 / len);
+        const feCol = C('#1b1d22');
+        const maxFeY = Math.min(top - 3.5, t0[4] + 21);
+        R.setRM(0.55, 0.68);
+        for (let fy = t0[4] + 6.2; fy < maxFeY; fy += 3.6) {
+          const [fa, fz0, fb, fz1] = rect(0.95, u0, u1);
+          R.box(fa, fy - 0.08, fz0, fb, fy + 0.06, fz1, feCol, out | 16 | 32);
+          const [ra, rz0, rb, rz1] = rect(0.95, u0, u1);
+          R.box(ra, fy + 0.72, rz0, rb, fy + 0.84, rz1, feCol, out | 16 | 32);
+          if (fy + 3.6 < maxFeY) {
+            const [sa, sz0, sb, sz1] = rect(0.62, u0 + 0.04, (u0 + u1) * 0.5);
+            R.box(sa, fy + 0.06, sz0, sb, fy + 3.5, sz1, feCol, out | 1 | 2);
+          }
         }
       }
       for (let k = 0; k < n; k++) {
@@ -656,6 +717,15 @@ export function addBuilding(ctx, b) {
         R.box(rx - 0.25, top + mh, rz - 0.25, rx + 0.25, top + mh + rng.range(14, 40), rz + 0.25, C('#55585f'), 15);
         ctx.glow(rx, top + mh + 14, rz, '#ff3030', 1.6);
       }
+    }
+    if (b.style >= 2 && b.h >= 75 && b.h < 95 && rw > 11 && rd > 11 && hh(97) < 0.35) {
+      waterTower(ctx, rx + (hh(98) - 0.5) * 0.35 * rw, top, rz + (hh(99) - 0.5) * 0.35 * rd);
+    }
+    if (b.h >= 85 && rw > 12 && rd > 12 && hh(101) < 0.55) {
+      R.setRM(0.45, 0.7);
+      R.cyl(rx - 1.6, rz + 1.2, top, top + 6 + hh(102) * 5, 0.14, 0.06, 4, C('#666b74'), false);
+      R.cyl(rx + 1.6, rz - 1.2, top, top + 4.5 + hh(103) * 4, 0.12, 0.05, 4, C('#666b74'), false);
+      R.setRM(0.85, 0);
     }
   }
   world.addBox(b.x0, 0, b.z0, b.x1, top, b.z1, F_ALL | F_BUILDING, b.style === 0 || b.style === 1 ? S_GLASS : S_CONCRETE);

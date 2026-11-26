@@ -2,7 +2,8 @@
 // ships no image files at all.
 import * as THREE from 'three';
 import { RNG } from '../core/util.js';
-import { STREETS, AVENUES } from './layout.js';
+export { AD_PALETTES, AD_LAND, AD_PORT, adsTexture, adsAnimTexture, tickerTexture } from './ad_art.js';
+export { SHOP_COLS, SHOP_ROWS, shopTexture, shopTextures, signsTexture, glowTexture, smokeTexture, flashTexture, crateTextures, containerTextures } from './shop_textures.js';
 
 export function makeCanvas(w, h) {
   const c = document.createElement('canvas');
@@ -72,7 +73,7 @@ function fbm(w, h, seed, base = 4, oct = 4, gain = 0.5) {
 }
 
 /** Height field (0..1, tileable) -> tangent-space normal map canvas. */
-function normalCanvas(hf, w, h, strength) {
+export function normalCanvas(hf, w, h, strength) {
   const c = makeCanvas(w, h), g = c.getContext('2d');
   const img = g.createImageData(w, h), d = img.data;
   for (let y = 0; y < h; y++) {
@@ -136,57 +137,27 @@ export function asphaltTexture() {
   const S = 512;
   const mk = () => { const c = makeCanvas(S, S); return [c, c.getContext('2d')]; };
   const [A, ga] = mk(), [Hc, gh] = mk(), [O, go] = mk();
-  ga.fillStyle = '#313235'; ga.fillRect(0, 0, S, S);
+  ga.fillStyle = '#2c2e33'; ga.fillRect(0, 0, S, S);
   gh.fillStyle = gray(128); gh.fillRect(0, 0, S, S);
-  go.fillStyle = rgbRM(0.95, 0); go.fillRect(0, 0, S, S);
-  const all = (fa, fh, fo, alpha, draw) => {
-    for (const [g, f] of [[ga, fa], [gh, fh], [go, fo]]) { g.globalAlpha = alpha; g.fillStyle = f; g.strokeStyle = f; draw(g); }
-    ga.globalAlpha = gh.globalAlpha = go.globalAlpha = 1;
-  };
-  // repair patches (rotated rects, slightly different tone, raised edge)
-  for (let i = 0; i < 5; i++) {
-    const x = rng.next() * S, y = rng.next() * S, w = 50 + rng.next() * 140, h = 30 + rng.next() * 90, rot = rng.range(-0.15, 0.15);
-    const fresh = rng.chance(0.5);
-    wrapped(S, S, (ox, oy) => {
-      if (Math.abs(ox) + Math.abs(oy) > 0 && (x + ox < -w || x + ox > S + w || y + oy < -h || y + oy > S + h)) return;
-      all(fresh ? '#2c2d30' : '#4a4b4e', gray(fresh ? 134 : 124), rgbRM(fresh ? 0.78 : 0.93, 0), 0.8, (g) => {
-        g.save(); g.translate(x + ox, y + oy); g.rotate(rot); g.fillRect(0, 0, w, h);
-        g.lineWidth = 2; g.globalAlpha = 0.9;
-        if (g === gh) { g.strokeStyle = gray(90); g.strokeRect(0, 0, w, h); }
-        g.restore();
-      });
-    });
-  }
-  // oil stains and rubber (dark, low roughness)
-  for (let i = 0; i < 9; i++) {
-    const x = rng.next() * S, y = rng.next() * S, rx = 14 + rng.next() * 40, ry = 10 + rng.next() * 30, a = 0.25 + rng.next() * 0.35;
-    wrapped(S, S, (ox, oy) => {
-      for (const [g, col] of [[ga, '28,28,31'], [go, '0,70,0']]) {
-        const gr = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, Math.max(rx, ry));
-        gr.addColorStop(0, `rgba(${col},${a})`); gr.addColorStop(1, `rgba(${col},0)`);
-        g.save(); g.translate(x + ox, y + oy); g.scale(rx / Math.max(rx, ry), ry / Math.max(rx, ry)); g.translate(-(x + ox), -(y + oy));
-        g.fillStyle = gr; g.beginPath(); g.arc(x + ox, y + oy, Math.max(rx, ry), 0, 7); g.fill(); g.restore();
-      }
-    });
-  }
-  // cracks and tar-snake sealant
+  go.fillStyle = rgbRM(0.92, 0); go.fillRect(0, 0, S, S);
+  // Subtle micro-cracks (fine low-contrast hairline fissures; macro cracks & patches are world-space)
   const lines = [];
-  for (let i = 0; i < 14; i++) {
+  for (let i = 0; i < 10; i++) {
     const pts = [[rng.next() * S, rng.next() * S]];
-    const n = 5 + (rng.next() * 8 | 0), ang = rng.next() * 6.28, snake = i < 6;
+    const n = 4 + (rng.next() * 6 | 0), ang = rng.next() * 6.28;
     for (let k = 0; k < n; k++) {
-      const p = pts[k]; const a = ang + rng.range(-0.7, 0.7);
-      pts.push([p[0] + Math.cos(a) * rng.range(10, 30), p[1] + Math.sin(a) * rng.range(10, 30)]);
+      const p = pts[k]; const a = ang + rng.range(-0.75, 0.75);
+      pts.push([p[0] + Math.cos(a) * rng.range(8, 22), p[1] + Math.sin(a) * rng.range(8, 22)]);
     }
-    lines.push({ pts, snake });
+    lines.push(pts);
   }
-  for (const { pts, snake } of lines) {
+  for (const pts of lines) {
     wrapped(S, S, (ox, oy) => {
       ga.lineJoin = gh.lineJoin = go.lineJoin = 'round';
       for (const [g, col, lw, al] of [
-        [ga, snake ? '#141517' : '#121314', snake ? 3 : 1.2, snake ? 0.85 : 0.7],
-        [gh, snake ? gray(136) : gray(100), snake ? 3 : 1.4, 0.7],
-        [go, snake ? rgbRM(0.62, 0) : rgbRM(0.97, 0), snake ? 3 : 1.2, 1],
+        [ga, '#17181b', 0.95, 0.48],
+        [gh, gray(104), 1.15, 0.55],
+        [go, rgbRM(0.95, 0), 1.0, 0.85],
       ]) {
         g.globalAlpha = al; g.strokeStyle = col; g.lineWidth = lw; g.beginPath();
         pts.forEach((p, k) => (k ? g.lineTo(p[0] + ox, p[1] + oy) : g.moveTo(p[0] + ox, p[1] + oy)));
@@ -195,14 +166,14 @@ export function asphaltTexture() {
     });
   }
   ga.globalAlpha = gh.globalAlpha = go.globalAlpha = 1;
-  // coarse aggregate stones
-  for (let i = 0; i < 2600; i++) {
-    const x = rng.next() * S, y = rng.next() * S, r = 0.8 + rng.next() * 1.6;
-    const v = rng.chance(0.5) ? 'rgba(120,120,126,0.35)' : 'rgba(10,10,12,0.35)';
+  // Dense multi-scale basalt/quartz aggregate stones
+  for (let i = 0; i < 3600; i++) {
+    const x = rng.next() * S, y = rng.next() * S, r = 0.65 + rng.next() * 1.45;
+    const v = rng.chance(0.44) ? 'rgba(130,134,142,0.42)' : 'rgba(10,11,13,0.48)';
     ga.fillStyle = v; ga.beginPath(); ga.arc(x, y, r, 0, 7); ga.fill();
-    gh.fillStyle = rng.chance(0.5) ? gray(160) : gray(100); gh.globalAlpha = 0.6; gh.beginPath(); gh.arc(x, y, r, 0, 7); gh.fill(); gh.globalAlpha = 1;
+    gh.fillStyle = rng.chance(0.5) ? gray(168) : gray(90); gh.globalAlpha = 0.66; gh.beginPath(); gh.arc(x, y, r, 0, 7); gh.fill(); gh.globalAlpha = 1;
   }
-  return finishSurface(A, Hc, O, S, S, { grain: 0.8, grainH: 1.4, blotch: 0.22, nStrength: 3, seed: 21 });
+  return finishSurface(A, Hc, O, S, S, { grain: 1.08, grainH: 1.85, blotch: 0.14, nStrength: 4.4, seed: 21 });
 }
 
 /** Sidewalk: 3.2 m tile holding 2 x 2 poured slabs (1.6 m). Returns { map, normalMap, orm }. */
@@ -492,399 +463,8 @@ export function facadeTextures(def, seed) {
   return { map: toTexture(a), emissive: toTexture(e), normalMap: toTexture(normal, { srgb: false }), roughnessMap: orm, metalnessMap: orm };
 }
 
-// ---------------------------------------------------------------------------
-// Street-level shop fronts (self-lit atlas, 4 x 3 cells)
-// ---------------------------------------------------------------------------
-export const SHOP_COLS = 4, SHOP_ROWS = 3;
-const SHOP_NAMES = ['DELI & GRILL', 'PIZZA', 'GIFTS NYC', 'PHARMACY', 'COFFEE', 'ELECTRONICS', 'BAGELS', 'NEWS & LOTTO', 'DINER', 'CITY BANK', 'HOTEL', 'THEATRE TICKETS'];
-const SHOP_HUES = [8, 28, 320, 150, 24, 200, 40, 265, 350, 215, 45, 0];
-
-export function shopTexture() {
-  return shopTextures().map;
-}
-
-/** Street-level storefronts: full PBR set { map, normalMap, orm, emissive } with recessed glass, mullions & backlit signs. */
-export function shopTextures() {
-  const rng = new RNG(31);
-  const W = 1024, H = 512, SW = 512, SH = 256, cw = W / SHOP_COLS, ch = H / SHOP_ROWS;
-  const mk = (w, h, k) => { const c = makeCanvas(w, h), g = c.getContext('2d'); g.scale(k, k); return [c, g]; };
-  const [c, g] = mk(W, H, 1), [hc, gh] = mk(SW, SH, 0.5), [oc, go] = mk(SW, SH, 0.5), [ec, ge] = mk(SW, SH, 0.5);
-  const fill = (cv, col, x, y, w, h, al = 1) => { cv.globalAlpha = al; cv.fillStyle = col; cv.fillRect(x, y, w, h); cv.globalAlpha = 1; };
-
-  fill(g, '#0e1014', 0, 0, W, H);
-  fill(gh, gray(175), 0, 0, W, H);
-  fill(go, rgbRM(0.55, 0.35), 0, 0, W, H);
-  fill(ge, '#000', 0, 0, W, H);
-
-  for (let i = 0; i < SHOP_COLS * SHOP_ROWS; i++) {
-    const x = (i % SHOP_COLS) * cw, y = Math.floor(i / SHOP_COLS) * ch;
-    const hue = SHOP_HUES[i];
-    const shuttered = i === 3 || i === 9;
-    fill(g, '#16181e', x, y, cw, ch);
-    fill(gh, gray(185), x, y, cw, ch);
-    fill(go, rgbRM(0.42, 0.65), x, y, cw, ch);
-    // sign fascia lightbox (projecting out, softly backlit when open)
-    const signBg = `hsl(${hue} 72% ${shuttered ? 17 : 38}%)`;
-    fill(g, signBg, x + 4, y + 6, cw - 8, 34);
-    fill(gh, gray(225), x + 4, y + 6, cw - 8, 34);
-    fill(gh, gray(50), x + 4, y + 40, cw - 8, 5); // deep reveal shadow under fascia
-    fill(go, rgbRM(shuttered ? 0.58 : 0.24, 0.12), x + 4, y + 6, cw - 8, 34);
-    if (!shuttered) {
-      fill(ge, `hsl(${hue} 78% 36%)`, x + 4, y + 6, cw - 8, 34, 0.72);
-    }
-    const drawSignText = (cv, col, al = 1) => {
-      cv.globalAlpha = al; cv.fillStyle = col;
-      cv.font = '700 21px sans-serif'; cv.textAlign = 'center'; cv.textBaseline = 'middle';
-      cv.fillText(SHOP_NAMES[i], x + cw / 2, y + 24, cw - 20);
-      cv.globalAlpha = 1;
-    };
-    drawSignText(g, shuttered ? '#8a8d92' : '#ffffff');
-    if (!shuttered) drawSignText(ge, '#fff8ea', 0.92);
-
-    const gy = y + 46, ghPx = ch - 60;
-    if (shuttered) {
-      fill(g, '#4f545c', x + 8, gy, cw - 16, ghPx);
-      fill(go, rgbRM(0.56, 0.52), x + 8, gy, cw - 16, ghPx);
-      fill(gh, gray(118), x + 8, gy, cw - 16, ghPx);
-      for (let k = 0; k < ghPx; k += 6) {
-        fill(g, '#2e3138', x + 8, gy + k, cw - 16, 2);
-        fill(g, 'rgba(255,255,255,0.08)', x + 8, gy + k + 2, cw - 16, 1.5);
-        fill(gh, gray(72), x + 8, gy + k, cw - 16, 2);
-        fill(gh, gray(158), x + 8, gy + k + 2, cw - 16, 3);
-      }
-      // shutter lock bar & bottom rail
-      fill(g, '#24272d', x + 8, gy + ghPx - 8, cw - 16, 8);
-      fill(gh, gray(190), x + 8, gy + ghPx - 8, cw - 16, 8);
-    } else {
-      const warm = rng.chance(0.65);
-      const grad = g.createLinearGradient(0, gy, 0, gy + ghPx);
-      if (warm) { grad.addColorStop(0, '#ffe3a8'); grad.addColorStop(1, '#c9772e'); }
-      else { grad.addColorStop(0, '#e6f4ff'); grad.addColorStop(1, '#6fa6d6'); }
-      fill(g, grad, x + 8, gy, cw - 16, ghPx);
-      // Recessed glossy plate-glass pane (roughness 0.08, metalness 0.85 -> triggers shop interior parallax!)
-      fill(gh, gray(62), x + 8, gy, cw - 16, ghPx);
-      fill(go, rgbRM(0.08, 0.85), x + 8, gy, cw - 16, ghPx);
-      const eGrad = ge.createLinearGradient(0, gy, 0, gy + ghPx);
-      if (warm) { eGrad.addColorStop(0, '#ffdfa0'); eGrad.addColorStop(1, '#784214'); }
-      else { eGrad.addColorStop(0, '#d2ecff'); eGrad.addColorStop(1, '#365e84'); }
-      fill(ge, eGrad, x + 8, gy, cw - 16, ghPx, 0.78);
-      // shelves and display silhouettes
-      g.fillStyle = 'rgba(38,20,10,0.52)';
-      ge.fillStyle = 'rgba(0,0,0,0.48)';
-      for (let k = 0; k < 9; k++) {
-        const w = 10 + rng.next() * 26, h = 12 + rng.next() * 44;
-        const rx = x + 12 + rng.next() * (cw - 40 - w);
-        g.fillRect(rx, gy + ghPx - h, w, h);
-        ge.fillRect(rx, gy + ghPx - h, w, h);
-      }
-      fill(g, 'rgba(30,18,8,0.4)', x + 8, gy + ghPx * 0.34, cw - 16, 3);
-      // raised aluminum transom bar, mullions and recessed entry door
-      const doorX = x + cw * rng.pick([0.2, 0.5, 0.75]);
-      const mullion = (mx, my, mw, mh) => {
-        fill(g, '#1c2026', mx, my, mw, mh);
-        fill(gh, gray(205), mx, my, mw, mh);
-        fill(go, rgbRM(0.32, 0.80), mx, my, mw, mh);
-        fill(ge, '#000', mx, my, mw, mh);
-      };
-      mullion(x + 8, gy + ghPx * 0.24, cw - 16, 3); // transom bar
-      mullion(doorX - 18, gy, 4, ghPx);
-      mullion(doorX + 14, gy, 4, ghPx);
-      mullion(x + cw / 2 - 1.5, gy, 3, ghPx * 0.24);
-      fill(g, 'rgba(0,0,0,0.22)', doorX - 14, gy + 4, 28, ghPx - 4);
-      fill(g, '#d8dde2', doorX + 8, gy + ghPx * 0.55, 3, 12);
-      fill(gh, gray(225), doorX + 8, gy + ghPx * 0.55, 3, 12);
-    }
-    // dark stone/granite bulkhead plinth + side pilasters
-    fill(g, '#16171b', x, y + ch - 13, cw, 13);
-    fill(gh, gray(198), x, y + ch - 13, cw, 13);
-    fill(go, rgbRM(0.70, 0.05), x, y + ch - 13, cw, 13);
-    fill(ge, '#000', x, y + ch - 13, cw, 13);
-    fill(g, '#111216', x, y, 5, ch);
-    fill(g, '#111216', x + cw - 5, y, 5, ch);
-    fill(gh, gray(212), x, y, 5, ch);
-    fill(gh, gray(212), x + cw - 5, y, 5, ch);
-    fill(go, rgbRM(0.55, 0.35), x, y, 5, ch);
-    fill(go, rgbRM(0.55, 0.35), x + cw - 5, y, 5, ch);
-    fill(ge, '#000', x, y, 5, ch);
-    fill(ge, '#000', x + cw - 5, y, 5, ch);
-  }
-  // realism pass: subtle grime streaks, glass sheen & weathering
-  for (let i = 0; i < SHOP_COLS * SHOP_ROWS; i++) {
-    const x = (i % SHOP_COLS) * cw, y = Math.floor(i / SHOP_COLS) * ch;
-    const gy = y + 46, ghPx = ch - 60;
-    if (i !== 3 && i !== 9) {
-      fill(g, 'rgba(20,25,36,0.34)', x + 8, gy, cw - 16, ghPx);
-      const dk = g.createLinearGradient(0, gy, 0, gy + ghPx);
-      dk.addColorStop(0, 'rgba(10,14,24,0.22)'); dk.addColorStop(0.5, 'rgba(10,14,24,0)'); dk.addColorStop(1, 'rgba(10,14,24,0.32)');
-      fill(g, dk, x + 8, gy, cw - 16, ghPx);
-      fill(g, 'rgba(0,0,0,0.45)', x + 8, gy + ghPx - 8, cw - 16, 8);
-    }
-    fill(g, 'rgba(0,0,0,0.14)', x + 4, y + 6, cw - 8, 34);
-    for (let k = 0; k < 12; k++) {
-      const sx = x + 10 + rng.next() * (cw - 20), len = 18 + rng.next() * 52;
-      const gr = g.createLinearGradient(0, y + 40, 0, y + 40 + len);
-      gr.addColorStop(0, 'rgba(0,0,0,0.22)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
-      fill(g, gr, sx, y + 40, 2 + rng.next() * 3.5, len);
-    }
-  }
-  g.fillStyle = 'rgba(0,0,0,0.45)';
-  for (let k = 0; k < 800; k++) { g.globalAlpha = 0.03 + rng.next() * 0.09; g.fillRect(rng.next() * W, rng.next() * H, 1 + rng.next() * 3, 1 + rng.next() * 3); }
-  g.globalAlpha = 1;
-
-  const hd = gh.getImageData(0, 0, SW, SH).data, hf = new Float32Array(SW * SH);
-  for (let i = 0; i < SW * SH; i++) hf[i] = hd[i * 4] / 255;
-  const normalMap = toTexture(normalCanvas(hf, SW, SH, 3.0), { repeat: false, srgb: false });
-  const orm = toTexture(oc, { repeat: false, srgb: false });
-  return {
-    map: toTexture(c, { repeat: false }),
-    normalMap,
-    orm,
-    emissive: toTexture(ec, { repeat: false }),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Billboards. All brands and shows are invented.
-// ---------------------------------------------------------------------------
-const BRANDS = [
-  ['NOVA', 'feel the spark'], ['ZENITH', 'cola'], ['AURORA', 'skincare'], ['PRISM', 'see more'],
-  ['VOLT', 'energy drink'], ['ECHO', 'audio'], ['LUXE', 'new york'], ['ORBIT', 'air'],
-  ['PULSE', 'fitness'], ['KITE', 'mobile'], ['EMBER', 'grill'], ['TIDAL', 'swimwear'],
-  ['HALO', 'phones'], ['RIVET', 'denim'], ['COMET', 'pizza'], ['MAPLE', '& co.'],
-  ['ATLAS', 'bank'], ['FABLE', 'books'], ['QUARTZ', 'watches'], ['JUNO', 'streaming'],
-];
-const SHOWS = ['THE MIDNIGHT HOUR', 'STARLIGHT REVUE', 'CITY OF GLASS', 'THE LAST ENCORE', 'NEON HEARTS', 'A WINTER IN HARLEM'];
-const PALETTES = [
-  ['#ff2d6f', '#ff9a3c'], ['#00c2ff', '#2b4bff'], ['#ffe44d', '#ff7a00'], ['#19e68c', '#008a7a'],
-  ['#b44dff', '#ff3d9a'], ['#ffffff', '#b8c4d8'], ['#ff3b30', '#7a0010'], ['#00e5d0', '#0061ff'],
-  ['#ffd000', '#ff2d55'], ['#7dff5a', '#0fa858'], ['#ff8a00', '#e52e71'], ['#30cfd0', '#330867'],
-];
-
-function drawAd(g, x, y, w, h, rng, idx) {
-  const pal = PALETTES[idx % PALETTES.length];
-  const kind = idx % 6;
-  g.save();
-  g.beginPath();
-  g.rect(x, y, w, h);
-  g.clip();
-  const grad = g.createLinearGradient(x, y, x + w, y + h);
-  grad.addColorStop(0, pal[0]);
-  grad.addColorStop(1, pal[1]);
-  g.fillStyle = grad;
-  g.fillRect(x, y, w, h);
-  const dark = pal[0] === '#ffffff' || pal[0] === '#ffe44d' || pal[0] === '#ffd000' || pal[0] === '#7dff5a';
-  const ink = dark ? '#111' : '#fff';
-  const tall = h > w;
-  const brand = BRANDS[(idx * 7 + 3) % BRANDS.length];
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  if (kind === 0 || kind === 3) {
-    // big wordmark with shapes
-    g.globalAlpha = 0.22;
-    g.fillStyle = dark ? '#000' : '#fff';
-    for (let i = 0; i < 5; i++) {
-      g.beginPath();
-      g.arc(x + rng.next() * w, y + rng.next() * h, (0.15 + rng.next() * 0.35) * Math.min(w, h), 0, 7);
-      g.fill();
-    }
-    g.globalAlpha = 1;
-    g.fillStyle = ink;
-    g.font = `900 italic ${Math.floor(Math.min(w / (brand[0].length * 0.68), h * 0.42))}px sans-serif`;
-    g.fillText(brand[0], x + w / 2, y + h * 0.45, w * 0.92);
-    g.font = `600 ${Math.floor(Math.min(w, h) * 0.1)}px sans-serif`;
-    g.fillText(brand[1].toUpperCase(), x + w / 2, y + h * (tall ? 0.62 : 0.8), w * 0.9);
-  } else if (kind === 1) {
-    // product silhouette (bottle / phone / can)
-    g.fillStyle = dark ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.92)';
-    const px = x + w * (tall ? 0.5 : 0.24), py = y + h * (tall ? 0.36 : 0.5);
-    const ph = Math.min(w, h) * 0.62, pw = ph * 0.34;
-    g.beginPath();
-    if (g.roundRect) g.roundRect(px - pw / 2, py - ph / 2 + ph * 0.18, pw, ph * 0.82, pw * 0.22);
-    else g.rect(px - pw / 2, py - ph / 2 + ph * 0.18, pw, ph * 0.82); // older WebViews
-    g.fill();
-    g.fillRect(px - pw * 0.2, py - ph / 2, pw * 0.4, ph * 0.22);
-    g.fillStyle = pal[1];
-    g.fillRect(px - pw / 2, py, pw, ph * 0.2);
-    g.fillStyle = ink;
-    g.font = `900 ${Math.floor(Math.min(w * 0.2, h * 0.24))}px sans-serif`;
-    g.fillText(brand[0], x + w * (tall ? 0.5 : 0.66), y + h * (tall ? 0.78 : 0.42), w * (tall ? 0.9 : 0.6));
-    g.font = `500 ${Math.floor(Math.min(w, h) * 0.08)}px sans-serif`;
-    g.fillText(brand[1].toUpperCase(), x + w * (tall ? 0.5 : 0.66), y + h * (tall ? 0.88 : 0.64), w * 0.6);
-  } else if (kind === 2) {
-    // theatre poster
-    g.fillStyle = '#0b0b12';
-    g.fillRect(x, y, w, h);
-    g.strokeStyle = pal[0];
-    g.lineWidth = Math.max(3, Math.min(w, h) * 0.03);
-    g.strokeRect(x + g.lineWidth, y + g.lineWidth, w - g.lineWidth * 2, h - g.lineWidth * 2);
-    g.fillStyle = pal[0];
-    g.font = `600 ${Math.floor(Math.min(w, h) * 0.08)}px sans-serif`;
-    g.fillText('NOW PLAYING', x + w / 2, y + h * 0.2, w * 0.8);
-    g.fillStyle = '#fff';
-    const title = SHOWS[idx % SHOWS.length].split(' ');
-    const fs = Math.floor(Math.min(w * 0.17, h * 0.16));
-    g.font = `900 ${fs}px serif`;
-    const lines = tall ? title : [title.slice(0, Math.ceil(title.length / 2)).join(' '), title.slice(Math.ceil(title.length / 2)).join(' ')];
-    lines.forEach((l, i) => g.fillText(l, x + w / 2, y + h * 0.5 + (i - (lines.length - 1) / 2) * fs * 1.05, w * 0.86));
-    g.fillStyle = pal[1];
-    g.font = `700 ${Math.floor(Math.min(w, h) * 0.07)}px sans-serif`;
-    g.fillText('★ ★ ★ ★ ★', x + w / 2, y + h * 0.84, w * 0.8);
-  } else if (kind === 4) {
-    // bold stripes
-    g.fillStyle = dark ? 'rgba(0,0,0,0.16)' : 'rgba(255,255,255,0.2)';
-    const sw = Math.max(w, h) / 9;
-    for (let i = -10; i < 20; i++) {
-      g.beginPath();
-      g.moveTo(x + i * sw * 2, y);
-      g.lineTo(x + i * sw * 2 + sw, y);
-      g.lineTo(x + i * sw * 2 + sw - h, y + h);
-      g.lineTo(x + i * sw * 2 - h, y + h);
-      g.fill();
-    }
-    g.fillStyle = ink;
-    g.font = `900 ${Math.floor(Math.min(w / (brand[0].length * 0.7), h * 0.5))}px sans-serif`;
-    g.fillText(brand[0], x + w / 2, y + h / 2, w * 0.9);
-  } else {
-    // sale / slogan card
-    g.fillStyle = '#0d0f14';
-    g.fillRect(x + w * 0.06, y + h * 0.08, w * 0.88, h * 0.84);
-    g.fillStyle = pal[0];
-    g.font = `900 ${Math.floor(Math.min(w * 0.22, h * 0.3))}px sans-serif`;
-    g.fillText(rng.pick(['OPEN 24/7', 'NEW YORK', 'TONIGHT', 'LIVE', 'ON SALE', 'NYC ♥']), x + w / 2, y + h * 0.42, w * 0.8);
-    g.fillStyle = '#fff';
-    g.font = `600 ${Math.floor(Math.min(w, h) * 0.09)}px sans-serif`;
-    g.fillText(`${brand[0]} ${brand[1].toUpperCase()}`, x + w / 2, y + h * 0.7, w * 0.78);
-  }
-  // LED panel seams
-  g.globalAlpha = 0.1;
-  g.fillStyle = '#000';
-  for (let i = 1; i < 6; i++) {
-    g.fillRect(x + (w * i) / 6, y, 1, h);
-    g.fillRect(x, y + (h * i) / 6, w, 1);
-  }
-  g.globalAlpha = 1;
-  g.restore();
-}
-
-/** Static ads: 8 landscape cells on the top half, 8 portrait cells below. */
-export const AD_PALETTES = PALETTES;
-export const AD_LAND = [], AD_PORT = [];
-for (let i = 0; i < 8; i++) {
-  AD_LAND.push({ u0: (i % 4) / 4, v0: 1 - (Math.floor(i / 4) + 1) / 4, u1: (i % 4 + 1) / 4, v1: 1 - Math.floor(i / 4) / 4, color: PALETTES[i % PALETTES.length][0] });
-  const pi = i + 8 + (i % 2 ? 0 : 3);
-  AD_PORT.push({ u0: i / 8, v0: 0, u1: (i + 1) / 8, v1: 0.5, color: PALETTES[pi % PALETTES.length][0] });
-}
-export function adsTexture() {
-  const rng = new RNG(77);
-  const c = makeCanvas(2048, 1024), g = c.getContext('2d');
-  for (let i = 0; i < 8; i++) drawAd(g, (i % 4) * 512, Math.floor(i / 4) * 256, 512, 256, rng, i);
-  for (let i = 0; i < 8; i++) drawAd(g, i * 256, 512, 256, 512, rng, i + 8 + (i % 2 ? 0 : 3));
-  return toTexture(c, { repeat: false });
-}
-
-/** Animated screens: 4 x 4 frames; the material steps its UV offset between them. */
-export function adsAnimTexture() {
-  const rng = new RNG(99);
-  const c = makeCanvas(1024, 1024), g = c.getContext('2d');
-  for (let i = 0; i < 16; i++) drawAd(g, (i % 4) * 256, Math.floor(i / 4) * 256, 256, 256, rng, i * 5 + 1);
-  const t = toTexture(c, { repeat: true });
-  return t;
-}
-
-export function tickerTexture() {
-  const c = makeCanvas(2048, 64), g = c.getContext('2d');
-  g.fillStyle = '#080604';
-  g.fillRect(0, 0, 2048, 64);
-  g.fillStyle = '#ffb21a';
-  g.font = '700 40px monospace';
-  g.textBaseline = 'middle';
-  g.fillText('● MIDTOWN EVACUATION ORDER REMAINS IN EFFECT ● MARINES SECURE TIMES SQUARE ● HOSTILES REPORTED NEAR BRYANT PARK ●', 8, 34, 2032);
-  // LED dot mask
-  g.fillStyle = 'rgba(0,0,0,0.35)';
-  for (let x = 0; x < 2048; x += 4) g.fillRect(x, 0, 1, 64);
-  for (let y = 0; y < 64; y += 4) g.fillRect(0, y, 2048, 1);
-  return toTexture(c, { repeat: true });
-}
-
-// ---------------------------------------------------------------------------
-// Street-name signs (8 x 16 atlas of 256x64 cells)
-// ---------------------------------------------------------------------------
-export function signsTexture() {
-  const c = makeCanvas(2048, 1024), g = c.getContext('2d');
-  const cells = {};
-  const labels = [];
-  for (const s of STREETS) { labels.push(`W ${s.n} St`); labels.push(`E ${s.n} St`); }
-  for (const a of AVENUES) labels.push(a.name.replace(' AV', ' Av').replace('MADISON', 'Madison').replace('PARK', 'Park').replace('LEXINGTON', 'Lexington'));
-  labels.push('Broadway', 'Times Sq', 'SUBWAY', 'POLICE', 'TKTS', 'ONE WAY');
-  labels.forEach((label, i) => {
-    const col = i % 8, row = Math.floor(i / 8);
-    const x = col * 256, y = row * 64;
-    const special = label === 'SUBWAY' || label === 'POLICE' || label === 'TKTS' || label === 'ONE WAY';
-    g.fillStyle = label === 'SUBWAY' ? '#101114' : label === 'POLICE' ? '#123a8c' : label === 'TKTS' ? '#c8102e' : label === 'ONE WAY' ? '#111' : '#0c6b3d';
-    g.fillRect(x, y, 256, 64);
-    g.strokeStyle = '#fff';
-    g.lineWidth = 3;
-    g.strokeRect(x + 4, y + 4, 248, 56);
-    g.fillStyle = '#fff';
-    g.font = `${special ? 800 : 700} 38px sans-serif`;
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    g.fillText(label, x + 128, y + 34, 232);
-    cells[label] = { u0: x / 2048, u1: (x + 256) / 2048, v0: 1 - (y + 64) / 1024, v1: 1 - y / 1024 };
-  });
-  return { texture: toTexture(c, { repeat: false }), cells };
-}
-
-// ---------------------------------------------------------------------------
-// Sprites
-// ---------------------------------------------------------------------------
-export function glowTexture(inner = 'rgba(255,255,255,1)', outer = 'rgba(255,255,255,0)') {
-  const c = makeCanvas(64, 64), g = c.getContext('2d');
-  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grad.addColorStop(0, inner);
-  grad.addColorStop(0.25, 'rgba(255,255,255,0.55)');
-  grad.addColorStop(1, outer);
-  g.fillStyle = grad;
-  g.fillRect(0, 0, 64, 64);
-  return toTexture(c, { repeat: false, aniso: false });
-}
-
-export function smokeTexture() {
-  const rng = new RNG(5);
-  const c = makeCanvas(64, 64), g = c.getContext('2d');
-  for (let i = 0; i < 26; i++) {
-    const x = 32 + rng.range(-14, 14), y = 32 + rng.range(-14, 14), r = rng.range(8, 18);
-    const grad = g.createRadialGradient(x, y, 0, x, y, r);
-    grad.addColorStop(0, 'rgba(255,255,255,0.22)');
-    grad.addColorStop(1, 'rgba(255,255,255,0)');
-    g.fillStyle = grad;
-    g.fillRect(0, 0, 64, 64);
-  }
-  return toTexture(c, { repeat: false, aniso: false });
-}
-
-export function flashTexture() {
-  const c = makeCanvas(64, 64), g = c.getContext('2d');
-  g.translate(32, 32);
-  const grad = g.createRadialGradient(0, 0, 0, 0, 0, 30);
-  grad.addColorStop(0, 'rgba(255,255,235,1)');
-  grad.addColorStop(0.3, 'rgba(255,200,90,0.9)');
-  grad.addColorStop(1, 'rgba(255,120,20,0)');
-  g.fillStyle = grad;
-  for (let i = 0; i < 6; i++) {
-    g.rotate(Math.PI / 3);
-    g.beginPath();
-    g.moveTo(0, 0);
-    g.lineTo(-7, -14);
-    g.lineTo(0, -31);
-    g.lineTo(7, -14);
-    g.fill();
-  }
-  g.beginPath();
-  g.arc(0, 0, 11, 0, 7);
-  g.fill();
-  return toTexture(c, { repeat: false, aniso: false });
-}
+// Street-level shops, street signs, and glow/smoke/flash sprites live in ./shop_textures.js
+// and billboards live in ./ad_art.js (both re-exported at the top of this file).
 
 // ---------------------------------------------------------------------------
 // Soldier uniform atlas (512 x 512). Left half: camouflage. Right half: flat

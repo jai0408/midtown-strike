@@ -82,6 +82,18 @@ export function scatterPlants(D, groundAt, world) {
     if (c % 2) clump('blueberry', x, z, 3, 1.4, 0.8, 1.15, 90); else clump('clover', x, z, 5, 1.8, 0.9, 1.3, 90);
     c++;
   }
+  // -- gravel-to-grass yard & trail border transition clutter (clover, ferns, small mossy rocks)
+  for (let c = 0, tries = 0; c < 30 && tries < 700; tries++) {
+    const x = rng.range(-32, 46), z = rng.range(18, 68);
+    const gm = grass(x, z);
+    if (gm < 28 || gm > 135) continue;
+    if (!inArea(x, z) || !dry(x, z) || inPond(x, z, -1.2) || nearBuses(x, z, 1.2) || nearSpawn(x, z) || blocked(x, z, 0.55)) continue;
+    const roll = c % 3;
+    if (roll === 0) clump('clover', x, z, 3, 1.3, 0.85, 1.2, 20);
+    else if (roll === 1) put(bushes, x, z, rng.range(0.65, 1.05), rng.chance(0.5) ? 'fern' : 'fern2');
+    else put(bushes, x, z, rng.range(0.55, 0.95), 'rock');
+    c++;
+  }
   // -- mossy rocks
   for (let c = 0, tries = 0; c < 14 && tries < 400; tries++) {
     const x = rng.range(b.x0 + 4, b.x1 - 4), z = rng.range(-40, 60);

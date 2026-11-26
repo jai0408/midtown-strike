@@ -323,8 +323,14 @@ function windMaterial(p) {
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\n' + VERT_PARS)
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + FADE + SWAY);
+      .replace('#include <common>', '#include <common>\n' + VERT_PARS + (p.isBark ? 'varying float vBarkY;\n' : ''))
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + FADE + SWAY + (p.isBark ? 'vBarkY = transformed.y;\n' : ''));
+    if (p.isBark) {
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nvarying float vBarkY;')
+        .replace('#include <color_fragment>', `#include <color_fragment>
+          diffuseColor.rgb = min(diffuseColor.rgb * mix(0.54, 1.0, smoothstep(0.0, 1.5, vBarkY)), vec3(0.46));`);
+    }
     if (p.twoSidedLight) {
       // Leaves are lit like thin translucent shells: no normal flip on back faces,
       // internal crown AO depth gradient, wrap-diffuse warm sun transmission, and
@@ -335,7 +341,7 @@ function windMaterial(p) {
           {
             // Sculptural canopy depth: cooler/deeper inner foliage, warmer sunlit outer tips
             float tip = smoothstep(0.08, 0.88, vCrown);
-            diffuseColor.rgb *= mix(vec3(0.74, 0.80, 0.82), vec3(1.10, 1.12, 0.96), tip);
+            diffuseColor.rgb *= mix(vec3(0.66, 0.72, 0.74), vec3(1.06, 1.08, 0.94), tip);
           }`)
         .replace('#include <normal_fragment_begin>',
           THREE.ShaderChunk.normal_fragment_begin.replace('float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;', 'float faceDirection = 1.0;'))
@@ -351,13 +357,13 @@ function windMaterial(p) {
             float bl2 = bl * bl;
             float bl5 = bl2 * bl2 * bl;
             float tipWeight = 0.35 + 0.65 * vCrown;
-            float sss = (bl2 * 0.42 + bl5 * 0.52) * tipWeight;
-            vec3 leafGlow = diffuseColor.rgb * vec3(1.22, 1.46, 0.54);
+            float sss = (bl2 * 0.36 + bl5 * 0.46) * tipWeight;
+            vec3 leafGlow = diffuseColor.rgb * vec3(1.02, 1.12, 0.62);
             // Subtle waxy leaf sky sheen at grazing angles on outer tips
             float f1 = 1.0 - clamp(dot(normal, vDir), 0.0, 1.0);
             float f2 = f1 * f1;
-            float sheen = f2 * f2 * 0.08 * vCrown;
-            outgoingLight += leafGlow * (sss + wrapTrans * 0.24 * tipWeight) + vec3(0.75, 0.88, 1.0) * sheen * diffuseColor.rgb;
+            float sheen = f2 * f2 * 0.04 * vCrown;
+            outgoingLight += leafGlow * (sss + wrapTrans * 0.22 * tipWeight) + vec3(0.75, 0.88, 1.0) * sheen * diffuseColor.rgb;
           }
           #include <opaque_fragment>`);
     }
@@ -365,7 +371,7 @@ function windMaterial(p) {
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', '#include <common>\nvarying float vGT;')
         .replace('#include <map_fragment>', '#include <map_fragment>\ndiffuseColor.rgb *= mix(vec3(0.8, 0.88, 0.7), vec3(1.2, 1.1, 0.8), vGT);')
-        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n{ float ndv = clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0); totalEmissiveRadiance += diffuseColor.rgb * pow(max(0.0, 1.0 - ndv), 3.0) * 0.14; }');
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n{ float ndv = clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0); float rf = 1.0 - ndv; totalEmissiveRadiance += diffuseColor.rgb * (rf * rf * rf * 0.14); }');
     }
     if (p.selfLit > 0) {
       shader.fragmentShader = shader.fragmentShader
@@ -373,7 +379,7 @@ function windMaterial(p) {
         .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * uSelfLit;');
     }
   };
-  m.customProgramCacheKey = () => `foliage-${p.amp}-${p.grass ? 'g' : 'f'}-${p.twoSidedLight ? 1 : 0}-${p.selfLit > 0 ? 1 : 0}`;
+  m.customProgramCacheKey = () => `foliage-${p.amp}-${p.grass ? 'g' : 'f'}-${p.twoSidedLight ? 1 : 0}-${p.isBark ? 'b' : '0'}-${p.selfLit > 0 ? 1 : 0}`;
   return m;
 }
 
@@ -460,7 +466,7 @@ export async function buildFoliage({ foliage, heightAt, quality = 'medium', excl
   const group = new THREE.Group();
   group.name = 'foliage';
 
-  const barkMat = windMaterial({ map: tex.bark, normalMap: tex.barkN, normalScale: 1.5, side: THREE.FrontSide, amp: CLASS.tree.amp, flutter: 0, alphaTest: 0, roughness: 0.86, selfLit: 0 });
+  const barkMat = windMaterial({ map: tex.bark, normalMap: tex.barkN, normalScale: 1.5, side: THREE.FrontSide, amp: CLASS.tree.amp, flutter: 0, alphaTest: 0, roughness: 0.88, selfLit: 0, isBark: true });
   const matCache = new Map();
   /** Leaf material per class + atlas (trees / shrubs: leaf atlas; undergrowth: plants atlas; LOD1: impostors). */
   const leafMatFor = (cls, atlas, imp) => {
@@ -472,8 +478,8 @@ export async function buildFoliage({ foliage, heightAt, quality = 'medium', excl
       const normalMap = imp ? null : atlas === 'pl' ? tex.plN : tex.leafN;
       const rock = cls === 'rock';
       m = windMaterial({
-        map, normalMap, normalScale: imp ? 0 : cls === 'tree' ? 0.75 : 0.85, side: rock ? THREE.FrontSide : THREE.DoubleSide,
-        amp: c.amp, flutter: imp ? 0.02 : c.flutter, alphaTest: 0.45, roughness: rock ? 0.95 : 0.7, selfLit: rock ? 0 : 0.05, twoSidedLight: !rock, a2c: msaa,
+        map, normalMap, normalScale: imp ? 0 : cls === 'tree' ? 1.15 : 0.85, side: rock ? THREE.FrontSide : THREE.DoubleSide,
+        amp: c.amp, flutter: imp ? 0.02 : c.flutter, alphaTest: cls === 'tree' && !imp ? 0.48 : 0.45, roughness: rock ? 0.95 : 0.7, selfLit: rock ? 0 : 0.05, twoSidedLight: !rock, a2c: msaa,
       });
       matCache.set(key, m);
     }
@@ -519,7 +525,7 @@ export async function buildFoliage({ foliage, heightAt, quality = 'medium', excl
       writeMatrix(mats, i * 16, it.x, it.y, it.z, it.yaw, it.sx, it.sy, it.sz);
       tintFor(name, it.ch, it.cs, tint);
       cols[i * 3] = tint.r; cols[i * 3 + 1] = tint.g; cols[i * 3 + 2] = tint.b;
-      bcols[i * 3] = bcols[i * 3 + 1] = bcols[i * 3 + 2] = tint.g; // bark: brightness only, no hue shift
+      bcols[i * 3] = bcols[i * 3 + 1] = bcols[i * 3 + 2] = tint.g * (name.startsWith('birch') ? 0.78 : 1.0); // bark: brightness only, clamp birch poles
       xz[i * 2] = it.x; xz[i * 2 + 1] = it.z;
       let c = chunkMap.get(it.key);
       if (!c) {

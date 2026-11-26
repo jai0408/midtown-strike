@@ -157,16 +157,18 @@ export function createWater(water, heightAt, sunDir = [-0.5003, 0.7204, 0.4803])
           vec3 vDir = normalize(vViewPosition);
           float NdotV = clamp(dot(normal, vDir), 0.0, 1.0);
           
-          // Physically-based Fresnel reflection (water IOR 1.333, F0 = 0.02)
-          float fresnel = 0.02 + 0.98 * pow(1.0 - NdotV, 5.0);
+          // Physically-based Fresnel reflection (water IOR 1.333, F0 = 0.02, pow-free)
+          float f1 = 1.0 - NdotV, f2 = f1 * f1;
+          float fresnel = 0.02 + 0.98 * f2 * f2 * f1;
           outgoingLight += reflectedLight.indirectSpecular * (fresnel * 2.0);
           
           // Sun specular glint track across the waves (Call of Duty Mobile style sun glints)
           vec3 sunV = normalize((viewMatrix * vec4(uSunDir, 0.0)).xyz);
           vec3 hv = sunV + vDir;
           vec3 halfVec = hv / max(length(hv), 1e-4);   // zero when looking straight against the sun
-          float NdotH = max(dot(normal, halfVec), 0.0);
-          float sunGlint = pow(NdotH, 160.0) * 7.0 + pow(NdotH, 24.0) * 1.2;
+          float NdotH = max(dot(normal, halfVec), 1e-4);
+          float g1 = NdotH * NdotH; float g2 = g1 * g1; float g3 = g2 * g2;
+          float sunGlint = min(g3 * g3 * g3 * g2 * 7.0 + g3 * g2 * 1.2, 16.0);
           outgoingLight += uSunColor * (sunGlint * fresnel * 0.45);
           
           // Shoreline foam highlight

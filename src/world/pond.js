@@ -113,7 +113,7 @@ export function createKoiPond({ x: cx = POND.x, z: cz = POND.z, groundAt, world 
   waterGeo.setAttribute('normal', new THREE.BufferAttribute(wn, 3));
 
   const waterMat = new THREE.MeshStandardMaterial({
-    color: 0x2a6a58, roughness: 0.05, metalness: 0.0, transparent: true, opacity: 0.7,
+    color: 0x2a6a58, roughness: 0.14, metalness: 0.0, transparent: true, opacity: 0.7,
     envMapIntensity: 1.7, depthWrite: false, side: THREE.DoubleSide,
   });
   waterMat.customProgramCacheKey = () => 'koi-pond-water-2';
@@ -131,7 +131,7 @@ export function createKoiPond({ x: cx = POND.x, z: cz = POND.z, groundAt, world 
         uniform vec4 uRip[4];`)
       .replace('#include <color_fragment>', `#include <color_fragment>
         {
-          float dep = clamp(vDepth, 0.0, 1.0);
+          float dep = clamp(vDepth, 1e-4, 1.0);
           vec3 shallow = vec3(0.11, 0.30, 0.22);
           vec3 deep = vec3(0.012, 0.085, 0.075);
           diffuseColor.rgb = mix(shallow, deep, pow(dep, 0.7));
@@ -157,7 +157,8 @@ export function createKoiPond({ x: cx = POND.x, z: cz = POND.z, groundAt, world 
       .replace('#include <opaque_fragment>', `
         {
           float NdotV = clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0);
-          float fres = 0.02 + 0.98 * pow(1.0 - NdotV, 5.0);
+          float f1 = 1.0 - NdotV, f2 = f1 * f1;
+          float fres = 0.02 + 0.98 * f2 * f2 * f1;
           outgoingLight += reflectedLight.indirectSpecular * (fres * 0.9);
           outgoingLight += vec3(0.50, 0.68, 0.85) * (fres * 0.30);
           diffuseColor.a = clamp(diffuseColor.a + fres * 0.55, 0.0, 1.0);
