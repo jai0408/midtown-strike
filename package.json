@@ -1,6 +1,6 @@
 {
   "name": "midtown-strike",
-  "version": "1.6.3",
+  "version": "1.6.4",
   "private": true,
   "description": "Third-person mobile shooter set in a 2 sq mi Midtown Manhattan map. Single-file WebGL game packaged as an Android app.",
   "type": "module",
