@@ -120,10 +120,12 @@ export class MediumPostPipeline {
     const ph = Math.max(4, Math.floor(h));
     if (pw === this.w && ph === this.h) return;
     this.w = pw; this.h = ph;
-    const bw = Math.max(2, pw >> 3), bh = Math.max(2, ph >> 3);
-    this.sceneRT.setSize(pw, ph);
+    // Slight 0.92x internal HDR scene scale (~15% fewer phone pixels, bilinear upsample in composite)
+    const sw = Math.max(4, Math.round(pw * 0.92)), sh = Math.max(4, Math.round(ph * 0.92));
+    const bw = Math.max(2, sw >> 3), bh = Math.max(2, sh >> 3);
+    this.sceneRT.setSize(sw, sh);
     this.bRT.setSize(bw, bh);
-    this.extractMat.uniforms.texel.value.set(1 / pw, 1 / ph);
+    this.extractMat.uniforms.texel.value.set(1 / sw, 1 / sh);
     this.compMat.uniforms.bloomStep.value.set(1.45 / bw, 1.45 / bh);
   }
 
