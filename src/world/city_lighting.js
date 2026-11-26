@@ -280,18 +280,18 @@ export function applyCityLighting(mat, lightMap, {
     const isGround = mode === 'ground' || mode === 'walk' || mode === 'marks';
     const hasDamp = s.fragmentShader.includes('float tbDamp;');
 
-    // Contact AO applied to albedo before lighting
+    // Compute light-spill + contact-AO sample ONCE in color_fragment and reuse in emissivemap_fragment
     const aoBlock = isGround
-      ? `{
-          vec4 clm = sampleCityLight(vWp.xz);
-          float aoK = mix(1.0, clm.a, ${aoStrength.toFixed(2)});
+      ? `vec4 _clm = sampleCityLight(vWp.xz);
+        {
+          float aoK = mix(1.0, _clm.a, ${aoStrength.toFixed(2)});
           diffuseColor.rgb *= aoK;
         }`
-      : `{
-          vec4 clm = sampleCityLight(vWp.xz);
+      : `vec4 _clm = sampleCityLight(vWp.xz);
+        {
           // Grounded wall/prop base darkening across the entire city
           float hAO = mix(${(1.0 - baseAO).toFixed(2)}, 1.0, smoothstep(0.0, 2.0, max(0.0, vWp.y - ${CURB.toFixed(2)})));
-          float mapAO = mix(1.0, clm.a, ${aoStrength.toFixed(2)} * (1.0 - smoothstep(0.0, 3.5, max(0.0, vWp.y - ${CURB.toFixed(2)}))));
+          float mapAO = mix(1.0, _clm.a, ${aoStrength.toFixed(2)} * (1.0 - smoothstep(0.0, 3.5, max(0.0, vWp.y - ${CURB.toFixed(2)}))));
           diffuseColor.rgb *= hAO * mapAO;
         }`;
 
@@ -300,16 +300,14 @@ export function applyCityLighting(mat, lightMap, {
     // Colored neon & lamp bounce spill added into emissive radiance so it lights shadowed surfaces!
     const spillBlock = isGround
       ? `{
-          vec4 clm = sampleCityLight(vWp.xz);
           float wetBoost = ${hasDamp ? '1.0 + tbDamp * 0.65' : '1.0'};
           // Colored light spills onto dark asphalt and catches damp sheen; masked gently by contact AO
-          vec3 spill = clm.rgb * (diffuseColor.rgb * 0.95 + vec3(0.055) * wetBoost) * ${spillGain.toFixed(2)} * mix(0.45, 1.0, clm.a);
+          vec3 spill = _clm.rgb * (diffuseColor.rgb * 0.95 + vec3(0.055) * wetBoost) * ${spillGain.toFixed(2)} * mix(0.45, 1.0, _clm.a);
           totalEmissiveRadiance += spill;
         }`
       : `{
-          vec4 clm = sampleCityLight(vWp.xz);
           float hFade = smoothstep(-0.5, 3.0, vWp.y) * (1.0 - smoothstep(32.0, 82.0, vWp.y));
-          vec3 spill = clm.rgb * (diffuseColor.rgb * 0.75 + vec3(0.025)) * ${spillGain.toFixed(2)} * (0.35 + 0.65 * hFade);
+          vec3 spill = _clm.rgb * (diffuseColor.rgb * 0.75 + vec3(0.025)) * ${spillGain.toFixed(2)} * (0.35 + 0.65 * hFade);
           totalEmissiveRadiance += spill;
         }`;
 

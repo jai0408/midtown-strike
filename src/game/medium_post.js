@@ -1,6 +1,6 @@
 // Phone-safe lightweight post-processing for Medium quality:
-// 1/4-res bright/neon extract -> 1/8-res separable Gaussian blur -> 1 composite + ACES film grade pass.
-// Costs < ~1 ms on mobile / WebGL2 while giving Medium neon bloom and cinematic grading.
+// 1/4-res bright/neon extract (2-tap bilinear) -> single-pass 1/8-res Kawase blur ->
+// 1 composite + ACES film grade + vignette pass.
 import * as THREE from 'three';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 
@@ -19,16 +19,12 @@ const extractFragment = `
   }
 
   void main() {
-    // 4-tap bilinear box downsample (covers 4x4 full-res pixels cleanly with zero shimmer)
+    // 2 diagonal bilinear taps over 1/4-res target (covers 4x2 full-res pixels cleanly)
     vec3 c = (safeSample(vUv + vec2(-texel.x, -texel.y))
-            + safeSample(vUv + vec2( texel.x, -texel.y))
-            + safeSample(vUv + vec2(-texel.x,  texel.y))
-            + safeSample(vUv + vec2( texel.x,  texel.y))) * 0.25;
-    // Soft-knee luminance + chromatic vibrance boost so saturated neon signs glow cleanly
+            + safeSample(vUv + vec2( texel.x,  texel.y))) * 0.5;
     float peak = max(c.r, max(c.g, c.b));
     float minC = min(c.r, min(c.g, c.b));
-    float chroma = peak - minC;
-    float metric = peak + chroma * 0.28;
+    float metric = peak + (peak - minC) * 0.28;
     float knee = 0.25;
     float soft = clamp(metric - threshold + knee, 0.0, 2.0 * knee);
     soft = (soft * soft) / max(4.0 * knee, 1e-4);
@@ -37,18 +33,18 @@ const extractFragment = `
   }
 `;
 
-const blurFragment = `
+const kawaseFragment = `
   uniform sampler2D tDiffuse;
   uniform vec2 stepDir;
   varying vec2 vUv;
 
   void main() {
-    // 5-tap bilinear-optimized 9-pixel Gaussian
-    vec3 c = texture2D(tDiffuse, vUv).rgb * 0.227027;
-    c += (texture2D(tDiffuse, clamp(vUv + stepDir * 1.384615, 0.001, 0.999)).rgb
-        + texture2D(tDiffuse, clamp(vUv - stepDir * 1.384615, 0.001, 0.999)).rgb) * 0.316216;
-    c += (texture2D(tDiffuse, clamp(vUv + stepDir * 3.230769, 0.001, 0.999)).rgb
-        + texture2D(tDiffuse, clamp(vUv - stepDir * 3.230769, 0.001, 0.999)).rgb) * 0.070270;
+    // Single-pass 5-tap Dual-Kawase bloom kernel at 1/8 resolution
+    vec3 c = texture2D(tDiffuse, vUv).rgb * 0.20;
+    c += (texture2D(tDiffuse, clamp(vUv + vec2( stepDir.x,  stepDir.y), 0.001, 0.999)).rgb
+        + texture2D(tDiffuse, clamp(vUv + vec2(-stepDir.x,  stepDir.y), 0.001, 0.999)).rgb
+        + texture2D(tDiffuse, clamp(vUv + vec2( stepDir.x, -stepDir.y), 0.001, 0.999)).rgb
+        + texture2D(tDiffuse, clamp(vUv + vec2(-stepDir.x, -stepDir.y), 0.001, 0.999)).rgb) * 0.20;
     gl_FragColor = vec4(c, 1.0);
   }
 `;
@@ -100,21 +96,20 @@ export class MediumPostPipeline {
     });
     this.qRT = new THREE.WebGLRenderTarget(2, 2, linear);
     this.bRT1 = new THREE.WebGLRenderTarget(2, 2, linear);
-    this.bRT2 = new THREE.WebGLRenderTarget(2, 2, linear);
 
     this.extractMat = new THREE.ShaderMaterial({
-      uniforms: { tDiffuse: { value: this.sceneRT.texture }, texel: { value: new THREE.Vector2(0.25, 0.25) }, threshold: { value: 0.72 } },
+      uniforms: { tDiffuse: { value: this.sceneRT.texture }, texel: { value: new THREE.Vector2(0.25, 0.25) }, threshold: { value: 0.62 } },
       vertexShader: VERT, fragmentShader: extractFragment, depthTest: false, depthWrite: false,
     });
     this.blurMat = new THREE.ShaderMaterial({
-      uniforms: { tDiffuse: { value: null }, stepDir: { value: new THREE.Vector2(0.5, 0) } },
-      vertexShader: VERT, fragmentShader: blurFragment, depthTest: false, depthWrite: false,
+      uniforms: { tDiffuse: { value: this.qRT.texture }, stepDir: { value: new THREE.Vector2(0.5, 0.5) } },
+      vertexShader: VERT, fragmentShader: kawaseFragment, depthTest: false, depthWrite: false,
     });
     this.compMat = new THREE.ShaderMaterial({
       uniforms: {
         tDiffuse: { value: this.sceneRT.texture },
-        tBloom: { value: this.bRT2.texture },
-        exposure: { value: 1.0 }, sat: { value: 0.92 }, curve: { value: 0.0 }, bloomStrength: { value: 0.42 },
+        tBloom: { value: this.bRT1.texture },
+        exposure: { value: 1.0 }, sat: { value: 0.95 }, curve: { value: 0.08 }, bloomStrength: { value: 0.48 },
       },
       vertexShader: VERT, fragmentShader: compositeFragment, depthTest: false, depthWrite: false,
     });
@@ -122,7 +117,7 @@ export class MediumPostPipeline {
     this.w = 0; this.h = 0;
   }
 
-  setLook({ exposure, sat, curve, bloomStrength = 0.42, bloomThreshold = 0.72 }) {
+  setLook({ exposure, sat, curve, bloomStrength = 0.48, bloomThreshold = 0.62 }) {
     const cu = this.compMat.uniforms;
     if (exposure !== undefined) cu.exposure.value = exposure;
     if (sat !== undefined) cu.sat.value = sat;
@@ -141,9 +136,8 @@ export class MediumPostPipeline {
     this.sceneRT.setSize(pw, ph);
     this.qRT.setSize(qw, qh);
     this.bRT1.setSize(bw, bh);
-    this.bRT2.setSize(bw, bh);
     this.extractMat.uniforms.texel.value.set(1 / pw, 1 / ph);
-    this.bw = bw; this.bh = bh;
+    this.blurMat.uniforms.stepDir.value.set(1.8 / qw, 1.8 / qh);
   }
 
   render(renderer, scene, camera) {
@@ -163,16 +157,9 @@ export class MediumPostPipeline {
     renderer.setRenderTarget(this.qRT);
     this.quad.render(renderer);
 
-    // 3. Eighth-res separable Gaussian blur (H then V)
+    // 3. Single-pass 1/8-res Kawase bloom blur
     this.quad.material = this.blurMat;
-    this.blurMat.uniforms.tDiffuse.value = this.qRT.texture;
-    this.blurMat.uniforms.stepDir.value.set(1.0 / this.bw, 0.0);
     renderer.setRenderTarget(this.bRT1);
-    this.quad.render(renderer);
-
-    this.blurMat.uniforms.tDiffuse.value = this.bRT1.texture;
-    this.blurMat.uniforms.stepDir.value.set(0.0, 1.0 / this.bh);
-    renderer.setRenderTarget(this.bRT2);
     this.quad.render(renderer);
 
     // 4. Composite bloom + ACES + film grade directly to screen
@@ -187,7 +174,6 @@ export class MediumPostPipeline {
     this.sceneRT.dispose();
     this.qRT.dispose();
     this.bRT1.dispose();
-    this.bRT2.dispose();
     this.extractMat.dispose();
     this.blurMat.dispose();
     this.compMat.dispose();

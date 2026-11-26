@@ -30,7 +30,7 @@ export const ATMOSPHERES = {
     fog: { color: 0x56606e, near: 90, far: null },
     exposure: 1.0, envIntensity: 0.9, envFloor: 0x25262a, shadowR: 55, shadowRadius: 2, shadowNormalBias: 0.05,
     grade: { sat: 0.95, curve: 0.08, warm: 1.0 },
-    bloom: { strength: 0.34, threshold: 0.90, medStrength: 0.46, medThreshold: 0.62 },
+    bloom: { strength: 0.34, threshold: 0.90, medStrength: 0.48, medThreshold: 0.64 },
     reflect: { strength: 0.9, wetBase: 0.24 },   // rain-damp streets mirror the neon
   },
   // clear sunny afternoon, CoD-Mobile-daytime style: saturated blue zenith, light blue horizon,

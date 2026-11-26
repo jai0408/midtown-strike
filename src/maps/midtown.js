@@ -1,6 +1,7 @@
 // Midtown as a map object (docs/MAP_CONTRACT.md): buildCity() untouched, plus
 // the layout helpers and the minimap picture the HUD used to paint itself.
 import { buildCity } from '../world/city.js';
+import { FACADE_PARALLAX_DIST } from '../world/facade_shader.js';
 import { HALF, AVENUES, STREETS, broadwayX, districtName, crossStreet, groundAt } from '../world/layout.js';
 import { makeCanvas } from '../world/textures.js';
 
@@ -54,6 +55,7 @@ export async function buildMidtown(onProgress) {
   // are most of the city's triangles and would be drawn a second time.
   const setQuality = (name) => {
     const all = name === 'high' || name === 'ultra';
+    FACADE_PARALLAX_DIST.value = all ? 190.0 : name === 'medium' ? 45.0 : 0.0;
     city.group.traverse((m) => {
       if (m.isMesh && (m.material === city.materials.flat || m.userData.shadowHigh)) m.castShadow = all;
     });

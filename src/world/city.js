@@ -14,6 +14,7 @@ import * as T from './textures.js';
 import { waterTower } from './props.js';
 import { specialBlock, buildLandmarks, populateStreets } from './landmarks.js';
 import { buildCityLightMap, applyCityLighting } from './city_lighting.js';
+import { applyFacadeParallax, applyShopParallax } from './facade_shader.js';
 import { buildNav } from './nav.js';
 
 const CHUNKS = 5;
@@ -22,7 +23,7 @@ export const SHOP_H = 4.6;
 // which vertex attributes each material family needs
 const LAYOUT = {
   walk: { uv: true }, flat: { rm: true }, veh: { uv: true, rm: true }, glow: { normal: false }, marks: { uv: true, color: false },
-  shop: { uv: true, normal: false, color: false }, ads: { uv: true, normal: false, color: false },
+  shop: { uv: true, color: false }, ads: { uv: true, normal: false, color: false },
   adsA: { uv: true, normal: false, color: false }, adsB: { uv: true, normal: false, color: false },
   ticker: { uv: true, normal: false, color: false }, signs: { uv: true, normal: false, color: false },
   pool: { uv: true, normal: false },
@@ -134,7 +135,12 @@ function makeMaterials() {
     }), 'grass', { damp: 0, drift: 0.28 });
     M.soil = new THREE.MeshStandardMaterial({ map: T.soilTexture(), vertexColors: true, roughness: 1, metalness: 0 });
   }
-  M.shop = new THREE.MeshBasicMaterial({ map: T.shopTexture(), color: 0xd8d8d8 });
+  const shop = T.shopTextures();
+  M.shop = new THREE.MeshStandardMaterial({
+    map: shop.map, emissiveMap: shop.emissive, emissive: 0xffffff, emissiveIntensity: 0.92,
+    normalMap: shop.normalMap, normalScale: new THREE.Vector2(1.4, 1.4),
+    roughnessMap: shop.orm, metalnessMap: shop.orm, roughness: 1, metalness: 1, envMapIntensity: 1.25,
+  });
   const adsTex = T.adsTexture();
   M.ads = ledScreen(new THREE.MeshBasicMaterial({ map: adsTex }), adsTex);
   const anim = T.adsAnimTexture();
@@ -417,7 +423,9 @@ export function buildCity({ onProgress } = {}) {
   applyCityLighting(M.flat, lightMap, { mode: 'flat', spillGain: 0.48, aoStrength: 0.85, baseAO: 0.32, key: 'flat' });
   for (let i = 0; i < T.FACADES.length; i++) {
     applyCityLighting(M['facade' + i], lightMap, { mode: 'flat', spillGain: 0.82, aoStrength: 0.75, baseAO: 0.38, key: 'fac' + i });
+    applyFacadeParallax(M['facade' + i], T.FACADES[i], i);
   }
+  applyShopParallax(M.shop, lightMap, T.SHOP_COLS, T.SHOP_ROWS);
   if (onProgress) onProgress(0.85);
   world.finalize();
 
@@ -591,6 +599,18 @@ export function addBuilding(ctx, b) {
       R.setRM(0.9, 0);
       R.box(ba, t0[4] + SHOP_H - 0.05, bz0, bb, t0[4] + SHOP_H + 0.4, bz1, STYLE_CORNICE[2], out | 16 | 32, light);
       const n = Math.max(1, Math.round(len / 8));
+      // Projecting vertical pilasters dividing street-level shop bays in the central arena (3 visible faces only)
+      if (b.nearTS || (Math.abs(cx) < 260 && Math.abs(cz) < 320)) {
+        const pilCol = mulC(STYLE_CORNICE[b.style], 0.65);
+        const pilFaces = out | (out <= 2 ? 12 : 3);
+        R.setRM(0.75, 0.25);
+        for (let k = 1; k < n; k++) {
+          const u = k / n;
+          const hw = Math.min(0.15 / Math.max(len, 1), 0.03);
+          const [pa, pz0, pb, pz1] = rect(0.22, Math.max(0, u - hw), Math.min(1, u + hw));
+          R.box(pa, t0[4], pz0, pb, t0[4] + SHOP_H - 0.04, pz1, pilCol, pilFaces, mulC(pilCol, 1.25));
+        }
+      }
       for (let k = 0; k < n; k++) {
         if (hash2(cx + k * 3.1, cz + bit, 11) > 0.26) continue;
         const [aa, az0, ab, az1] = rect(1.7, (k + 0.06) / n, (k + 0.94) / n);
