@@ -172,8 +172,8 @@ const TRIGGER_HAND = handTurn([1, 0, 0], [0, -0.34, -0.94]);
 const HOLD = {
   rifle: {
     R: TRIGGER_HAND.clone().multiply(HAND_REST_R_INV),
-    L: handTurn([0.36, 0.92, 0.10], [0.95, 0.14, -0.26]).multiply(HAND_REST_L_INV),
-    rOff: [0, 0, 0], lOff: [-0.012, -0.008, 0.006],
+    L: handTurn([0.24, 0.96, 0.12], [0.95, 0.04, -0.30]).multiply(HAND_REST_L_INV),
+    rOff: [0, 0, 0], lOff: [-0.015, -0.014, 0.004],
   },
   pistol: {
     R: TRIGGER_HAND.clone().multiply(HAND_REST_R_INV),
@@ -542,9 +542,9 @@ export class Soldier {
     const postureRate = (targetPosture === 2 || this._posture > 1.05) ? 6.2 : 9.5;
     this._posture = damp(this._posture, targetPosture, postureRate, dt);
 
-    // LOD0 / LOD1 distance switch (1 draw call always)
+    // LOD0 / LOD1 distance switch (1 draw call always; LOD1 kicks in past 22m where fine finger detail is sub-pixel)
     if (this.mesh && this.meshLod1 && s.dist != null) {
-      const useLod1 = s.dist > 34 && !this.fpCam;
+      const useLod1 = s.dist > 22 && !this.fpCam;
       if (useLod1 !== this._lod1) {
         this._lod1 = useLod1;
         this.mesh.visible = !useLod1;
@@ -761,7 +761,14 @@ export class Soldier {
     } else if (pose === 'melee' || !def) {
       if (this.weapon) this.weapon.visible = true;
     } else if (thr < 0) {
-      if (this.weapon) this.weapon.visible = true;
+      if (this.weapon) {
+        this.weapon.visible = true;
+        const fpVis = !!this.fpCam;
+        for (let i = 0; i < this.weapon.children.length; i++) {
+          const ch = this.weapon.children[i];
+          if (ch.userData && ch.userData.fpOnly) ch.visible = fpVis;
+        }
+      }
       const Pz = POSES[pose];
       const sp = this.sprintK * this.moveK * (1 - this.adsK) * (1 - this.reloadK);
       const ads = this.adsK * (1 - this.reloadK);

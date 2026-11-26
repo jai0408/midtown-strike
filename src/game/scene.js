@@ -8,12 +8,13 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { setMaxAnisotropy } from '../world/textures.js';
 import { StreetReflectionPass } from './reflections.js';
+import { MediumPostPipeline } from './medium_post.js';
 
 export const QUALITY = {
-  // shadow = sun shadow map size (0 = off), post = bloom + film grade pass,
-  // ssr = wet-street screen-space reflections (needs post; only on maps that set reflect)
+  // shadow = sun shadow map size (0 = off), post = false | 'lite' (phone bloom+grade) | true (full composer),
+  // ssr = wet-street screen-space reflections (needs full post; only on maps that set reflect)
   low: { height: 540, draw: 0.7, far: 900, aa: false, shadow: 0, post: false, ssr: false },
-  medium: { height: 720, draw: 1.0, far: 1300, aa: false, shadow: 1024, post: false, ssr: false },
+  medium: { height: 720, draw: 1.0, far: 1300, aa: false, shadow: 1024, post: 'lite', ssr: false },
   high: { height: 1080, draw: 1.25, far: 1700, aa: true, shadow: 2048, post: true, ssr: true },
   ultra: { height: 1600, draw: 1.6, far: 2100, aa: true, shadow: 4096, post: true, ssr: true },   // Retina laptops and desktops
 };
@@ -27,19 +28,21 @@ export const ATMOSPHERES = {
     sunDir: [-0.82, 0.44, 0.36], sunColor: 0xffdcb0, sunIntensity: 3.4,
     hemi: { sky: 0xa9c4ee, ground: 0x4a443e, intensity: 0.9 },
     fog: { color: 0x56606e, near: 90, far: null },
-    exposure: 1.0, envIntensity: 0.9, envFloor: 0x25262a, shadowR: 55, shadowRadius: 2, shadowNormalBias: 0.05,
-    grade: { sat: 0.92, curve: 0, warm: 1.0 },
-    reflect: { strength: 0.9, wetBase: 0.22 },   // rain-damp streets mirror the neon
+    exposure: 1.0, envIntensity: 0.9, envFloor: 0x25262a, shadowR: 55, shadowRadius: 2.5, shadowNormalBias: 0.05, shadowIntensity: 0.86,
+    grade: { sat: 0.95, curve: 0.08, warm: 1.0 },
+    bloom: { strength: 0.34, threshold: 0.90, medStrength: 0.48, medThreshold: 0.64 },
+    reflect: { strength: 0.9, wetBase: 0.24 },   // rain-damp streets mirror the neon
   },
-  // clear sunny afternoon, CoD-Mobile-daytime style: saturated blue zenith, light blue horizon,
-  // soft clouds, strong warm sun, rich environment reflections, light blue haze from ~120 m
+  // clear sunny afternoon at Cedar Lodge: warm golden sun, airy neutral-sky fill &
+  // warm earth bounce so shadows stay luminous and soft instead of harsh blue-black.
   lodge: {
-    sky: { top: 0x0d47b8, mid: 0x3f8fe6, horizon: 0x9ccbf0, haze: 0x86aed8, sunCol: 0xfff0d0, gain: 1.15, stars: 0, clouds: 0.55 },
-    sunDir: [-0.5003, 0.7204, 0.4803], sunColor: 0xffedcc, sunIntensity: 4.6,
-    hemi: { sky: 0x80abf2, ground: 0x464c36, intensity: 0.72 },
-    fog: { color: 0x7ea8dc, near: 150, far: 2600, uncapped: true },
-    exposure: 1.02, envIntensity: 1.12, envFloor: 0x3e4a30, shadowR: 44, shadowRadius: 1.2, shadowNormalBias: 0.03,
-    grade: { sat: 1.08, curve: 0.35, warm: 1.0 },
+    sky: { top: 0x1452b8, mid: 0x569de6, horizon: 0xb6d6f0, haze: 0x9abbe0, sunCol: 0xfff2d4, gain: 1.12, stars: 0, clouds: 0.55 },
+    sunDir: [-0.5003, 0.7204, 0.4803], sunColor: 0xfff0d4, sunIntensity: 3.75,
+    hemi: { sky: 0xc8daf0, ground: 0x7a7058, intensity: 1.18 },
+    fog: { color: 0x90b4dc, near: 145, far: 2500, uncapped: true },
+    exposure: 1.02, envIntensity: 0.90, envFloor: 0x5c5e4a, shadowR: 44, shadowRadius: 2.8, shadowNormalBias: 0.04, shadowIntensity: 0.78,
+    grade: { sat: 1.04, curve: 0.22, warm: 1.0 },
+    bloom: { strength: 0.24, threshold: 1.06, medStrength: 0.22, medThreshold: 1.08 },
     reflect: { strength: 0, wetBase: 0 },        // dry gravel and grass: no street reflections
   },
 };
@@ -156,7 +159,7 @@ export function createScene(canvas, qualityName = 'medium') {
   sun.position.copy(sunDir).multiplyScalar(100);
   scene.add(sun);
   scene.add(sun.target);
-  let SHADOW_R = ATMOSPHERES.midtown.shadowR, shadowRadius = 2, shadowNormalBias = 0.05;
+  let SHADOW_R = ATMOSPHERES.midtown.shadowR, shadowRadius = 2.5, shadowNormalBias = 0.05, shadowIntensity = 0.86;
   let fogFar = null;   // the preset's own fog distance (null: follow the draw distance)
   let fogUncapped = false;
   const fogFarNow = () => (fogUncapped && fogFar ? fogFar : Math.min(fogFar || Infinity, q.far * 0.82));
@@ -171,7 +174,9 @@ export function createScene(canvas, qualityName = 'medium') {
     const c = sh.camera;
     c.left = -SHADOW_R; c.right = SHADOW_R; c.top = SHADOW_R; c.bottom = -SHADOW_R; c.near = 1; c.far = 700;
     c.updateProjectionMatrix();
-    sh.bias = -0.0004; sh.normalBias = shadowNormalBias; sh.radius = shadowRadius;
+    sh.bias = -0.0004; sh.normalBias = shadowNormalBias;
+    sh.radius = q.shadow >= 2048 ? shadowRadius : shadowRadius * 0.65;
+    sh.intensity = shadowIntensity;
   }
   setupShadow();
 
@@ -202,26 +207,47 @@ export function createScene(canvas, qualityName = 'medium') {
     envFloor.material.color.set(A.envFloor);
     scene.environmentIntensity = A.envIntensity;
     SHADOW_R = A.shadowR; shadowRadius = A.shadowRadius; shadowNormalBias = A.shadowNormalBias;
+    shadowIntensity = A.shadowIntensity !== undefined ? A.shadowIntensity : 0.85;
     pendingGrade = A.grade;
+    pendingBloom = A.bloom || { strength: 0.32, threshold: 1.0, medStrength: 0.36, medThreshold: 0.85 };
     reflectLook = A.reflect;
     applyReflect();
-    if (gradeU) { gradeU.sat.value = A.grade.sat; gradeU.curve.value = A.grade.curve; }
+    syncPostLook();
     setupShadow();
     buildEnvironment();
   }
 
   // post: bloom on the neon and sun glints, then tone map + a restrained film grade
-  let pendingGrade = null;
-  let composer = null, bloom = null, exposureU = null, gradeU = null;
+  let pendingGrade = null, pendingBloom = null;
+  let composer = null, medPost = null, bloom = null, exposureU = null, gradeU = null;
   let streetRefl = null, reflectLook = ATMOSPHERES.midtown.reflect;
   function applyReflect() {
     if (!streetRefl) return;
     streetRefl.setLook(reflectLook.strength, reflectLook.wetBase);
     streetRefl.enabled = !!q.ssr && reflectLook.strength > 0;
   }
+  function syncPostLook() {
+    const g = pendingGrade || ATMOSPHERES.midtown.grade;
+    const b = pendingBloom || ATMOSPHERES.midtown.bloom;
+    if (exposureU) exposureU.value = renderer.toneMappingExposure;
+    if (gradeU) { gradeU.sat.value = g.sat; gradeU.curve.value = g.curve; }
+    if (bloom) { bloom.strength = b.strength; bloom.threshold = b.threshold; }
+    if (medPost) {
+      medPost.setLook({
+        exposure: renderer.toneMappingExposure,
+        sat: g.sat, curve: g.curve,
+        bloomStrength: b.medStrength, bloomThreshold: b.medThreshold,
+      });
+    }
+  }
   function setupPost() {
-    if (!q.post) { composer = null; return; }
-    if (composer) return;
+    if (q.post === 'lite') {
+      if (!medPost) medPost = new MediumPostPipeline(renderer);
+      syncPostLook();
+      return;
+    }
+    if (q.post !== true) return;
+    if (composer) { syncPostLook(); return; }
     // the depth texture lets the street reflections march through the scene
     const rt = new THREE.WebGLRenderTarget(4, 4, {
       type: THREE.HalfFloatType, samples: q.aa ? 4 : 0, depthTexture: new THREE.DepthTexture(4, 4),
@@ -247,10 +273,10 @@ export function createScene(canvas, qualityName = 'medium') {
           gl_FragColor = vec4(clamp(c, 0.0, 48.0), 1.0);
         }`,
     }));
-    bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.32, 0.55, 1.0);
+    bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.34, 0.55, 0.88);
     composer.addPass(bloom);
     const grade = new ShaderPass({
-      uniforms: { tDiffuse: { value: null }, exposure: { value: renderer.toneMappingExposure }, sat: { value: 0.92 }, curve: { value: 0 } },
+      uniforms: { tDiffuse: { value: null }, exposure: { value: renderer.toneMappingExposure }, sat: { value: 0.95 }, curve: { value: 0.08 } },
       vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
       fragmentShader: `
         uniform sampler2D tDiffuse; uniform float exposure, sat, curve; varying vec2 vUv;
@@ -258,7 +284,7 @@ export function createScene(canvas, qualityName = 'medium') {
           const mat3 a = mat3(0.59719, 0.07600, 0.02840, 0.35458, 0.90834, 0.13383, 0.04823, 0.01566, 0.83777);
           const mat3 b = mat3(1.60475, -0.10208, -0.00327, -0.53108, 1.10813, -0.07276, -0.07367, -0.00605, 1.07602);
           x = a * x; vec3 n = x * (x + 0.0245786) - 0.000090537; vec3 d = x * (0.983729 * x + 0.4329510) + 0.238081;
-          return clamp(b * (n / d), 0.0, 1.0); }
+          return clamp(b * (n / max(d, vec3(1e-4))), 0.0, 1.0); }
         void main() {
           vec3 c = aces(texture2D(tDiffuse, vUv).rgb);
           // slight desaturation, cool shadows / warm highlights, vignette
@@ -267,13 +293,13 @@ export function createScene(canvas, qualityName = 'medium') {
           c = mix(c, c * c * (3.0 - 2.0 * c), curve);   // S-curve contrast (0 = off)
           c *= mix(vec3(0.96, 0.99, 1.04), vec3(1.03, 1.0, 0.96), smoothstep(0.0, 0.7, l));
           vec2 v = vUv - 0.5; c *= 1.0 - dot(v, v) * 0.42;
-          gl_FragColor = vec4(pow(c, vec3(1.0 / 2.2)), 1.0);
+          gl_FragColor = vec4(pow(max(c, vec3(0.0)), vec3(1.0 / 2.2)), 1.0);
         }`,
     });
     exposureU = grade.uniforms.exposure;
     gradeU = grade.uniforms;
-    if (pendingGrade) { gradeU.sat.value = pendingGrade.sat; gradeU.curve.value = pendingGrade.curve; }
     composer.addPass(grade);
+    syncPostLook();
   }
   setupPost();
   setAtmosphere('midtown');
@@ -287,7 +313,7 @@ export function createScene(canvas, qualityName = 'medium') {
     const ratio = Math.min(dpr, Math.max(0.35, (q.height / Math.max(1, Math.min(cw, ch))) * scale));
     renderer.setPixelRatio(ratio);
     renderer.setSize(cw, ch, false);
-    if (composer) { composer.setPixelRatio(ratio); composer.setSize(cw, ch); }
+    if (composer && q.post === true) { composer.setPixelRatio(ratio); composer.setSize(cw, ch); }
     camera.aspect = cw / ch;
     camera.updateProjectionMatrix();
   }
@@ -324,10 +350,12 @@ export function createScene(canvas, qualityName = 'medium') {
       sun.position.set(tx + sunDir.x * 300, sunDir.y * 300, tz + sunDir.z * 300);
       sun.target.updateMatrixWorld();
     }
-    if (composer) {
+    if (q.post === true && composer) {
       renderer.toneMapping = THREE.NoToneMapping;
       composer.render();
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    } else if (q.post === 'lite' && medPost) {
+      medPost.render(renderer, scene, camera);
     } else renderer.render(scene, camera);
   }
 

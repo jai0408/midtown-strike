@@ -1,6 +1,7 @@
 // Midtown as a map object (docs/MAP_CONTRACT.md): buildCity() untouched, plus
 // the layout helpers and the minimap picture the HUD used to paint itself.
 import { buildCity } from '../world/city.js';
+import { FACADE_PARALLAX_DIST, SHOP_PARALLAX_DIST } from '../world/facade_shader.js';
 import { HALF, AVENUES, STREETS, broadwayX, districtName, crossStreet, groundAt } from '../world/layout.js';
 import { makeCanvas } from '../world/textures.js';
 
@@ -50,12 +51,26 @@ function drawMinimap(city) {
 export async function buildMidtown(onProgress) {
   const city = buildCity({ onProgress });
   const minimap = drawMinimap(city);
+  const facSet = new Set(
+    Object.entries(city.materials).filter(([k]) => k.startsWith('facade')).map(([, v]) => v)
+  );
   // Below High only the buildings cast sun shadows: the cars and street props
   // are most of the city's triangles and would be drawn a second time.
   const setQuality = (name) => {
     const all = name === 'high' || name === 'ultra';
+    FACADE_PARALLAX_DIST.value = all ? 190.0 : 0.0;
+    SHOP_PARALLAX_DIST.value = all ? 160.0 : 0.0;
     city.group.traverse((m) => {
-      if (m.isMesh && (m.material === city.materials.flat || m.userData.shadowHigh)) m.castShadow = all;
+      if (!m.isMesh) return;
+      if (m.material === city.materials.flat || m.userData.shadowHigh) m.castShadow = all;
+      if (m.material === city.materials.shop || m.material === city.materials.shopLite) {
+        m.material = all ? city.materials.shop : city.materials.shopLite;
+        m.receiveShadow = all;
+      } else if (facSet.has(m.material) || m.material === city.materials.marks) {
+        // On phones (Medium/Low), streets/sidewalks/props/vehicles/soldiers keep crisp shadows
+        // while skyscraper facades & transparent lane marks skip 9-tap shadow sampling.
+        m.receiveShadow = all;
+      }
     });
   };
   return {

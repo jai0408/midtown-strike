@@ -500,94 +500,147 @@ const SHOP_NAMES = ['DELI & GRILL', 'PIZZA', 'GIFTS NYC', 'PHARMACY', 'COFFEE', 
 const SHOP_HUES = [8, 28, 320, 150, 24, 200, 40, 265, 350, 215, 45, 0];
 
 export function shopTexture() {
+  return shopTextures().map;
+}
+
+/** Street-level storefronts: full PBR set { map, normalMap, orm, emissive } with recessed glass, mullions & backlit signs. */
+export function shopTextures() {
   const rng = new RNG(31);
-  const W = 1024, H = 512, cw = W / SHOP_COLS, ch = H / SHOP_ROWS;
-  const c = makeCanvas(W, H), g = c.getContext('2d');
-  g.fillStyle = '#0c0d10';
-  g.fillRect(0, 0, W, H);
+  const W = 1024, H = 512, SW = 512, SH = 256, cw = W / SHOP_COLS, ch = H / SHOP_ROWS;
+  const mk = (w, h, k) => { const c = makeCanvas(w, h), g = c.getContext('2d'); g.scale(k, k); return [c, g]; };
+  const [c, g] = mk(W, H, 1), [hc, gh] = mk(SW, SH, 0.5), [oc, go] = mk(SW, SH, 0.5), [ec, ge] = mk(SW, SH, 0.5);
+  const fill = (cv, col, x, y, w, h, al = 1) => { cv.globalAlpha = al; cv.fillStyle = col; cv.fillRect(x, y, w, h); cv.globalAlpha = 1; };
+
+  fill(g, '#0e1014', 0, 0, W, H);
+  fill(gh, gray(175), 0, 0, W, H);
+  fill(go, rgbRM(0.55, 0.35), 0, 0, W, H);
+  fill(ge, '#000', 0, 0, W, H);
+
   for (let i = 0; i < SHOP_COLS * SHOP_ROWS; i++) {
     const x = (i % SHOP_COLS) * cw, y = Math.floor(i / SHOP_COLS) * ch;
     const hue = SHOP_HUES[i];
     const shuttered = i === 3 || i === 9;
-    g.fillStyle = '#15161a';
-    g.fillRect(x, y, cw, ch);
-    // sign band
-    g.fillStyle = `hsl(${hue} 70% ${shuttered ? 18 : 36}%)`;
-    g.fillRect(x + 4, y + 6, cw - 8, 34);
-    g.fillStyle = shuttered ? '#8a8d92' : '#fff';
-    g.font = '700 21px sans-serif';
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    g.fillText(SHOP_NAMES[i], x + cw / 2, y + 24, cw - 20);
-    const gy = y + 46, gh = ch - 60;
+    fill(g, '#16181e', x, y, cw, ch);
+    fill(gh, gray(185), x, y, cw, ch);
+    fill(go, rgbRM(0.42, 0.65), x, y, cw, ch);
+    // sign fascia lightbox (projecting out, softly backlit when open)
+    const signBg = `hsl(${hue} 72% ${shuttered ? 17 : 38}%)`;
+    fill(g, signBg, x + 4, y + 6, cw - 8, 34);
+    fill(gh, gray(225), x + 4, y + 6, cw - 8, 34);
+    fill(gh, gray(50), x + 4, y + 40, cw - 8, 5); // deep reveal shadow under fascia
+    fill(go, rgbRM(shuttered ? 0.58 : 0.24, 0.12), x + 4, y + 6, cw - 8, 34);
+    if (!shuttered) {
+      fill(ge, `hsl(${hue} 78% 36%)`, x + 4, y + 6, cw - 8, 34, 0.72);
+    }
+    const drawSignText = (cv, col, al = 1) => {
+      cv.globalAlpha = al; cv.fillStyle = col;
+      cv.font = '700 21px sans-serif'; cv.textAlign = 'center'; cv.textBaseline = 'middle';
+      cv.fillText(SHOP_NAMES[i], x + cw / 2, y + 24, cw - 20);
+      cv.globalAlpha = 1;
+    };
+    drawSignText(g, shuttered ? '#8a8d92' : '#ffffff');
+    if (!shuttered) drawSignText(ge, '#fff8ea', 0.92);
+
+    const gy = y + 46, ghPx = ch - 60;
     if (shuttered) {
-      g.fillStyle = '#4c5057';
-      g.fillRect(x + 8, gy, cw - 16, gh);
-      g.fillStyle = '#33363c';
-      for (let k = 0; k < gh; k += 6) g.fillRect(x + 8, gy + k, cw - 16, 2);
+      fill(g, '#4f545c', x + 8, gy, cw - 16, ghPx);
+      fill(go, rgbRM(0.56, 0.52), x + 8, gy, cw - 16, ghPx);
+      fill(gh, gray(118), x + 8, gy, cw - 16, ghPx);
+      for (let k = 0; k < ghPx; k += 6) {
+        fill(g, '#2e3138', x + 8, gy + k, cw - 16, 2);
+        fill(g, 'rgba(255,255,255,0.08)', x + 8, gy + k + 2, cw - 16, 1.5);
+        fill(gh, gray(72), x + 8, gy + k, cw - 16, 2);
+        fill(gh, gray(158), x + 8, gy + k + 2, cw - 16, 3);
+      }
+      // shutter lock bar & bottom rail
+      fill(g, '#24272d', x + 8, gy + ghPx - 8, cw - 16, 8);
+      fill(gh, gray(190), x + 8, gy + ghPx - 8, cw - 16, 8);
     } else {
       const warm = rng.chance(0.65);
-      const grad = g.createLinearGradient(0, gy, 0, gy + gh);
+      const grad = g.createLinearGradient(0, gy, 0, gy + ghPx);
       if (warm) { grad.addColorStop(0, '#ffe3a8'); grad.addColorStop(1, '#c9772e'); }
       else { grad.addColorStop(0, '#e6f4ff'); grad.addColorStop(1, '#6fa6d6'); }
-      g.fillStyle = grad;
-      g.fillRect(x + 8, gy, cw - 16, gh);
+      fill(g, grad, x + 8, gy, cw - 16, ghPx);
+      // Recessed glossy plate-glass pane (roughness 0.08, metalness 0.85 -> triggers shop interior parallax!)
+      fill(gh, gray(62), x + 8, gy, cw - 16, ghPx);
+      fill(go, rgbRM(0.08, 0.85), x + 8, gy, cw - 16, ghPx);
+      const eGrad = ge.createLinearGradient(0, gy, 0, gy + ghPx);
+      if (warm) { eGrad.addColorStop(0, '#ffdfa0'); eGrad.addColorStop(1, '#784214'); }
+      else { eGrad.addColorStop(0, '#d2ecff'); eGrad.addColorStop(1, '#365e84'); }
+      fill(ge, eGrad, x + 8, gy, cw - 16, ghPx, 0.78);
       // shelves and display silhouettes
-      g.fillStyle = 'rgba(40,22,10,0.55)';
+      g.fillStyle = 'rgba(38,20,10,0.52)';
+      ge.fillStyle = 'rgba(0,0,0,0.48)';
       for (let k = 0; k < 9; k++) {
-        const w = 10 + rng.next() * 26, h = 12 + rng.next() * 46;
-        g.fillRect(x + 12 + rng.next() * (cw - 40 - w), gy + gh - h, w, h);
+        const w = 10 + rng.next() * 26, h = 12 + rng.next() * 44;
+        const rx = x + 12 + rng.next() * (cw - 40 - w);
+        g.fillRect(rx, gy + ghPx - h, w, h);
+        ge.fillRect(rx, gy + ghPx - h, w, h);
       }
-      g.fillStyle = 'rgba(30,18,8,0.4)';
-      g.fillRect(x + 8, gy + gh * 0.36, cw - 16, 3);
-      // mullions and door
-      g.fillStyle = '#17181c';
+      fill(g, 'rgba(30,18,8,0.4)', x + 8, gy + ghPx * 0.34, cw - 16, 3);
+      // raised aluminum transom bar, mullions and recessed entry door
       const doorX = x + cw * rng.pick([0.2, 0.5, 0.75]);
-      g.fillRect(doorX - 17, gy, 3, gh);
-      g.fillRect(doorX + 14, gy, 3, gh);
-      g.fillRect(x + cw / 2 - 1, gy, 2, gh * 0.36);
-      g.fillStyle = 'rgba(0,0,0,0.25)';
-      g.fillRect(doorX - 14, gy + 4, 28, gh - 4);
-      g.fillStyle = '#d8d8d8';
-      g.fillRect(doorX + 8, gy + gh * 0.55, 3, 12);
+      const mullion = (mx, my, mw, mh) => {
+        fill(g, '#1c2026', mx, my, mw, mh);
+        fill(gh, gray(205), mx, my, mw, mh);
+        fill(go, rgbRM(0.32, 0.80), mx, my, mw, mh);
+        fill(ge, '#000', mx, my, mw, mh);
+      };
+      mullion(x + 8, gy + ghPx * 0.24, cw - 16, 3); // transom bar
+      mullion(doorX - 18, gy, 4, ghPx);
+      mullion(doorX + 14, gy, 4, ghPx);
+      mullion(x + cw / 2 - 1.5, gy, 3, ghPx * 0.24);
+      fill(g, 'rgba(0,0,0,0.22)', doorX - 14, gy + 4, 28, ghPx - 4);
+      fill(g, '#d8dde2', doorX + 8, gy + ghPx * 0.55, 3, 12);
+      fill(gh, gray(225), doorX + 8, gy + ghPx * 0.55, 3, 12);
     }
-    g.fillStyle = '#0a0a0c';
-    g.fillRect(x, y + ch - 12, cw, 12);
-    g.fillRect(x, y, 4, ch);
-    g.fillRect(x + cw - 4, y, 4, ch);
+    // dark stone/granite bulkhead plinth + side pilasters
+    fill(g, '#16171b', x, y + ch - 13, cw, 13);
+    fill(gh, gray(198), x, y + ch - 13, cw, 13);
+    fill(go, rgbRM(0.70, 0.05), x, y + ch - 13, cw, 13);
+    fill(ge, '#000', x, y + ch - 13, cw, 13);
+    fill(g, '#111216', x, y, 5, ch);
+    fill(g, '#111216', x + cw - 5, y, 5, ch);
+    fill(gh, gray(212), x, y, 5, ch);
+    fill(gh, gray(212), x + cw - 5, y, 5, ch);
+    fill(go, rgbRM(0.55, 0.35), x, y, 5, ch);
+    fill(go, rgbRM(0.55, 0.35), x + cw - 5, y, 5, ch);
+    fill(ge, '#000', x, y, 5, ch);
+    fill(ge, '#000', x + cw - 5, y, 5, ch);
   }
-  // realism pass: dim the toy-bright glass, add street reflections, grime and wear
+  // realism pass: subtle grime streaks, glass sheen & weathering
   for (let i = 0; i < SHOP_COLS * SHOP_ROWS; i++) {
     const x = (i % SHOP_COLS) * cw, y = Math.floor(i / SHOP_COLS) * ch;
-    const gy = y + 46, gh = ch - 60;
+    const gy = y + 46, ghPx = ch - 60;
     if (i !== 3 && i !== 9) {
-      g.fillStyle = 'rgba(24,28,38,0.42)';
-      g.fillRect(x + 8, gy, cw - 16, gh);
-      const dk = g.createLinearGradient(0, gy, 0, gy + gh);
-      dk.addColorStop(0, 'rgba(10,14,24,0.25)'); dk.addColorStop(0.5, 'rgba(10,14,24,0)'); dk.addColorStop(1, 'rgba(10,14,24,0.35)');
-      g.fillStyle = dk; g.fillRect(x + 8, gy, cw - 16, gh);
-      g.save(); g.beginPath(); g.rect(x + 8, gy, cw - 16, gh); g.clip();
-      g.fillStyle = 'rgba(190,210,240,0.10)';
-      for (const ox of [0.12, 0.55]) {
-        g.beginPath(); g.moveTo(x + cw * ox, gy + gh); g.lineTo(x + cw * (ox + 0.14), gy); g.lineTo(x + cw * (ox + 0.24), gy); g.lineTo(x + cw * (ox + 0.1), gy + gh); g.fill();
-      }
-      g.restore();
-      g.fillStyle = 'rgba(0,0,0,0.5)';                  // bulkhead under the window
-      g.fillRect(x + 8, gy + gh - 8, cw - 16, 8);
+      fill(g, 'rgba(20,25,36,0.34)', x + 8, gy, cw - 16, ghPx);
+      const dk = g.createLinearGradient(0, gy, 0, gy + ghPx);
+      dk.addColorStop(0, 'rgba(10,14,24,0.22)'); dk.addColorStop(0.5, 'rgba(10,14,24,0)'); dk.addColorStop(1, 'rgba(10,14,24,0.32)');
+      fill(g, dk, x + 8, gy, cw - 16, ghPx);
+      fill(g, 'rgba(0,0,0,0.45)', x + 8, gy + ghPx - 8, cw - 16, 8);
     }
-    // sign band: slightly dirty, darker
-    g.fillStyle = 'rgba(0,0,0,0.18)'; g.fillRect(x + 4, y + 6, cw - 8, 34);
-    for (let k = 0; k < 14; k++) {
-      const sx = x + 10 + rng.next() * (cw - 20), len = 20 + rng.next() * 60;
+    fill(g, 'rgba(0,0,0,0.14)', x + 4, y + 6, cw - 8, 34);
+    for (let k = 0; k < 12; k++) {
+      const sx = x + 10 + rng.next() * (cw - 20), len = 18 + rng.next() * 52;
       const gr = g.createLinearGradient(0, y + 40, 0, y + 40 + len);
-      gr.addColorStop(0, 'rgba(0,0,0,0.25)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
-      g.fillStyle = gr; g.fillRect(sx, y + 40, 2 + rng.next() * 4, len);
+      gr.addColorStop(0, 'rgba(0,0,0,0.22)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      fill(g, gr, sx, y + 40, 2 + rng.next() * 3.5, len);
     }
   }
-  g.fillStyle = 'rgba(0,0,0,0.5)';
-  for (let k = 0; k < 900; k++) { g.globalAlpha = 0.04 + rng.next() * 0.1; g.fillRect(rng.next() * W, rng.next() * H, 1 + rng.next() * 3, 1 + rng.next() * 3); }
+  g.fillStyle = 'rgba(0,0,0,0.45)';
+  for (let k = 0; k < 800; k++) { g.globalAlpha = 0.03 + rng.next() * 0.09; g.fillRect(rng.next() * W, rng.next() * H, 1 + rng.next() * 3, 1 + rng.next() * 3); }
   g.globalAlpha = 1;
-  return toTexture(c, { repeat: false });
+
+  const hd = gh.getImageData(0, 0, SW, SH).data, hf = new Float32Array(SW * SH);
+  for (let i = 0; i < SW * SH; i++) hf[i] = hd[i * 4] / 255;
+  const normalMap = toTexture(normalCanvas(hf, SW, SH, 3.0), { repeat: false, srgb: false });
+  const orm = toTexture(oc, { repeat: false, srgb: false });
+  return {
+    map: toTexture(c, { repeat: false }),
+    normalMap,
+    orm,
+    emissive: toTexture(ec, { repeat: false }),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -714,10 +767,12 @@ function drawAd(g, x, y, w, h, rng, idx) {
 }
 
 /** Static ads: 8 landscape cells on the top half, 8 portrait cells below. */
+export const AD_PALETTES = PALETTES;
 export const AD_LAND = [], AD_PORT = [];
 for (let i = 0; i < 8; i++) {
-  AD_LAND.push({ u0: (i % 4) / 4, v0: 1 - (Math.floor(i / 4) + 1) / 4, u1: (i % 4 + 1) / 4, v1: 1 - Math.floor(i / 4) / 4 });
-  AD_PORT.push({ u0: i / 8, v0: 0, u1: (i + 1) / 8, v1: 0.5 });
+  AD_LAND.push({ u0: (i % 4) / 4, v0: 1 - (Math.floor(i / 4) + 1) / 4, u1: (i % 4 + 1) / 4, v1: 1 - Math.floor(i / 4) / 4, color: PALETTES[i % PALETTES.length][0] });
+  const pi = i + 8 + (i % 2 ? 0 : 3);
+  AD_PORT.push({ u0: i / 8, v0: 0, u1: (i + 1) / 8, v1: 0.5, color: PALETTES[pi % PALETTES.length][0] });
 }
 export function adsTexture() {
   const rng = new RNG(77);

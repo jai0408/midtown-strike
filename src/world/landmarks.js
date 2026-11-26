@@ -7,7 +7,7 @@ import {
   groundAt, RAISED_RECTS, RAISED_CIRCLES, avenueById, LANDMARKS,
 } from './layout.js';
 import { F_DEFAULT, F_SOLID, F_BULLET, F_CAMERA, F_SEE, F_BUILDING, F_ALL, S_CONCRETE, S_METAL, S_GLASS, S_DIRT } from '../core/physics.js';
-import { AD_LAND, AD_PORT } from './textures.js';
+import { AD_LAND, AD_PORT, AD_PALETTES } from './textures.js';
 import { addBuilding } from './city.js';
 import * as P from './props.js';
 import { emit, shrubMesh, hash2 } from './plants.js';
@@ -40,13 +40,30 @@ const ANIM_UV = [0.004, 0.004, 0.246, 0.246];
 function adPanel(ctx, rng, ax, az, bx, bz, y0, y1, forceAnim = false) {
   const w = Math.hypot(bx - ax, bz - az), h = y1 - y0;
   const r = rng.next();
+  let col;
   if (forceAnim || r < 0.32) {
     // every screen starts on a different frame of the 4x4 sheet
-    const cu = rng.int(0, 3) / 4, cv = rng.int(0, 3) / 4;
-    return panel(ctx, rng.chance(0.5) ? 'adsA' : 'adsB', ax, az, bx, bz, y0, y1, [cu + ANIM_UV[0], cv + ANIM_UV[1], cu + ANIM_UV[2], cv + ANIM_UV[3]]);
+    const cx0 = rng.int(0, 3), cy0 = rng.int(0, 3);
+    const cu = cx0 / 4, cv = cy0 / 4;
+    panel(ctx, rng.chance(0.5) ? 'adsA' : 'adsB', ax, az, bx, bz, y0, y1, [cu + ANIM_UV[0], cv + ANIM_UV[1], cu + ANIM_UV[2], cv + ANIM_UV[3]]);
+    const frameIdx = (3 - cy0) * 4 + cx0;
+    col = AD_PALETTES[(frameIdx * 5 + 1) % AD_PALETTES.length][0];
+  } else {
+    const c = w >= h ? rng.pick(AD_LAND) : rng.pick(AD_PORT);
+    panel(ctx, 'ads', ax, az, bx, bz, y0, y1, [c.u0 + 0.002, c.v0 + 0.003, c.u1 - 0.002, c.v1 - 0.003]);
+    col = c.color;
   }
-  const c = w >= h ? rng.pick(AD_LAND) : rng.pick(AD_PORT);
-  panel(ctx, 'ads', ax, az, bx, bz, y0, y1, [c.u0 + 0.002, c.v0 + 0.003, c.u1 - 0.002, c.v1 - 0.003]);
+  // Emit directional neon spill forward from the billboard onto street & nearby facades
+  if (ctx.light && y0 < 52 && w > 4) {
+    const len = Math.max(w, 0.1);
+    const nx = (bz - az) / len, nz = -(bx - ax) / len;
+    const mx = (ax + bx) / 2, mz = (az + bz) / 2;
+    const hAtten = clamp(1.15 - y0 / 56, 0.18, 1.0);
+    const rad = clamp(Math.sqrt(w * h) * 1.6 + 8, 12, 34);
+    const pushOut = clamp(8 + y0 * 0.35, 8, 22);
+    const str = clamp(Math.sqrt(w * h) * 0.028 * hAtten, 0.12, 0.62);
+    ctx.light(mx + nx * pushOut, mz + nz * pushOut, rad, col, str);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -358,7 +375,10 @@ function timesSquare(ctx) {
   ctx.B('signs', -26, zBack).wall(sx0 + 3, zBack - 0.05, sx1 - 3, zBack - 0.05, CURB + 1.3, CURB + 3.6, null, [tk.u0, tk.v0, tk.u1, tk.v1]);
   // railing at the top so that it reads as a platform
   lowWall(ctx, sx0, zBack, sx1, zBack + 0.15, 1.0, C('#5a0a10'));
-  for (const [px, pz] of [[-26, -110], [-26, -128], [-40, -126], [-12, -126]]) ctx.pool(px, pz, 13, '#ff2030', 0.42);
+  for (const [px, pz] of [[-26, -110], [-26, -128], [-40, -126], [-12, -126]]) {
+    ctx.pool(px, pz, 14, '#ff2030', 0.48);
+    if (ctx.light) ctx.light(px, pz, 18, '#ff2030', 0.55);
+  }
   // statue in front of the steps
   F(-26, -104).box(-26.9, CURB, -105, -25.1, CURB + 2.0, -103.2, STONE, 31);
   F(-26, -104).box(-26.35, CURB + 2.0, -104.4, -25.65, CURB + 4.5, -103.8, C('#3d4a44'), 31);
@@ -369,14 +389,33 @@ function timesSquare(ctx) {
   // --- police booth in the south plaza -------------------------------------
   {
     const x0 = 22, z0 = 138, x1 = 34, z1 = 145;
-    F(28, 141).box(x0, CURB, z0, x1, CURB + 3.4, z1, C('#20242c'), 31, C('#2c3340'));
-    E(28, 141).box(x0 - 0.1, CURB + 3.4, z0 - 0.1, x1 + 0.1, CURB + 3.75, z1 + 0.1, C('#2a6bff'), 15);
-    E(28, 141).box(x0 + 1, CURB + 1.1, z0 - 0.05, x1 - 1, CURB + 2.6, z0, C('#bfe0ff', 0.8), 8);
+    const PB = F(28, 141);
+    PB.setRM(0.45, 0.45);
+    PB.box(x0, CURB, z0, x1, CURB + 3.4, z1, C('#2c3340'), 31, C('#3b4454'));
+    // NYPD-style blue & silver architectural trim bands wrapping all four sides
+    PB.box(x0 - 0.04, CURB + 0.82, z0 - 0.04, x1 + 0.04, CURB + 1.05, z1 + 0.04, C('#1d56c4'), 15);
+    PB.box(x0 - 0.04, CURB + 1.05, z0 - 0.04, x1 + 0.04, CURB + 1.13, z1 + 0.04, C('#d0d8e4'), 15);
+    PB.box(x0 - 0.05, CURB, z0 - 0.05, x1 + 0.05, CURB + 0.16, z1 + 0.05, C('#1a1e26'), 15);
+    // Window frame mullions on front & side glazing
+    for (const mx of [x0 + 3.5, x0 + 6.0, x0 + 8.5]) PB.box(mx - 0.05, CURB + 1.1, z0 - 0.08, mx + 0.05, CURB + 2.6, z0 + 0.02, C('#1b2028'), 15);
+    PB.setRM(0.85, 0);
+    E(28, 141).box(x0 - 0.1, CURB + 3.4, z0 - 0.1, x1 + 0.1, CURB + 3.75, z1 + 0.1, C('#2a6bff', 1.2), 15);
+    E(28, 141).box(x0 + 1, CURB + 1.15, z0 - 0.05, x1 - 1, CURB + 2.55, z0, C('#b8dcff', 0.9), 8);
+    // Side window on west face (visible in plaza view)
+    E(28, 141).box(x0 - 0.05, CURB + 1.25, z0 + 1.2, x0, CURB + 2.45, z1 - 1.2, C('#9ec6f2', 0.72), 2);
+    PB.setRM(0.45, 0.45);
+    PB.box(x0 - 0.08, CURB + 1.25, (z0 + z1) / 2 - 0.05, x0 + 0.02, CURB + 2.45, (z0 + z1) / 2 + 0.05, C('#1b2028'), 15);
+    PB.setRM(0.85, 0);
     const pc = ctx.signCells.POLICE;
     ctx.B('signs', 28, 141).wall(x0 + 3, z0 - 0.1, x1 - 3, z0 - 0.1, CURB + 2.7, CURB + 3.3, null, [pc.u0, pc.v0, pc.u1, pc.v1]);
     world.addBox(x0, CURB, z0, x1, CURB + 3.75, z1, F_DEFAULT, S_METAL);
-    ctx.pool(28, 134, 10, '#3b7bff', 0.5);
-    ctx.glow(28, CURB + 3.6, 138, '#3b7bff', 2);
+    if (ctx.occluder) ctx.occluder(x0, z0, x1, z1, 1.5, 0.34);
+    ctx.pool(28, 134, 11, '#3b7bff', 0.58);
+    if (ctx.light) {
+      ctx.light(28, 134, 15, '#2f74ff', 0.72);
+      ctx.light(19, 141.5, 11, '#4b8eff', 0.45);
+    }
+    ctx.glow(28, CURB + 3.6, 138, '#3b7bff', 2.2);
   }
 
   // --- billboards on every facade that looks onto the bowtie ---------------

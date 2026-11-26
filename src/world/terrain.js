@@ -15,11 +15,13 @@ import { POND_GLSL } from './pond_shape.js';
 const LAYER = 512;   // texels per layer side
 
 // The gravel albedo has its pebbles pre-shaded from the top left; lit again by the
-// sun and the normal map that reads as big harsh cobbles. Squash its baked shading
-// towards the texture's average colour and make the pebbles a little smaller.
-const GRAVEL_MEAN_LINEAR = '0.188, 0.169, 0.136';   // mean of the gravel albedo, linear
-const GRAVEL_SHADE_KEEP = 0.5;                       // 1 = baked shading as authored
-const GRAVEL_TILE_SCALE = 1.45;                      // > 1 = more, smaller pebbles per metre
+// sun and the normal map that read as big harsh cobbles. Squash its baked shading
+// towards a warm crushed-stone mean, tile it finer with anti-tiling & dusty macro
+// variation, and keep its normal relief subtle so it reads as packed yard gravel.
+const GRAVEL_MEAN_LINEAR = '0.205, 0.188, 0.162';   // warm crushed granite/limestone mean, linear
+const GRAVEL_SHADE_KEEP = 0.28;                      // 1 = baked shading as authored
+const GRAVEL_TILE_SCALE = 2.45;                      // > 1 = finer crushed gravel per metre
+const GRAVEL_NORMAL_KEEP = 0.28;                     // tame embossed cobble bump on gravel layer
 
 function blobOf(s) {
   const b64 = s.indexOf(',') >= 0 ? s.slice(s.indexOf(',') + 1) : s;
@@ -143,25 +145,32 @@ export async function applyTerrainSplat(mat, T) {
           vec2 p2 = rot * p * 0.37;
           vec3 a0b = textureGrad(uAlb, vec3(p2 * uTile.x, 0.0), rot * gx * (0.37 * uTile.x), rot * gy * (0.37 * uTile.x)).rgb;
           a0 = mix(a0, a0b, 0.5);
+          // anti-tiling & fine dust binder on gravel so the yard reads as packed crushed stone
+          vec2 pg2 = rot * p * 0.43;
+          vec3 a2b = textureGrad(uAlb, vec3(pg2 * uTile.z, 2.0), rot * gx * (0.43 * uTile.z), rot * gy * (0.43 * uTile.z)).rgb;
+          a2 = mix(a2, a2b, 0.42);
+          float gMacro = 0.5 + 0.32 * sin(p.x * 0.11 + 1.4) * sin(p.y * 0.09 - 0.6)
+                       + 0.18 * sin(p.x * 0.29 - p.y * 0.23 + 2.1);
           // height-aware blend: brighter texels poke through (stand-in height), so edges are not a plain cross fade
           vec4 lum = vec4(dot(a0, vec3(0.3333)), dot(a1, vec3(0.3333)), dot(a2, vec3(0.3333)), dot(a3, vec3(0.3333)));
-          vec4 hb = sw + lum * 0.35;
-          vec4 bw = max(hb - (max(max(hb.x, hb.y), max(hb.z, hb.w)) - 0.2), 0.0);
+          vec4 hb = sw + lum * 0.28;
+          vec4 bw = max(hb - (max(max(hb.x, hb.y), max(hb.z, hb.w)) - 0.24), 0.0);
           bw *= step(0.001, sw);
           bw /= (bw.x + bw.y + bw.z + bw.w + 1e-4);
           a2 = vec3(${GRAVEL_MEAN_LINEAR}) + (a2 - vec3(${GRAVEL_MEAN_LINEAR})) * ${GRAVEL_SHADE_KEEP.toFixed(2)};
-          a2 *= 0.78;   // gravel's white pebbles are the brightest thing in the scene
-          vec3 detail = (a0 * bw.x + a1 * bw.y + a2 * bw.z + a3 * bw.w) * 0.88;
+          // warm dusty crushed-stone patches & subtle compacted tone variation
+          a2 *= mix(vec3(0.76, 0.75, 0.72), vec3(0.92, 0.89, 0.84), clamp(gMacro, 0.0, 1.0));
+          vec3 detail = (a0 * bw.x + a1 * bw.y + a2 * bw.z + a3 * bw.w) * 0.90;
           // the baked colour stays as soft macro variation and ground AO
-          vec3 macro = clamp(diffuseColor.rgb * 2.4, 0.35, 1.5);
-          diffuseColor.rgb = mix(diffuseColor.rgb, detail * mix(vec3(1.0), macro, 0.55), dFade);
-          // tangent-space normals as slopes in world x / z, only for layers that count
+          vec3 macro = clamp(diffuseColor.rgb * 2.35, 0.42, 1.45);
+          diffuseColor.rgb = mix(diffuseColor.rgb, detail * mix(vec3(1.0), macro, 0.52), dFade);
+          // tangent-space normals as slopes in world x / z, only for layers that count (gravel kept subtle)
           if (bw.x > 0.03) dnTotal += (textureGrad(uNrm, vec3(p * uTile.x, 0.0), gx * uTile.x, gy * uTile.x).xy * 2.0 - 1.0) * bw.x;
           if (bw.y > 0.03) dnTotal += (textureGrad(uNrm, vec3(p * uTile.y, 1.0), gx * uTile.y, gy * uTile.y).xy * 2.0 - 1.0) * bw.y;
-          if (bw.z > 0.03) dnTotal += (textureGrad(uNrm, vec3(p * uTile.z, 2.0), gx * uTile.z, gy * uTile.z).xy * 2.0 - 1.0) * bw.z;
+          if (bw.z > 0.03) dnTotal += (textureGrad(uNrm, vec3(p * uTile.z, 2.0), gx * uTile.z, gy * uTile.z).xy * 2.0 - 1.0) * (bw.z * ${GRAVEL_NORMAL_KEEP.toFixed(2)});
           if (bw.w > 0.03) dnTotal += (textureGrad(uNrm, vec3(p * uTile.w, 3.0), gx * uTile.w, gy * uTile.w).xy * 2.0 - 1.0) * bw.w;
           dnTotal *= dFade;
-          dRough = mix(1.0, dot(bw, uRough), dFade);
+          dRough = mix(1.0, dot(bw, vec4(uRough.x, uRough.y, 0.95, uRough.w)), dFade);
         }`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
         roughnessFactor = clamp(roughnessFactor * dRough, 0.05, 1.0);`)

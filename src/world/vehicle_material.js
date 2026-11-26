@@ -40,7 +40,7 @@ export function decodeVehicle(b64, meta) {
   return m;
 }
 
-/** The city 'veh' material family: MeshStandardMaterial + atlas, tint through the ORM mask. */
+/** The city 'veh' material family: MeshStandardMaterial + atlas, tint + clearcoat Fresnel sheen. */
 export function vehicleMaterial() {
   const loader = new THREE.TextureLoader();
   const tex = (url, srgb) => {
@@ -54,6 +54,7 @@ export function vehicleMaterial() {
   const m = new THREE.MeshStandardMaterial({
     map: tex(VEHICLE_ATLAS.albedo, true), normalMap: tex(VEHICLE_ATLAS.normal, false),
     roughnessMap: orm, metalnessMap: orm, roughness: 1, metalness: 1, vertexColors: true,
+    envMapIntensity: 1.48,
   });
   m.onBeforeCompile = (s) => {
     s.vertexShader = s.vertexShader
@@ -65,9 +66,26 @@ export function vehicleMaterial() {
         float vpMask = texture2D(roughnessMap, vRoughnessMapUv).r;
         diffuseColor.rgb *= mix(vec3(1.0), vColor.rgb, vpMask) * vRm.x;
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.03), vRm.y);`)
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n roughnessFactor = mix(roughnessFactor, 0.95, vRm.y);')
-      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n metalnessFactor *= 1.0 - vRm.y;');
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        // Slightly glossier clearcoat paint on unburnt panels; keep >= 0.16 for phone half-float safety
+        roughnessFactor = mix(roughnessFactor, clamp(roughnessFactor * 0.78, 0.16, 0.42), vpMask * (1.0 - vRm.y));
+        roughnessFactor = mix(roughnessFactor, 0.95, vRm.y);`)
+      .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>
+        metalnessFactor = mix(metalnessFactor, max(metalnessFactor, 0.34), vpMask * (1.0 - vRm.y));
+        metalnessFactor *= 1.0 - vRm.y;`)
+      .replace('#include <opaque_fragment>', `
+        {
+          // Subtle pow-free automotive clearcoat & glass grazing sheen (Mali/Adreno safe)
+          float f1 = 1.0 - clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0);
+          float f2 = f1 * f1;
+          float fres = f2 * f2;
+          float isGlass = smoothstep(0.24, 0.12, roughnessFactor) * (1.0 - vpMask);
+          float coat = (vpMask * 0.42 + isGlass * 0.78) * (1.0 - vRm.y);
+          outgoingLight += reflectedLight.indirectSpecular * (fres * coat * 1.35)
+                         + vec3(0.22, 0.28, 0.40) * (fres * isGlass * 0.25);
+        }
+        #include <opaque_fragment>`);
   };
-  m.customProgramCacheKey = () => 'vehicle-atlas';
+  m.customProgramCacheKey = () => 'vehicle-atlas-v2';
   return m;
 }

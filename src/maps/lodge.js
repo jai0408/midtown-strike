@@ -55,22 +55,27 @@ function prepareMaterial(m, glass, matName) {
     if (m[k]) m[k].anisotropy = aniso;
   }
   if (glass) {
+    const isDark = /glass_dark/i.test(matName || m.name || '');
     m.transparent = true;
     m.depthWrite = false;
-    m.roughness = 0.1;   // not lower: sharp sun glints overflow half-float targets on phones
-    m.metalness = 0.05;
-    m.envMapIntensity = 2.4;
-    if (m.opacity > 0.6) m.opacity = 0.4;
-    // Architectural glass Fresnel shader: high reflectivity at glancing angles, transparent head-on
-    m.customProgramCacheKey = () => 'lodge-glass-v2';
+    m.roughness = 0.10;  // not lower: sharp sun glints overflow half-float targets on phones
+    m.metalness = isDark ? 0.12 : 0.05;
+    m.envMapIntensity = isDark ? 2.6 : 2.4;
+    if (isDark) { m.color.set(0x162230); m.opacity = 0.76; }
+    else if (m.opacity > 0.6) m.opacity = 0.4;
+    // Architectural / automotive glass Fresnel shader (pow-free, Mali/Adreno safe)
+    const minA = isDark ? '0.62' : '0.22';
+    const maxA = isDark ? '0.96' : '0.92';
+    m.customProgramCacheKey = () => (isDark ? 'lodge-glass-dark-v3' : 'lodge-glass-v3');
     m.onBeforeCompile = (shader) => {
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <opaque_fragment>', `
           {
-            float NdotV = clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0);
-            float fresnel = 0.04 + 0.96 * pow(1.0 - NdotV, 4.0);
+            float f1 = 1.0 - clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0);
+            float f2 = f1 * f1;
+            float fresnel = 0.04 + 0.96 * f2 * f2;
             outgoingLight += reflectedLight.indirectSpecular * (fresnel * 2.2);
-            diffuseColor.a = clamp(mix(0.22, 0.92, fresnel), 0.0, 1.0);   // opaque_fragment writes gl_FragColor from it
+            diffuseColor.a = clamp(mix(${minA}, ${maxA}, fresnel), 0.0, 1.0);
             if (!(dot(outgoingLight, vec3(1.0)) < 20000.0)) outgoingLight = vec3(0.0);
             outgoingLight = clamp(outgoingLight, 0.0, 24.0);
           }
@@ -78,7 +83,32 @@ function prepareMaterial(m, glass, matName) {
     };
   } else {
     const name = (matName || m.name || '').toLowerCase();
-    if (name.includes('metal')) {
+    if (name.includes('carpaint')) {
+      // Smooth metallic automotive clearcoat finish for Lodge vehicles
+      m.roughness = 0.24;
+      m.metalness = 0.28;
+      m.envMapIntensity = 1.65;
+      m.customProgramCacheKey = () => 'lodge-carpaint-v1';
+      m.onBeforeCompile = (shader) => {
+        shader.fragmentShader = shader.fragmentShader
+          .replace('#include <opaque_fragment>', `
+            {
+              float f1 = 1.0 - clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0);
+              float f2 = f1 * f1;
+              float fres = f2 * f2;
+              outgoingLight += reflectedLight.indirectSpecular * (fres * 0.85);
+            }
+            #include <opaque_fragment>`);
+      };
+    } else if (name.includes('carchrome')) {
+      m.roughness = 0.22;
+      m.metalness = 0.90;
+      m.envMapIntensity = 2.0;
+    } else if (name.includes('cartrim')) {
+      m.roughness = 0.78;
+      m.metalness = 0.06;
+      m.envMapIntensity = 0.9;
+    } else if (name.includes('metal')) {
       m.envMapIntensity = 2.2;
       m.roughness = Math.min(Math.max(m.roughness, 0.22), 0.35);   // >= 0.22: see the glass note above
       m.metalness = Math.max(m.metalness, 0.85);
@@ -187,9 +217,9 @@ export async function buildLodge(onProgress = () => {}) {
     if (m && m.userData && m.userData.uniforms && m.userData.uniforms.uSelfLit) m.userData.uniforms.uSelfLit.value = 0;
     if (!o.isMesh) return;
     // bush leaves have a material of their own: calm the bright green to olive. Bark is shared by all
-    // trees: a slight dim keeps the white birch trunks from clipping in the sun.
+    // trees: calm brightness so sunlit white birch trunks don't clip to glowing white poles.
     if (/^bush\d.*leaf/.test(o.name)) m.color.set(0xa4ad7c);
-    else if (/_bark$/.test(o.name)) m.color.set(0xa8a8a8);
+    else if (/_bark$/.test(o.name)) m.color.set(0x8a8882);
   });
 
   // -- school buses & koi pond ----------------------------------------------

@@ -58,25 +58,25 @@ C_MATTE, C_PAINT, C_GUN, C_STEEL, C_POLY, C_RUBBER, C_WOOD, C_GLASS, C_FABRIC, C
 
 # surface name -> (sRGB albedo, material class)
 SURF = {
-    "gun": ("#2b2d30", C_GUN),        # anodized / parkerized receiver
-    "gun_l": ("#3a3c40", C_GUN),      # lighter phosphate (barrels, small parts)
-    "gun_d": ("#202124", C_GUN),      # black oxide
-    "blued": ("#23262b", C_GUN),      # blued steel (AK)
-    "cast": ("#34363a", C_CAST),      # rough cast / heavy parkerizing
-    "steel": ("#8d9095", C_STEEL),    # bare steel
-    "steel_d": ("#565a60", C_STEEL),  # bolt carrier, dark polished steel
-    "satin": ("#a3a6ab", C_STEEL),    # brushed stainless (Desert Eagle)
-    "chrome": ("#c4c7cb", C_CHROME),
-    "blade": ("#b4b8bd", C_STEEL),
-    "blade_d": ("#3b3d41", C_GUN),    # coated blade flats
-    "poly": ("#101113", C_POLY),
-    "poly_l": ("#232427", C_POLY),
-    "fde": ("#85704f", C_POLY),
-    "fde_d": ("#675840", C_POLY),
-    "od": ("#3d4231", C_POLY),
-    "od_d": ("#2f3426", C_POLY),
-    "bronze": ("#5d5142", C_GUN),     # dark-earth anodizing
-    "rubber": ("#141415", C_RUBBER),
+    "gun": ("#383c44", C_GUN),        # anodized / parkerized slate receiver
+    "gun_l": ("#4e535d", C_GUN),      # lighter titanium phosphate (barrels, bezels, small parts)
+    "gun_d": ("#292c32", C_GUN),      # matte black-oxide hardware
+    "blued": ("#282c33", C_GUN),      # blued steel (AK)
+    "cast": ("#3a3d43", C_CAST),      # rough cast / heavy parkerizing
+    "steel": ("#9aa0a8", C_STEEL),    # bare brushed steel
+    "steel_d": ("#686e78", C_STEEL),  # bolt carrier, machined steel turrets & levers
+    "satin": ("#a9adb3", C_STEEL),    # brushed stainless (Desert Eagle)
+    "chrome": ("#c9cdd2", C_CHROME),
+    "blade": ("#b8bcc2", C_STEEL),
+    "blade_d": ("#42464c", C_GUN),    # coated blade flats
+    "poly": ("#1b1d20", C_POLY),
+    "poly_l": ("#2f3237", C_POLY),
+    "fde": ("#947d58", C_POLY),
+    "fde_d": ("#746348", C_POLY),
+    "od": ("#454b38", C_POLY),
+    "od_d": ("#363b2d", C_POLY),
+    "bronze": ("#76634d", C_GUN),     # rich burnt-bronze anodized M-LOK rail
+    "rubber": ("#1b1c1e", C_RUBBER),
     "wood": ("#4b2e1b", C_WOOD),
     "wood_d": ("#33200f", C_WOOD),
     "leather": ("#36231a", C_WOOD),
@@ -569,36 +569,70 @@ def build_m4():
         for ang, r in ((27.7, 21.45), (152.3, 21.45), (-29.8, 21.15), (-150.2, 21.15)):
             g.slot_r("void", ang, r, za - 27, za - 5, 4.6)
     for sx in (1, -1):
-        g.pin("steel_d", sx * 19.5, -3.5, hg0 - 9, 2.4, h=0.5, side=sx, seg=6)
-        g.pin("steel_d", sx * 19.5, 3.5, hg0 - 9, 2.4, h=0.5, side=sx, seg=6)
+        g.pin("steel", sx * 19.5, -3.5, hg0 - 9, 2.4, h=0.8, side=sx, seg=8)
+        g.pin("steel", sx * 19.5, 3.5, hg0 - 9, 2.4, h=0.8, side=sx, seg=8)
+        # Textured dark-polymer M-LOK rail grip panels where the support hand wraps
+        g.box("poly_l", sx * 19.3, sx * 21.4, -7.2, 7.2, hg0 - 165, hg0 - 46, bev=0.9)
+        for ri in range(8):
+            rz = hg0 - 54 - ri * 14.2
+            g.box("rubber", sx * 21.1, sx * 22.0, -5.8, 5.8, rz - 4.5, rz + 4.5, bev=0.4, soft=True)
+    # Compact low-profile tactical laser/illuminator module on front top rail (stays well below holo sight line)
+    g.box("fde_d", -14.5, 14.5, 31.0, 42.2, -424, -366, bev=1.5, wear=0.45)
+    g.box("gun_d", -15.5, 15.5, 30.8, 35.2, -418, -372, bev=0.7)
+    g.rod("steel_d", (12.0, 38.0, -424), (12.0, 38.0, -429), 3.2, seg=8)
+    g.disc("lens", (12.0, 38.0, -429.2), (0, 0, -1), 2.5, seg=8)
+    g.rod("gun_l", (-8.5, 38.0, -424), (-8.5, 38.0, -428), 3.8, seg=8)
+    g.disc("lens", (-8.5, 38.0, -428.2), (0, 0, -1), 3.0, seg=8)
+    g.rod("steel_d", (0.0, 42.0, -395), (0.0, 44.0, -395), 4.2, seg=10, bev=0.4)
     # top rail: receiver + handguard
-    g.rail("gun", -197, -3, 30.8, base=False)
-    g.rail("bronze", hg1 + 1, hg0 - 1, 30.8, base=True)
+    g.rail("gun", -197, -3, 30.8, base=False, wear=0.55)
+    g.rail("bronze", hg1 + 1, hg0 - 1, 30.8, base=True, wear=0.55)
 
     # barrel (government profile) and flash hider
     g.lathe("gun_l", [(-455, 9.4), (-486, 9.4), (-488, 8.1), (-520, 8.1), (-522, 9.3), (-543.0, 9.3)], seg=14, caps=(False, False))
     zt = a2_flash_hider(g, -544.0)
     assert abs(zt - Z_MUZ) < 0.6, zt
 
-    # holographic sight (open window: the game draws the reticle)
+    # Sculpted EOTech EXPS-style holographic sight (tapered dual-shroud hood, steel turrets, QD lever)
     SY = 68.0
-    g.box("gun_d", -15.5, 15.5, 31.0, 52.5, -132, -42, bev=1.6, wear=0.45)
-    g.box("gun_d", -17.5, 17.5, 31.2, 36.5, -124, -50, bev=0.8)
-    arch = [(-21, 46), (-21, 80, 3.5), (-16.5, 85, 3.5), (16.5, 85, 3.5), (21, 80, 3.5), (21, 46),
-            (17.6, 46, 0), (17.6, 79.5, 2.0), (15.5, 81.6, 2.0), (-15.5, 81.6, 2.0), (-17.6, 79.5, 2.0), (-17.6, 46, 0)]
-    g.prof("gun_d", arch, -92, -43, plane="xy", bev=0.8, wear=0.5, r=2.0)
-    g.prof("gun_d", [(-112, 52), (-92, 52), (-92, 64), (-97, 64)], -17, 17, bev=1.2)
-    g.rod("gun_d", (-19.5, 44, -119), (19.5, 44, -119), 8.2, seg=12, bev=1.0)
-    g.pin("gun_l", 19.5, 44, -119, 5.5, h=0.9, side=1, seg=10)
-    g.box("gun_l", -19.6, -17.0, 32, 40, -98, -62, bev=0.9)
-    g.rod("steel_d", (-20.4, 36, -80), (-17, 36, -80), 3.6, seg=8)
-    for bx in (-7, 0, 7):
-        g.box("rubber", bx - 2.4, bx + 2.4, 38, 44, -42.4, -41.4, bev=0.4, soft=True)
-    # folded back-up sights
-    g.box("poly", -10.8, 10.8, 30.9, 41.5, -36, -5, bev=1.4)
-    g.box("poly_l", -6, 6, 41.3, 43.2, -33, -12, bev=0.6)
-    g.box("poly", -10.8, 10.8, 30.9, 40.5, -462, -428, bev=1.4)
-    g.box("poly_l", -6, 6, 40.3, 42.2, -458, -436, bev=0.6)
+    # Lower rail riser & battery body with chamfered flanks
+    g.box("gun_d", -15.2, 15.2, 31.0, 51.0, -130, -43, bev=1.8, wear=0.55)
+    g.box("gun_l", -17.6, 17.6, 31.2, 37.5, -122, -49, bev=1.0, wear=0.5)
+    # Tapered outer protective aluminum hood (sleeker chamfered silhouette, not a thick square brick)
+    arch = [
+        (-20.4, 46.5), (-19.2, 77.5, 3.8), (-15.0, 83.2, 3.6), (15.0, 83.2, 3.6), (19.2, 77.5, 3.8), (20.4, 46.5),
+        (17.2, 46.5, 0), (16.4, 76.2, 2.2), (13.8, 79.6, 2.2), (-13.8, 79.6, 2.2), (-16.4, 76.2, 2.2), (-17.2, 46.5, 0),
+    ]
+    g.prof("gun_d", arch, -92, -44, plane="xy", bev=1.1, wear=0.65, r=2.0)
+    # Recessed brushed-slate inner optic bezel framing the coated glass window
+    bezel = [
+        (-16.8, 49.0), (-16.2, 75.8, 2.0), (-13.6, 79.0, 2.0), (13.6, 79.0, 2.0), (16.2, 75.8, 2.0), (16.8, 49.0),
+        (14.8, 49.0, 0), (14.4, 74.6, 1.5), (12.4, 77.0, 1.5), (-12.4, 77.0, 1.5), (-14.4, 74.6, 1.5), (-14.8, 49.0, 0),
+    ]
+    g.prof("gun_l", bezel, -76, -54, plane="xy", bev=0.6, wear=0.5, r=1.5)
+    # Forward tapered battery hood + transverse CR123 battery cap
+    g.prof("gun_d", [(-114, 50.5), (-91, 50.5), (-91, 63.5), (-99, 63.5)], -16.2, 16.2, bev=1.4, wear=0.5)
+    g.rod("gun_d", (-19.0, 43.5, -118), (19.0, 43.5, -118), 7.8, seg=14, bev=1.0)
+    g.pin("steel_d", 19.0, 43.5, -118, 5.4, h=1.2, side=1, seg=12)
+    g.pin("steel", -19.0, 43.5, -118, 4.6, h=0.9, side=-1, seg=10)
+    # Right-side machined steel windage & elevation adjustment turrets
+    g.pin("steel_d", 19.4, 62.0, -76, 4.2, h=2.4, side=1, seg=10)
+    g.pin("steel", 21.8, 62.0, -76, 2.6, h=0.6, side=1, seg=8)
+    g.pin("steel_d", 19.4, 62.0, -59, 4.2, h=2.4, side=1, seg=10)
+    g.pin("steel", 21.8, 62.0, -59, 2.6, h=0.6, side=1, seg=8)
+    # Left-side quick-detach throw lever + steel mount bolt
+    g.box("gun_l", -19.8, -17.0, 32.0, 40.5, -99, -60, bev=1.0, wear=0.5)
+    g.rod("steel", (-21.0, 36.2, -80), (-17.0, 36.2, -80), 3.6, seg=10)
+    # Rear brightness/NV control pads + glowing red NV indicator dot
+    for bx in (-6.5, 0, 6.5):
+        g.box("poly_l", bx - 2.2, bx + 2.2, 38.5, 44.0, -43.2, -41.8, bev=0.45, soft=True)
+    g.box("red", -1.4, 1.4, 45.2, 47.4, -43.2, -42.0, bev=0.25, soft=True)
+    # Sculpted folded back-up sights with steel hinge pins
+    g.box("poly_l", -11.0, 11.0, 30.9, 41.2, -36, -6, bev=1.5)
+    g.box("gun_l", -6.5, 6.5, 41.0, 43.4, -33, -12, bev=0.7, wear=0.4)
+    g.rod("steel_d", (-11.6, 36.5, -14), (11.6, 36.5, -14), 1.8, seg=8)
+    g.box("poly_l", -11.0, 11.0, 30.9, 40.5, -462, -428, bev=1.5)
+    g.box("gun_l", -6.5, 6.5, 40.3, 42.4, -458, -436, bev=0.7, wear=0.4)
 
     # collapsed carbine stock
     out = [(50, 17.5), (58, 22), (176, 23.5), (197, 21), (199, -74), (191, -80), (176, -77), (126, -31), (96, -22.5), (54, -21.5), (49, -17)]
