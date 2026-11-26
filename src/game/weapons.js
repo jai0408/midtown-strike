@@ -3,8 +3,8 @@
 // Damage is a list of [range in metres, damage] steps (CoD-style drop-off);
 // spread and recoil are in degrees; times in seconds.
 import * as THREE from 'three';
-import { pbrMaterial } from '../core/pbr.js';
 import { meshGeometry } from '../core/meshasset.js';
+import { createWeaponMaterial, attachHoloOptic } from './weapon_look.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { WEAPON_ASSETS } from './weapons_asset.js';
 import { WEAPON_GLB } from './weapons_glb.js';
@@ -148,7 +148,7 @@ export async function loadWeaponAssets() {
           const mats = Array.isArray(o.material) ? o.material : [o.material];
           for (const m of mats) {
             if (!m) continue;
-            m.envMapIntensity = 0.8;   // as approved: the weapons are shared with Midtown
+            m.envMapIntensity = 1.25;
             if (m.map && m.map.anisotropy !== undefined) m.map.anisotropy = 4;
             if (m.normalMap && m.normalMap.anisotropy !== undefined) m.normalMap.anisotropy = 4;
           }
@@ -168,7 +168,7 @@ export function makeWeaponModel(id) {
     mesh.userData.fit = 1;                // already true size
     return { mesh, points: glb.points };
   }
-  if (!gunMaterial) gunMaterial = pbrMaterial({ grain: 260, grainAmount: 0.16 });
+  if (!gunMaterial) gunMaterial = createWeaponMaterial();
   let entry = modelCache.get(id);
   if (!entry) {
     const a = WEAPON_ASSETS[id];
@@ -179,6 +179,7 @@ export function makeWeaponModel(id) {
     modelCache.set(id, entry);
   }
   const mesh = new THREE.Mesh(entry.geometry, gunMaterial);
+  if (WEAPONS[id] && WEAPONS[id].optic === 'holo') attachHoloOptic(mesh, entry.points);
   mesh.castShadow = true;
   mesh.userData.fit = entry.fit;   // true-size scale (0 = keep the pose's own scale)
   mesh.frustumCulled = false;

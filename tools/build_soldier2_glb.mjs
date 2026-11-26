@@ -601,45 +601,82 @@ function buildSoldierMesh(lod) {
     const hBack = mul(hOut, -s);
     const hPt = (al, bk, fw) => add(jHand, add(mul(hAlong, al), add(mul(hBack, bk), mul(hFwd, fw))));
 
-    // Flared glove cuff (-4.6cm overlaps & hides sleeve end) -> chunky contoured palm block
+    // Tailored tactical glove cuff (overlaps sleeve cleanly) -> anatomical contoured palm
     addTube(
       mb,
-      [hPt(-0.046, 0, 0), hPt(-0.018, 0, 0), hPt(0.010, 0, 0), hPt(0.045, 0, 0), hPt(0.078, -0.003, 0), hPt(0.094, -0.006, 0)],
-      [0.045, 0.043, 0.042, 0.046, 0.047, 0.040],
-      [0.043, 0.038, 0.032, 0.028, 0.025, 0.018],
-      seg(12), 2.8, hFwd, 'glove', rigidW('hand' + side), [false, true]
+      [hPt(-0.044, 0, 0), hPt(-0.018, 0, 0), hPt(0.010, -0.001, 0), hPt(0.042, -0.002, 0), hPt(0.072, -0.004, 0), hPt(0.086, -0.006, 0)],
+      [0.038, 0.035, 0.036, 0.040, 0.041, 0.035],
+      [0.036, 0.031, 0.026, 0.022, 0.019, 0.014],
+      seg(14), 2.8, hFwd, 'glove', rigidW('hand' + side), [false, true]
     );
-    // Raised hard-shell knuckle guard plate on back of glove
-    addRoundedBox(mb, [0.034, 0.018, 0.082], hPt(0.076, 0.025, 0.0), [0, 0, s * -0.58], 1, 3.0, 'pads', rigidW('hand' + side));
+    // Molded Velcro wrist-closure cuff band
+    addTube(
+      mb,
+      [hPt(-0.032, 0, 0), hPt(-0.016, 0, 0)],
+      [0.039, 0.038],
+      [0.036, 0.034],
+      seg(12), 2.6, hFwd, 'pads', rigidW('hand' + side), [false, false]
+    );
+    // Four individually contoured carbon-polymer knuckle armor pods across MCP joints
+    if (lod === 0) {
+      for (const kw of [0.025, 0.008, -0.009, -0.025]) {
+        addRoundedBox(mb, [0.019, 0.013, 0.016], hPt(0.074, 0.018, kw), [0, 0, s * -0.58], 1, 2.8, 'pads', rigidW('hand' + side));
+      }
+      // Subtle molded dorsal metacarpal flex bar
+      addRoundedBox(mb, [0.024, 0.008, 0.064], hPt(0.044, 0.019, 0.0), [0, 0, s * -0.58], 1, 2.6, 'pads', rigidW('hand' + side));
+    } else {
+      addRoundedBox(mb, [0.024, 0.014, 0.072], hPt(0.074, 0.019, 0.0), [0, 0, s * -0.58], 1, 2.8, 'pads', rigidW('hand' + side));
+    }
 
-    // Sturdy relaxed-grip curved fingers (4 individual fingers on LOD0, 2 grouped blocks on LOD1)
+    // Anatomical knuckle-articulated curled tactical glove fingers (slim, tapered, natural C-wrap grip)
     const fingerSpecs = lod === 0
-      ? [[0.030, 0.0125, [0.034, 0.024, 0.020], [0.42, 0.90, 1.32]],
-         [0.010, 0.0130, [0.038, 0.026, 0.021], [0.55, 1.08, 1.52]],
-         [-0.010, 0.0122, [0.035, 0.024, 0.020], [0.64, 1.16, 1.62]],
-         [-0.029, 0.0108, [0.030, 0.020, 0.018], [0.72, 1.24, 1.68]]]
-      : [[0.019, 0.0195, [0.036, 0.025, 0.020], [0.48, 0.98, 1.42]],
-         [-0.018, 0.0185, [0.032, 0.022, 0.019], [0.68, 1.20, 1.64]]];
+      ? [[ 0.0265, 0.0088, [0.028, 0.020, 0.015], [0.76, 1.62, 2.34]],
+         [ 0.0085, 0.0092, [0.031, 0.022, 0.016], [0.84, 1.72, 2.44]],
+         [-0.0095, 0.0085, [0.029, 0.020, 0.015], [0.90, 1.78, 2.50]],
+         [-0.0265, 0.0075, [0.024, 0.017, 0.014], [0.96, 1.84, 2.56]]]
+      : [[ 0.017, 0.0155, [0.030, 0.021, 0.016], [0.80, 1.66, 2.38]],
+         [-0.016, 0.0145, [0.027, 0.019, 0.015], [0.92, 1.80, 2.52]]];
     const fingW = (x, y, z) => {
-      const d = vlen(sub([x, y, z], hPt(0.086, 0, 0)));
-      const wf = sstep(0.005, 0.025, d);
+      const d = vlen(sub([x, y, z], hPt(0.080, 0, 0)));
+      const wf = sstep(0.004, 0.022, d);
       return [[BI['fingers' + side], wf], [BI['hand' + side], 1 - wf]];
     };
     for (const [fwOff, rad, lens, angs] of fingerSpecs) {
-      let al = 0.086, bk = -0.004;
+      let al = 0.080, bk = -0.004;
       const fpts = [hPt(al, bk, fwOff)];
-      const frads = [rad];
+      const fra = [rad * 1.05];
+      const frb = [rad * 0.96];
       for (let k = 0; k < lens.length; k++) {
-        al += Math.cos(angs[k]) * lens[k];
-        bk -= Math.sin(angs[k]) * lens[k];
+        const dl = lens[k];
+        const ca = Math.cos(angs[k]), sa = Math.sin(angs[k]);
+        // Mid-phalanx slight pinch + joint knuckle ring for organic gloved silhouette
+        const midAl = al + ca * dl * 0.55;
+        const midBk = bk - sa * dl * 0.55;
+        al += ca * dl;
+        bk -= sa * dl;
+        const tJoint = 1 - 0.14 * (k + 1);
+        const tMid = 1 - 0.14 * (k + 0.55);
+        if (lod === 0) {
+          fpts.push(hPt(midAl, midBk, fwOff));
+          fra.push(rad * tMid * 0.94);
+          frb.push(rad * tMid * 0.88);
+        }
         fpts.push(hPt(al, bk, fwOff));
-        frads.push(rad * (1 - 0.13 * (k + 1)));
+        const knuckleBulge = k < 2 ? 1.06 : 0.72; // slight PIP/DIP knuckle pad, tapered rounded fingertip
+        fra.push(rad * tJoint * knuckleBulge);
+        frb.push(rad * tJoint * (k < 2 ? 0.96 : 0.66));
       }
-      addTube(mb, fpts, frads, frads, lod === 0 ? 7 : 6, 2.2, hFwd, 'glove', fingW);
+      addTube(mb, fpts, fra, frb, lod === 0 ? 10 : 6, 2.2, hFwd, 'glove', fingW);
     }
-    // Solid opposing thumb wrapping visibly around handguard/grip
-    const tpts = [hPt(0.016, -0.010, 0.038), hPt(0.046, -0.024, 0.054), hPt(0.076, -0.034, 0.052), hPt(0.098, -0.038, 0.040)];
-    addTube(mb, tpts, [0.0165, 0.0150, 0.0135, 0.0110], [0.0165, 0.0150, 0.0135, 0.0110], 7, 2.2, hBack, 'glove', rigidW('thumb' + side));
+    // Sculpted opposing thumb curving naturally along handguard / receiver flank
+    const tpts = [
+      hPt(0.014, -0.008, 0.034),
+      hPt(0.040, -0.020, 0.048),
+      hPt(0.066, -0.030, 0.047),
+      hPt(0.084, -0.038, 0.036),
+      hPt(0.092, -0.042, 0.028),
+    ];
+    addTube(mb, tpts, [0.0135, 0.0122, 0.0108, 0.0094, 0.0068], [0.0128, 0.0114, 0.0100, 0.0086, 0.0062], lod === 0 ? 9 : 6, 2.2, hBack, 'glove', rigidW('thumb' + side));
   }
 
   // ---- LEGS (trousers, cargo pockets, knee pads, combat boots) -------------
@@ -884,14 +921,23 @@ function buildPBRTextures(SIZE = 2048) {
           rough = clamp(0.76 + dirt * 0.18, 0.62, 0.96);
           ao = clamp(0.75 + 0.2 * grain - lace * 0.1, 0.55, 1.0);
         } else if (box.name === 'glove') {
-          // Tactical Mechanix-style charcoal/coyote gloves
-          const knit = ((x & 2) === 0 || (y & 2) === 0) ? 0.94 : 1.04;
-          const n = fbm(lu * 24, lv * 24, 2, 612);
-          r = (58 + edgeWear * 20) * knit * (0.88 + 0.22 * n);
-          g = (56 + edgeWear * 18) * knit * (0.88 + 0.22 * n);
-          b = (52 + edgeWear * 14) * knit * (0.88 + 0.22 * n);
-          h = 0.5 + (knit - 0.99) * 1.6 + (n - 0.5) * 0.3;
-          rough = 0.72; ao = 0.85;
+          // Tactical Mechanix-style multi-panel charcoal ballistic weave + coyote-slate suede & flex ribs
+          const weave = Math.sin(lu * Math.PI * 64) * Math.sin(lv * Math.PI * 64) * 0.5 + 0.5;
+          const n = fbm(lu * 26, lv * 26, 3, 612);
+          const suedePanel = smooth((lv - 0.42) * 10) * (1 - smooth((lv - 0.84) * 10));
+          const flexRib = Math.pow(0.5 + 0.5 * Math.sin(lv * Math.PI * 24), 2) * (1 - suedePanel * 0.6);
+          const seam = (Math.abs(lv - 0.42) < 0.010 || Math.abs(lv - 0.84) < 0.010 || Math.abs(lu - 0.5) < 0.008) ? 1 : 0;
+          const stitch = seam && (((Math.floor(lu * 120) + Math.floor(lv * 120)) & 1) === 0) ? 1 : 0;
+          const baseR = lerp(44, 62, suedePanel) + weave * 5 + flexRib * 6 + edgeWear * 16;
+          const baseG = lerp(45, 58, suedePanel) + weave * 5 + flexRib * 6 + edgeWear * 15;
+          const baseB = lerp(47, 51, suedePanel) + weave * 5 + flexRib * 5 + edgeWear * 12;
+          const grainM = (0.86 + 0.24 * n) * (seam ? (stitch ? 1.18 : 0.72) : 1.0);
+          r = baseR * grainM;
+          g = baseG * grainM;
+          b = baseB * grainM;
+          h = 0.46 + weave * 0.12 + flexRib * 0.24 + (n - 0.5) * 0.22 + (stitch ? 0.18 : -seam * 0.22);
+          rough = clamp(lerp(0.68, 0.84, suedePanel) - flexRib * 0.06 + (n - 0.5) * 0.12, 0.52, 0.92);
+          ao = clamp(0.84 + flexRib * 0.10 - seam * 0.20, 0.58, 1.0);
         } else if (box.name === 'pads') {
           // Hard-shell polymer knee/elbow pads & mask guard with scuffs
           const scuff = fbm(lu * 18, lv * 18, 3, 911);

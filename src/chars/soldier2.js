@@ -172,8 +172,8 @@ const TRIGGER_HAND = handTurn([1, 0, 0], [0, -0.34, -0.94]);
 const HOLD = {
   rifle: {
     R: TRIGGER_HAND.clone().multiply(HAND_REST_R_INV),
-    L: handTurn([0.36, 0.92, 0.10], [0.95, 0.14, -0.26]).multiply(HAND_REST_L_INV),
-    rOff: [0, 0, 0], lOff: [-0.012, -0.008, 0.006],
+    L: handTurn([0.24, 0.96, 0.12], [0.95, 0.04, -0.30]).multiply(HAND_REST_L_INV),
+    rOff: [0, 0, 0], lOff: [-0.015, -0.014, 0.004],
   },
   pistol: {
     R: TRIGGER_HAND.clone().multiply(HAND_REST_R_INV),
