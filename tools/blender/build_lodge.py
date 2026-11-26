@@ -2292,7 +2292,7 @@ def build_parking_props():
     for i in range(7):
         a = i * 0.9
         beam((-8.0 + i * 1.7, fy + 0.7, 64.2), (-7.4 + i * 1.7, fy + 1.6, 64.2 + 1.5 * math.sin(a)), 0.05, "log", "#5a4a38", 0.05)
-    rock("rock", -9.2, fy + 0.7, 64.2, 0.9, 0.8, 0.9, 33, 5, 8, "#6a4a30", 0.35)
+    rock("rock", -9.2, fy + 0.44, 64.2, 0.74, 0.50, 0.78, 33, 5, 8, "#7d776c", 0.25)
     col(-9.0, fy, 63.5, 9.0, fy + 1.05, 64.9, F_DEFAULT, S_WOOD)
     reserve(-10, 60.8, 10, 65, 0.5)
     # log pile (stacked logs)
@@ -2650,22 +2650,59 @@ def detail_tile():
 # backdrop: mountains + forest silhouette
 # ----------------------------------------------------------------------------------------------
 def build_backdrop():
-    nth, dists = 90, [0, 40, 110, 200, 320, 460, 600]
+    # High-resolution 360-degree seamless alpine mountain amphitheatre with foothills,
+    # glacially carved valleys, layered secondary ridges, and jagged Cascade-style peaks.
+    nth = 220
+    dists = [0, 18, 42, 72, 108, 150, 198, 250, 305, 365, 430, 500, 575, 655]
     th = np.linspace(0, 2 * math.pi, nth, endpoint=False)
-    R = 160.0 / np.maximum(np.abs(np.cos(th)), np.abs(np.sin(th)))
+    ct, st = np.cos(th), np.sin(th)
+    R = 160.0 / np.maximum(np.abs(ct), np.abs(st))
+
+    def ridged(xx, zz, octs, seed, gain=0.5):
+        tot = np.zeros_like(xx)
+        amp = 1.0
+        norm = 0.0
+        freq = 1.0
+        w = np.ones_like(xx)
+        for o in range(octs):
+            n = 1.0 - np.abs(vnoise(xx * freq, zz * freq, seed + o * 17) * 2.0 - 1.0)
+            n = n * n * w
+            w = np.clip(n * 1.85, 0.15, 1.0)
+            tot += amp * n
+            norm += amp
+            amp *= gain
+            freq *= 2.05
+        return tot / norm
+
+    # Seamless angular massif envelope (evaluated on unit circle so th=0..2pi has zero seam)
+    massif = 0.55 + 0.75 * ridged(ct * 2.1 + 3.4, st * 2.1 - 1.8, 4, 511)
+    saddles = 0.55 + 0.60 * fbm(ct * 3.2 - 5.1, st * 3.2 + 2.7, 3, 519)
+
     P = []
     for j, d in enumerate(dists):
         rr = R + d
-        x, z = rr * np.cos(th), rr * np.sin(th)
+        x, z = rr * ct, rr * st
         if j == 0:
-            y = terrain_h(160 * np.clip(np.cos(th) * R / 160, -1, 1), 160 * np.clip(np.sin(th) * R / 160, -1, 1))
+            y = terrain_h(160 * np.clip(ct * R / 160, -1, 1), 160 * np.clip(st * R / 160, -1, 1))
         else:
-            base = terrain_h(np.clip(R * np.cos(th), -160, 160), np.clip(R * np.sin(th), -160, 160))
-            ridge = np.abs(fbm(th * 6 + 3, np.full_like(th, j * 0.7), 4, 501) - 0.5) * 2
-            amp = 20 + 240 * smooth(0, 600, d) ** 1.1
-            peak = 0.45 + 1.0 * (1 - ridge) ** 1.3 + 0.5 * fbm(th * 3, np.full_like(th, 7), 3, 502)
-            south_boost = 1.0
-            y = base + amp * peak * (0.35 + 0.65 * smooth(0, 250, d)) + 4 * fbm(x * 0.05, z * 0.05, 3, 503)
+            base = terrain_h(np.clip(R * ct, -160, 160), np.clip(R * st, -160, 160))
+            t = smooth(0.0, 655.0, d)
+            # Gentle rolling forested foothills close in, rising into sculpted alpine peaks
+            foothill = (26.0 * smooth(0.0, 165.0, d) + 32.0 * smooth(60.0, 260.0, d)) * (
+                0.55 + 0.65 * fbm(x * 0.0055 + 1.2, z * 0.0055 - 2.3, 4, 501)
+            )
+            # Multi-scale ridged alpine range with cross-cutting glacial spurs and valleys
+            r_main = ridged(x * 0.0031 + 4.7, z * 0.0031 - 2.9, 5, 503)
+            r_spur = ridged(x * 0.0068 - 3.1, z * 0.0068 + 6.4, 4, 507)
+            valley_cut = smooth(0.18, 0.78, fbm(x * 0.0024 - 1.5, z * 0.0024 + 3.8, 3, 523))
+            # Rise steeply between d=120..520, crest naturally near d=480..580
+            range_env = smooth(45.0, 440.0, d) ** 1.15 * (1.0 - 0.14 * smooth(540.0, 655.0, d))
+            alpine = (275.0 * range_env) * massif * (0.42 + 0.58 * saddles) * (
+                0.32 + 0.52 * r_main + 0.24 * r_spur
+            ) * (0.58 + 0.42 * valley_cut)
+            # Fine rocky ridge detail along upper slopes
+            detail = (9.0 + 18.0 * t) * (fbm(x * 0.019, z * 0.019, 3, 529) - 0.45) * smooth(20.0, 140.0, d)
+            y = base * (1.0 - 0.5 * t) + foothill + alpine + detail
         P.append(np.stack([x, y, z], -1))
     P = np.array(P)  # (rings, nth, 3)
     rings = len(dists)
@@ -2675,23 +2712,28 @@ def build_backdrop():
         for i in range(nth):
             i2 = (i + 1) % nth
             a, b = j * nth + i, j * nth + i2
-            c, d = (j + 1) * nth + i2, (j + 1) * nth + i
-            I.append((a, d, c))
-            I.append((a, c, b))
+            c, d_ = (j + 1) * nth + i2, (j + 1) * nth + i
+            # Alternate diagonal per cell so ridge silhouettes never show stair-stepped biases
+            if (i + j) & 1:
+                I.append((a, d_, c))
+                I.append((a, c, b))
+            else:
+                I.append((a, d_, b))
+                I.append((b, d_, c))
     I = np.array(I)
-    # make normals point up/outward (flip if needed)
     N = smooth_normals(V, I)
     if N[:, 1].mean() < 0:
         I = I[:, ::-1]
         N = -N
+    # Fallback vertex colours (the runtime mountain shader paints procedural granite/forest/snow)
     h = V[:, 1]
     n = vnoise(V[:, 0] * 0.01, V[:, 2] * 0.01, 7)
-    forest = np.array(hexl("#2c4a34"))
-    rockc = np.array(hexl("#767571"))
-    snow = np.array(hexl("#e6eaee"))
-    c = forest[None, :] * (0.8 + 0.4 * n)[:, None]
-    c = c * (1 - smooth(40, 110, h))[:, None] + rockc[None, :] * (0.85 + 0.3 * n)[:, None] * smooth(40, 110, h)[:, None]
-    c = c * (1 - smooth(170, 230, h + 30 * (n - 0.5)))[:, None] + snow[None, :] * smooth(170, 230, h + 30 * (n - 0.5))[:, None]
+    forest = np.array(hexl("#263f2a"))
+    rockc = np.array(hexl("#666a70"))
+    snow = np.array(hexl("#e4eaf0"))
+    c = forest[None, :] * (0.85 + 0.3 * n)[:, None]
+    c = c * (1 - smooth(65, 130, h))[:, None] + rockc[None, :] * (0.85 + 0.3 * n)[:, None] * smooth(65, 130, h)[:, None]
+    c = c * (1 - smooth(175, 240, h + 30 * (n - 0.5)))[:, None] + snow[None, :] * smooth(175, 240, h + 30 * (n - 0.5))[:, None]
     emit("mountain", V, N, np.zeros((len(V), 2)), I, colors=np.clip(c * 0.9, 0, 1))
     # (the forest beyond the playable area used to be pale 5-sided cones here; it is now
     # real trees in the foliage list, see the far forest in place_foliage(), drawn as impostors)
@@ -3227,156 +3269,356 @@ def lathe(mat, prof, seg, tint, axis_center=None, var=0.03):
     emit_smooth(mat, P, np.array(I), cen, tint, 0.8, var)
 
 
-def wheel(x, y, z, side, R=0.38, W=0.24, rim=0.22, seg=16, tint="#161718", lugs=0, ribs=False, rimtint="#b8bec2"):
-    """Wheel centred at (x,y,z), axis along z, outer face toward `side` (+1/-1)."""
+def wheel(x, y, z, side, R=0.38, W=0.24, rim=0.22, seg=20, tint="#1a1c20", lugs=0, ribs=False, rimtint="#cfd5db"):
+    """3D sculpted tire + machined 6-spoke alloy wheel centred at (x,y,z), outer face toward `side` (+1/-1)."""
     push(roty(0 if side > 0 else math.pi), (x, y, z))
     hw = W / 2
-    prof = [(rim * 0.95, -hw), (R * 0.80, -hw * 1.0), (R * 0.93, -hw * 0.9), (R * 0.985, -hw * 0.6), (R, -hw * 0.42), (R, hw * 0.42), (R * 0.985, hw * 0.6), (R * 0.93, hw * 0.9), (R * 0.80, hw), (rim * 0.95, hw)]
-    lathe("paint", prof, seg, tint)
+    prof = [
+        (rim * 0.92, -hw * 0.92), (R * 0.78, -hw * 1.0), (R * 0.92, -hw * 0.94),
+        (R * 0.985, -hw * 0.72), (R, -hw * 0.44), (R, hw * 0.44),
+        (R * 0.985, hw * 0.72), (R * 0.92, hw * 0.94), (R * 0.78, hw * 1.0), (rim * 0.92, hw * 0.92),
+    ]
+    lathe("cartrim", prof, seg, tint, var=0.02)
     if ribs:
         for kk in range(seg):
             a = kk * 2 * math.pi / seg
             push(rotz(a), (0, 0, 0))
-            box("paint", R - 0.02, -0.03, -hw * 0.45, R + 0.035, 0.03, hw * 0.45, tint, 0.3, dirt=False, skip=("-y",))
+            box("cartrim", R - 0.02, -0.028, -hw * 0.45, R + 0.032, 0.028, hw * 0.45, tint, 0.3, dirt=False, skip=("-y",))
             pop()
     for kk in range(lugs):
         a = kk * 2 * math.pi / lugs
         push(rotz(a), (0, 0, 0))
-        box("paint", R - 0.01, -0.06, -hw * 0.9, R + 0.09, 0.06, hw * 0.9, tint, 0.3, dirt=False, skip=("-y",))
+        box("cartrim", R - 0.01, -0.055, -hw * 0.88, R + 0.085, 0.055, hw * 0.88, tint, 0.3, dirt=False, skip=("-y",))
         pop()
-    # rim: dished face, lip, spokes, hub, lug nuts
+    # Machined alloy rim lip, dished barrel, brake rotor, hub & 6 spokes
     push(rotx(math.pi / 2), (0, 0, 0))
-    cyl("metal", rim, rim * 0.9, hw * 0.55, hw * 0.78, seg=seg, tint=rimtint, caps=False, dirt=False, var=0.03)
-    cyl("metal", rim * 0.9, rim * 0.78, hw * 0.55 - 0.0, hw * 0.62, seg=seg, tint=rimtint, caps=True, dirt=False, var=0.03)
-    cyl("paint", rim * 0.8, rim * 0.8, -hw * 0.3, hw * 0.45, seg=seg, tint="#222427", caps=False, dirt=False)  # barrel
-    cyl("metal", 0.07, 0.06, hw * 0.55, hw * 0.74, seg=12, tint="#9aa0a4", caps=True, dirt=False)
+    cyl("carchrome", rim * 1.02, rim * 0.92, hw * 0.56, hw * 0.94, seg=seg, tint=rimtint, caps=False, dirt=False, var=0.02)
+    cyl("carchrome", rim * 0.92, rim * 0.82, hw * 0.56, hw * 0.64, seg=seg, tint=rimtint, caps=False, dirt=False, var=0.02)
+    cyl("cartrim", rim * 0.84, rim * 0.84, -hw * 0.65, hw * 0.56, seg=seg, tint="#1d1f23", caps=True, dirt=False, var=0.01)  # dark inner barrel
+    cyl("carchrome", rim * 0.64, rim * 0.64, hw * 0.10, hw * 0.32, seg=14, tint="#7e848b", caps=True, dirt=False, var=0.02)  # brake disc
+    cyl("carchrome", 0.075, 0.068, hw * 0.48, hw * 0.88, seg=12, tint="#9da4ac", caps=True, dirt=False, var=0.02)  # center hub cap
     pop()
-    for kk in range(5):
-        a = kk * 2 * math.pi / 5 + 0.3
+    for kk in range(6):
+        a = kk * 2 * math.pi / 6 + 0.25
         push(rotz(a), (0, 0, 0))
-        box("metal", 0.05, -0.028, hw * 0.55, rim * 0.84, 0.028, hw * 0.72, rimtint, 0.3, dirt=False, skip=("-y",))
+        box("carchrome", 0.055, -0.024, hw * 0.54, rim * 0.88, 0.024, hw * 0.82, rimtint, 0.3, dirt=False)
         pop()
+    pop()
+
+
+def _arch_arc(mat, prof, seg, tint, a0=-0.08, a1=math.pi + 0.08, var=0.02):
+    """Open upper-half lathe sweep around +Z axis (angles a0..a1) so fender flares never clip underground."""
+    ang = np.linspace(a0, a1, seg)
+    P = []
+    for (r, z) in prof:
+        P.append(np.stack([r * np.cos(ang), r * np.sin(ang), np.full(seg, z)], 1))
+    P = np.concatenate(P)
+    I = []
+    for k in range(len(prof) - 1):
+        for j in range(seg - 1):
+            a_, b_ = k * seg + j, k * seg + j + 1
+            c_, d_ = (k + 1) * seg + j + 1, (k + 1) * seg + j
+            I.append((a_, d_, c_))
+            I.append((a_, c_, b_))
+    I = np.array(I)
+    N = smooth_normals(P, I)
+    # orient outward away from arc centerline
+    rm = np.mean([r for r, _ in prof])
+    zm = np.mean([z for _, z in prof])
+    c_arr = np.tile(np.stack([rm * np.cos(ang), rm * np.sin(ang), np.full(seg, zm)], 1), (len(prof), 1))
+    if ((N * (P - c_arr)).sum(1)).mean() < 0:
+        I = I[:, ::-1]
+        N = -N
+    uv = np.stack([P[:, 0], P[:, 1] + P[:, 2] * 0.5], 1) * 0.8
+    emit(mat, P, N, uv, I, tint, False, var)
+
+
+def fender_cutout(xw, y_ax, z_out, side, Ra, y_top, x_pad, tint, flare_tint="#202328", seg=16):
+    """True circular wheel-well opening in bodywork + recessed dark inner liner + top-half fender flare."""
+    push(roty(0 if side > 0 else math.pi), (xw, y_ax, z_out))
+    half_x = Ra + x_pad
+    h_top = y_top - y_ax
+    ang = np.linspace(0.0, math.pi, seg)
+    ca, sa = np.cos(ang), np.sin(ang)
+    # Project each arch angle outward onto the enclosing fender rectangle [-half_x..half_x] x [0..h_top]
+    ox, oy = np.empty(seg), np.empty(seg)
+    for k in range(seg):
+        c, s = ca[k], sa[k]
+        tx = (half_x / abs(c)) if abs(c) > 1e-4 else 1e9
+        ty = (h_top / s) if s > 1e-4 else 1e9
+        t = min(tx, ty)
+        ox[k] = np.clip(c * t, -half_x, half_x)
+        oy[k] = np.clip(s * t, 0.0, h_top)
+    ix, iy = Ra * ca, Ra * sa
+    # Outer painted fender spandrel face (at z=0, pointing +z outward)
+    P_out = np.concatenate([
+        np.stack([ix, iy, np.zeros(seg)], 1),
+        np.stack([ox, oy, np.zeros(seg)], 1),
+    ])
+    I_sp = []
+    for k in range(seg - 1):
+        I_sp.append((k, k + 1, seg + k + 1))
+        I_sp.append((k, seg + k + 1, seg + k))
+    I_sp = np.array(I_sp)
+    n_sp = np.cross(P_out[I_sp[:, 1]] - P_out[I_sp[:, 0]], P_out[I_sp[:, 2]] - P_out[I_sp[:, 0]])
+    if n_sp[:, 2].mean() < 0:
+        I_sp = I_sp[:, ::-1]
+    N_out = np.tile([0.0, 0.0, 1.0], (len(P_out), 1))
+    emit("carpaint", P_out, N_out, P_out[:, :2] * 0.8, I_sp, tint, False, 0.02)
+
+    # Dark recessed wheel-well tunnel (goes inward -0.34 behind the tire, never covering the wheel!)
+    well_prof = [(Ra, 0.0), (Ra, -0.34), (0.04, -0.34)]
+    _arch_arc("cartrim", well_prof, seg, "#121417", a0=-0.04, a1=math.pi + 0.04, var=0.01)
+
+    # Sculpted matte-black off-road fender flare (top semicircle ONLY, clean automotive edge)
+    fl_prof = []
+    for k in range(8):
+        a = -math.pi * 0.5 + math.pi * k / 7
+        fl_prof.append((Ra + 0.028 + 0.042 * math.cos(a), 0.016 + 0.036 * math.sin(a)))
+    _arch_arc("cartrim", fl_prof, seg, flare_tint, a0=-0.04, a1=math.pi + 0.04, var=0.02)
     pop()
 
 
 def arch(x, y, z, side, R=0.48, tint="#222528", lip_tint="#ffffff", thick=0.05):
-    """Fender flare: dark arch recess + paint lip ring around a wheel."""
-    push(None, (x, y, z))
-    push(rotx(math.pi / 2), (0, 0, 0))
-    zs = z * 0 + (0.0)
-    cyl("paint", R, R, 0 if side > 0 else -0.05, 0.05 if side > 0 else 0, seg=20, tint="#14161a", caps=True, dirt=False) if False else None
-    pop()
-    pop()
-    # recessed dark disc just proud of the body + lip torus
+    """Upper-half fender flare arch (never clips underground or hides the wheel)."""
     push(roty(0 if side > 0 else math.pi), (x, y, z))
-    push(rotx(math.pi / 2), (0, 0, 0))
-    cyl("paint", R * 0.96, R * 0.96, -0.02, 0.0, seg=20, tint="#101214", caps="top", dirt=False)
-    pop()
     prof = []
     for k in range(7):
         a = -math.pi / 2 + math.pi * k / 6
-        prof.append((R + 0.045 * math.cos(a) + 0.02, 0.03 * math.sin(a) + 0.02))
-    lathe("paint", prof, 20, lip_tint, var=0.03)
+        prof.append((R + 0.04 * math.cos(a) + 0.015, 0.028 * math.sin(a) + 0.018))
+    _arch_arc("cartrim", prof, 16, lip_tint, a0=-0.05, a1=math.pi + 0.05, var=0.02)
     pop()
 
 
 def vlight(x, y, z, kind, side=1, tint="#ffffff"):
-    # kind 'head': reflector + glass lens, 'tail': red lens
+    """Clean automotive headlight (chrome reflector + amber marker + glass) or ruby taillight."""
     if kind == "head":
-        rbox("metal", x - 0.03, y - 0.08, z - 0.2, x + 0.04, y + 0.08, z + 0.2, "#c9cdd0", p=0.5, M=8)
-        rbox("glass", x + 0.03, y - 0.06, z - 0.18, x + 0.07, y + 0.06, z + 0.18, "#ffffff", p=0.5, M=8)
+        rbox("carchrome", x - 0.04, y - 0.085, z - 0.20, x + 0.03, y + 0.085, z + 0.20, "#d8dee4", p=0.45, M=8)
+        rbox("glass", x + 0.02, y - 0.072, z - 0.185, x + 0.06, y + 0.072, z + 0.185, "#eef4fa", p=0.45, M=8)
+        # outer amber corner marker
+        sz = 1 if z > 0 else -1
+        za, zb = sorted((z + sz * 0.15, z + sz * 0.23))
+        rbox("carpaint", x - 0.02, y - 0.065, za, x + 0.05, y + 0.065, zb, "#dc8218", p=0.4, M=8)
     else:
-        rbox("paint", x - 0.04, y - 0.1, z - 0.18, x + 0.03, y + 0.1, z + 0.18, "#b01818", p=0.5, M=8)
+        rbox("carpaint", x - 0.04, y - 0.16, z - 0.07, x + 0.03, y + 0.16, z + 0.07, "#bf1616", p=0.4, M=8)
+        rbox("carchrome", x - 0.046, y - 0.05, z - 0.048, x + 0.01, y + 0.02, z + 0.048, "#e6ecf2", p=0.4, M=8)
 
 
-def mirror(x, y, z, side):
-    beam((x, y, z), (x - 0.05, y + 0.05, z + side * 0.2), 0.012, "paint", "#15171a", 0.012)
-    rbox("paint", x - 0.1, y + 0.0, z + side * 0.2, x + 0.02, y + 0.16, z + side * 0.2 + side * 0.04, "#1c1e21", p=0.5, M=8)
+def mirror(x, y, z, side, tint="#1d2024"):
+    beam((x, y, z), (x - 0.04, y + 0.04, z + side * 0.18), 0.014, "cartrim", "#17191d", 0.014)
+    za, zb = sorted((z + side * 0.15, z + side * 0.24))
+    rbox("carpaint", x - 0.11, y - 0.01, za, x + 0.03, y + 0.14, zb, tint, p=0.5, M=8)
+    rbox("cartrim", x - 0.115, y + 0.005, za + 0.006, x - 0.08, y + 0.125, zb - 0.006, "#17191d", p=0.4, M=8)
 
 
 def side_slit(x, y0, y1, zface):
     for sg in (-1, 1):
-        face("+z" if sg > 0 else "-z", x - 0.006, y0, sg * zface, x + 0.006, y1, sg * zface, "paint", "#0e1012", 0.3, False)
+        face("+z" if sg > 0 else "-z", x - 0.007, y0, sg * zface, x + 0.007, y1, sg * zface, "cartrim", "#101216", 0.3, False)
+
+
+def _quad_glass(p0, p1, p2, p3, tint="#ffffff"):
+    """Emit a flat tinted automotive window quad with clean outward normal."""
+    P = np.array([p0, p1, p2, p3], float)
+    n = np.cross(P[1] - P[0], P[2] - P[0])
+    nl = np.linalg.norm(n)
+    n = n / (nl + 1e-9)
+    N = np.tile(n, (4, 1))
+    UV = np.array([[0, 0], [1, 0], [1, 1], [0, 1]], float)
+    emit("glass_dark", P, N, UV, np.array([[0, 1, 2], [0, 2, 3]]), tint, False, 0.0)
 
 
 def vehicle(x, z, rot, kind, tint):
     y = float(gh(x, z))
     push(roty(rot), (x, y, z))
-    P = lambda *a: a
+    W = 1.98
+    hw = W / 2.0
     if kind == "pickup":
-        L = 5.4
-        body = [(-2.7, 0.62, 1.2, 1.6), (-2.6, 0.45, 1.38, 1.88), (-1.8, 0.42, 1.42, 1.96), (-0.9, 0.42, 1.42, 1.98), (0.0, 0.42, 1.1, 1.98), (1.0, 0.42, 1.08, 1.98), (1.5, 0.42, 1.12, 1.96), (2.2, 0.48, 1.04, 1.9), (2.62, 0.55, 0.9, 1.7), (2.72, 0.62, 0.82, 1.5)]
-        # lower body: hood+fenders+doors (bed is built separately so the top at the bed stays open)
-        loft("paint", body[4:], 22, 0.5, tint, caps=True)
-        loft("paint", [(-0.95, 0.42, 1.1, 1.98), (0.0, 0.42, 1.1, 1.98)], 22, 0.5, tint, caps=False)
-        # bed
-        box("planks", -2.62, 0.86, -0.86, -0.95, 0.94, 0.86, "#4a3c30", 0.8, dirt=False)
+        Rw = 0.41
+        Ra = Rw + 0.085
+        wxs = (-1.72, 1.68)
+        y_arch_top = 0.95
+
+        # ---- 1. LOWER BODYWORK WITH REAL CIRCULAR WHEEL-ARCH CUTOUTS ----
+        # Mid-body cab & doors: ONE continuous sculpted side from rocker (0.42) to beltline (1.15)
+        loft("carpaint", [
+            (-1.18, 0.42, 1.15, W), (-0.50, 0.42, 1.15, W), (0.35, 0.42, 1.15, W), (1.14, 0.42, 1.15, W),
+        ], 20, 0.24, tint, caps=True, var=0.015)
+        # Sculpted front fenders & hood smoothly continuing beltline forward from cowl (x = 1.12..2.70)
+        loft("carpaint", [
+            (1.12, 0.93, 1.15, W),
+            (1.70, 0.93, 1.12, W * 0.99),
+            (2.26, 0.91, 1.05, W * 0.96),
+            (2.58, 0.86, 0.97, W * 0.90),
+            (2.70, 0.78, 0.90, W * 0.82),
+        ], 20, 0.28, tint, caps=True, var=0.015)
+        # Subtle sculpted hood power-dome
+        loft("carpaint", [
+            (1.20, 1.11, 1.185, 0.94), (1.85, 1.08, 1.15, 0.84), (2.46, 1.00, 1.06, 0.68),
+        ], 14, 0.50, tint, caps=True, var=0.012)
+        # Front nose apron ahead of front wheels (x = 2.24..2.68)
+        loft("carpaint", [
+            (2.24, 0.48, 0.95, W * 0.96), (2.56, 0.50, 0.92, W * 0.90), (2.68, 0.54, 0.88, W * 0.82),
+        ], 16, 0.28, tint, caps=True, var=0.015)
+        # Rear quarter apron behind rear wheels (x = -2.66..-2.26)
+        loft("carpaint", [
+            (-2.66, 0.48, 0.95, W * 0.97), (-2.46, 0.46, 0.96, W * 0.995), (-2.26, 0.44, 0.96, W),
+        ], 16, 0.24, tint, caps=True, var=0.015)
+
+        # ---- 2. LEVEL SPORTY PICKUP BED (seamless flush beltline y = 1.15 matching doors) ----
+        # Dark spray-in bed floor + front bulkhead
+        box("cartrim", -2.60, 0.68, -0.84, -0.90, 0.76, 0.84, "#202226", 0.6, dirt=False)
+        box("carpaint", -0.94, 0.74, -0.94, -0.86, 1.15, 0.94, tint, 0.6, dirt=False)
+        # Left & right flush bed upper walls (y = 0.93..1.15) + matte black bed-rail caps
         for sg in (-1, 1):
-            rbox("paint", -2.68, 0.45, sg * 0.99 - 0.08 + (0.0 if sg > 0 else 0.0), -0.9, 1.42, sg * 0.99 + 0.08, tint, p=0.3, M=8)
-        rbox("paint", -2.72, 0.45, -0.95, -2.62, 1.42, 0.95, tint, p=0.3, M=8)       # tailgate
-        rbox("paint", -1.0, 0.45, -0.95, -0.9, 1.5, 0.95, tint, p=0.3, M=8)           # bed front
-        for xw in (-1.75,):
-            for sg in (-1, 1):
-                rbox("paint", xw - 0.42, 0.9, sg * 0.86 - 0.1 * sg - 0.12, xw + 0.42, 1.12, sg * 0.86 + 0.12, "#2a2c2f", p=0.5, M=8)
-        # cabin
-        cab = [(-0.9, 1.06, 1.26, 1.7), (-0.8, 1.06, 1.62, 1.72), (-0.5, 1.06, 1.8, 1.72), (0.3, 1.06, 1.82, 1.68), (0.75, 1.06, 1.66, 1.7), (1.1, 1.06, 1.3, 1.74), (1.25, 1.06, 1.1, 1.76)]
-        loft("glass_dark", cab, 22, 0.5, "#ffffff", roof_mat=("paint", tint), roof_y=1.74, caps=True)
+            z_in, z_out = sorted((sg * 0.84, sg * hw))
+            rbox("carpaint", -2.68, 0.92, z_in, -0.88, 1.15, z_out, tint, k=0.014, p=0.22, M=10)
+            # Matte black bed-rail top trim cap
+            rbox("cartrim", -2.66, 1.14, min(sg * 0.84, sg * 0.985), -0.88, 1.182, max(sg * 0.84, sg * 0.985), "#1d2024", k=0.012, p=0.35, M=8)
+            # Inner bed wheel-well humps
+            rbox("cartrim", -2.12, 0.74, min(sg * 0.60, sg * 0.84), -1.32, 0.96, max(sg * 0.60, sg * 0.84), "#1f2226", k=0.04, p=0.5, M=8)
+        # Sculpted tailgate with dark handle, chrome strip & license plate
+        rbox("carpaint", -2.72, 0.56, -0.96, -2.58, 1.15, 0.96, tint, k=0.02, p=0.25, M=10)
+        rbox("cartrim", -2.74, 1.00, -0.14, -2.69, 1.07, 0.14, "#191b1f", k=0.01, p=0.3, M=8)  # tailgate latch handle
+        box("carchrome", -2.735, 0.86, -0.34, -2.71, 0.90, 0.34, "#c8cfd6", 0.3, dirt=False)   # badge bar
+        box("cartrim", -2.74, 0.62, -0.18, -2.71, 0.76, 0.18, "#d8dde4", 0.3, dirt=False)      # license plate
+
+        # ---- 3. PROPER FRAMED CAB (tapered flush C-pillars, solid roof, A/B pillars, dark tinted glass) ----
+        # Solid painted roof crown (y = 1.73..1.83)
+        loft("carpaint", [
+            (-0.84, 1.72, 1.80, 1.56), (-0.50, 1.72, 1.83, 1.60), (0.28, 1.72, 1.83, 1.58), (0.60, 1.72, 1.79, 1.50),
+        ], 18, 0.42, tint, caps=True, var=0.012)
+        # Solid cab back wall below/above rear window
+        rbox("carpaint", -0.88, 1.12, -0.88, -0.72, 1.28, 0.88, tint, k=0.02, p=0.35, M=8)
+        rbox("carpaint", -0.84, 1.65, -0.78, -0.68, 1.77, 0.78, tint, k=0.02, p=0.35, M=8)
+        rbox("carpaint", -0.86, 1.68, -0.16, -0.81, 1.73, 0.16, "#b81818", k=0.01, p=0.3, M=6)  # 3rd brake light
         for sg in (-1, 1):
-            beam((1.18, 1.1, sg * 0.84), (0.72, 1.64, sg * 0.78), 0.04, "paint", tint, 0.04)
-            beam((-0.62, 1.1, sg * 0.88), (-0.58, 1.76, sg * 0.8), 0.04, "paint", tint, 0.04)
-            beam((0.2, 1.1, sg * 0.9), (0.18, 1.8, sg * 0.82), 0.035, "paint", tint, 0.035)
-            mirror(0.78, 1.32, sg * 0.97, sg)
-        side_slit(0.2, 0.55, 1.08, 0.985)
-        side_slit(-0.45, 0.55, 1.08, 0.985)
-        # interior seats / dash
-        box("paint", -0.1, 1.05, -0.7, 0.45, 1.5, 0.7, "#1c1f22", 0.4, dirt=False)
-        box("paint", 0.8, 1.2, -0.75, 1.05, 1.4, 0.75, "#1c1f22", 0.4, dirt=False)
-        rbox("paint", 2.64, 0.46, -0.88, 2.82, 0.68, 0.88, "#2a2c2f")
-        rbox("paint", -2.86, 0.44, -0.9, -2.7, 0.66, 0.9, "#9aa0a4")
-        rbox("metal", 2.62, 0.72, -0.5, 2.78, 0.92, 0.5, "#16181a", p=0.35)   # grille
-        vlight(2.66, 0.86, -0.72, "head")
-        vlight(2.66, 0.86, 0.72, "head")
-        vlight(-2.74, 0.95, -0.8, "tail")
-        vlight(-2.74, 0.95, 0.8, "tail")
-        wxs = (-1.75, 1.7)
-        Rw = 0.4
-        W = 1.98
+            # Flush inward-tapered C-pillar matching side-window tumblehome (z = 0.89 at belt -> 0.77 at roof)
+            for cx_ in (-0.82, -0.74, -0.66):
+                beam((cx_, 1.13, sg * 0.89), (cx_ + 0.02, 1.76, sg * 0.77), 0.055, "carpaint", tint, 0.055)
+            # Inner rear corner filler beside rear sliding glass
+            beam((-0.82, 1.15, sg * 0.72), (-0.80, 1.74, sg * 0.65), 0.075, "carpaint", tint, 0.075)
+            # Sloped A-pillar (painted)
+            beam((1.16, 1.14, sg * 0.89), (0.58, 1.76, sg * 0.76), 0.046, "carpaint", tint, 0.046)
+            # Blackout B-pillar between front & rear cab windows
+            beam((-0.08, 1.14, sg * 0.89), (-0.12, 1.75, sg * 0.77), 0.036, "cartrim", "#15171b", 0.036)
+            # Roof side rail header
+            beam((-0.72, 1.75, sg * 0.77), (0.58, 1.75, sg * 0.76), 0.036, "carpaint", tint, 0.036)
+            # Flush recessed side windows (dark privacy glass)
+            _quad_glass(
+                (1.10, 1.15, sg * 0.87), (-0.64, 1.15, sg * 0.87),
+                (-0.62, 1.73, sg * 0.76), (0.56, 1.73, sg * 0.75),
+            )
+            # Wing mirror + horizontal door handles
+            mirror(0.76, 1.24, sg * 0.95, sg, tint=tint)
+            hz0, hz1 = sorted((sg * 0.97, sg * 1.015))
+            rbox("cartrim", -0.02, 0.97, hz0, 0.14, 1.02, hz1, "#191c20", k=0.01, p=0.3, M=6)
+            rbox("cartrim", -0.52, 0.97, hz0, -0.38, 1.02, hz1, "#191c20", k=0.01, p=0.3, M=6)
+            # Running boards / tubular side steps
+            rbox("cartrim", -0.92, 0.34, min(sg * 0.90, sg * 1.08), 0.96, 0.40, max(sg * 0.90, sg * 1.08), "#1f2226", k=0.014, p=0.4, M=8)
+            box("carchrome", -0.88, 0.395, min(sg * 0.98, sg * 1.06), 0.92, 0.41, max(sg * 0.98, sg * 1.06), "#a8b0b8", 0.3, dirt=False)
+            # Lower charcoal rocker cladding strip
+            cz0, cz1 = sorted((sg * (hw - 0.01), sg * (hw + 0.015)))
+            box("cartrim", -1.16, 0.42, cz0, 1.12, 0.54, cz1, "#22252a", 0.3, dirt=False)
+        # Sloped front windshield (dark tinted glass) + rear sliding cab glass
+        _quad_glass((1.16, 1.15, -0.86), (1.16, 1.15, 0.86), (0.58, 1.75, 0.76), (0.58, 1.75, -0.76))
+        _quad_glass((-0.82, 1.26, 0.58), (-0.82, 1.26, -0.58), (-0.80, 1.66, -0.58), (-0.80, 1.66, 0.58))
+        # Matte-black off-road bed sports bar behind cab
+        for sg in (-1, 1):
+            beam((-0.94, 1.16, sg * 0.86), (-0.94, 1.74, sg * 0.74), 0.034, "cartrim", "#1c1f24", 0.034)
+            beam((-0.94, 1.72, sg * 0.74), (-1.52, 1.17, sg * 0.86), 0.030, "cartrim", "#1c1f24", 0.030)
+        beam((-0.94, 1.74, -0.74), (-0.94, 1.74, 0.74), 0.034, "cartrim", "#1c1f24", 0.034)
+
+        # Interior silhouette (seats, headrests, dash) visible subtly through tinted glass
+        rbox("cartrim", -0.28, 1.06, -0.68, 0.16, 1.48, -0.10, "#1c1f24", k=0.04, p=0.4, M=8)
+        rbox("cartrim", -0.28, 1.06, 0.10, 0.16, 1.48, 0.68, "#1c1f24", k=0.04, p=0.4, M=8)
+        rbox("cartrim", -0.26, 1.48, -0.50, -0.10, 1.64, -0.26, "#1c1f24", k=0.03, p=0.5, M=8)
+        rbox("cartrim", -0.26, 1.48, 0.26, -0.10, 1.64, 0.50, "#1c1f24", k=0.03, p=0.5, M=8)
+        rbox("cartrim", 0.56, 1.08, -0.78, 1.06, 1.32, 0.78, "#181a1e", k=0.04, p=0.4, M=8)
+        side_slit(0.24, 0.54, 1.12, hw + 0.004)
+        side_slit(-0.62, 0.54, 1.12, hw + 0.004)
+
+        # ---- 4. FRONT & REAR BUMPERS, GRILLE, LIGHTS ----
+        # Rugged matte-black front bumper + brushed alloy skid plate + fog lamps
+        rbox("cartrim", 2.58, 0.44, -0.94, 2.82, 0.66, 0.94, "#202328", k=0.035, p=0.35, M=10)
+        rbox("carchrome", 2.52, 0.36, -0.46, 2.74, 0.47, 0.46, "#9aa3ac", k=0.02, p=0.35, M=8)
+        # Chrome rear step bumper + black center step pad
+        rbox("carchrome", -2.84, 0.43, -0.95, -2.66, 0.60, 0.95, "#b8c0c8", k=0.03, p=0.35, M=10)
+        rbox("cartrim", -2.85, 0.54, -0.42, -2.67, 0.62, 0.42, "#1c1f24", k=0.015, p=0.3, M=8)
+        # Wide framed radiator grille with horizontal chrome slats
+        rbox("carchrome", 2.62, 0.68, -0.56, 2.74, 0.94, 0.56, "#bcc4cc", k=0.02, p=0.3, M=8)
+        box("cartrim", 2.66, 0.71, -0.52, 2.755, 0.91, 0.52, "#14161a", 0.3, dirt=False)
+        for gy_ in (0.76, 0.81, 0.86):
+            box("carchrome", 2.74, gy_ - 0.012, -0.50, 2.775, gy_ + 0.012, 0.50, "#ced5dc", 0.3, dirt=False)
+        for sg in (-1, 1):
+            vlight(2.68, 0.83, sg * 0.72, "head")
+            vlight(-2.72, 0.94, sg * 0.87, "tail")
+            rbox("glass", 2.78, 0.51, sg * 0.64 - 0.07, 2.83, 0.59, sg * 0.64 + 0.07, "#eef4fa", k=0.015, p=0.4, M=6)
     else:
-        low = [(-2.35, 0.55, 1.1, 1.5), (-2.25, 0.4, 1.18, 1.86), (-1.5, 0.38, 1.2, 1.96), (0.0, 0.38, 1.2, 1.98), (1.2, 0.38, 1.14, 1.98), (1.9, 0.4, 1.06, 1.94), (2.25, 0.46, 0.98, 1.78), (2.38, 0.56, 0.9, 1.56)]
-        loft("paint", low, 22, 0.5, tint, caps=True)
-        cab = [(-2.15, 1.08, 1.62, 1.72), (-2.0, 1.08, 1.88, 1.76), (-1.0, 1.08, 1.94, 1.78), (-0.1, 1.08, 1.94, 1.78), (0.4, 1.08, 1.84, 1.76), (0.85, 1.08, 1.5, 1.78), (1.12, 1.08, 1.16, 1.8)]
-        loft("glass_dark", cab, 22, 0.5, "#ffffff", roof_mat=("paint", tint), roof_y=1.84, caps=True)
-        for sg in (-1, 1):
-            beam((1.1, 1.12, sg * 0.88), (0.5, 1.84, sg * 0.8), 0.04, "paint", tint, 0.04)
-            beam((-0.62, 1.12, sg * 0.9), (-0.6, 1.9, sg * 0.82), 0.04, "paint", tint, 0.04)
-            beam((-1.5, 1.12, sg * 0.9), (-1.5, 1.92, sg * 0.82), 0.04, "paint", tint, 0.04)
-            beam((-2.05, 1.14, sg * 0.86), (-2.14, 1.64, sg * 0.82), 0.04, "paint", tint, 0.04)
-            beam((-1.7, 1.97, sg * 0.66), (0.3, 1.97, sg * 0.66), 0.02, "metal", "#2a2c2f", 0.02)  # roof rails
-            mirror(0.95, 1.3, sg * 0.99, sg)
-        side_slit(0.3, 0.5, 1.1, 0.995)
-        side_slit(-0.9, 0.5, 1.1, 0.995)
-        side_slit(-1.8, 0.5, 1.1, 0.985)
-        box("paint", -0.3, 1.05, -0.7, 0.2, 1.5, 0.7, "#1c1f22", 0.4, dirt=False)
-        box("paint", -1.6, 1.05, -0.7, -1.2, 1.55, 0.7, "#1c1f22", 0.4, dirt=False)
-        box("paint", 0.7, 1.2, -0.75, 1.05, 1.4, 0.75, "#1c1f22", 0.4, dirt=False)
-        rbox("paint", 2.28, 0.44, -0.9, 2.48, 0.66, 0.9, "#2a2c2f")
-        rbox("paint", -2.5, 0.44, -0.92, -2.3, 0.66, 0.92, "#2a2c2f")
-        rbox("metal", 2.3, 0.7, -0.52, 2.45, 0.9, 0.52, "#16181a", p=0.35)
-        vlight(2.35, 0.88, -0.7, "head")
-        vlight(2.35, 0.88, 0.7, "head")
-        vlight(-2.42, 0.98, -0.78, "tail")
-        vlight(-2.42, 0.98, 0.78, "tail")
+        Rw = 0.39
+        Ra = Rw + 0.08
         wxs = (-1.45, 1.45)
-        Rw = 0.38
-        W = 1.98
-    for xw in wxs:
+        y_arch_top = 0.92
+
+        # ---- SUV: CONTINUOUS BELTLINE + REAL WHEEL-ARCH CUTOUTS ----
+        # Continuous mid-body side between axles (y = 0.40..1.18)
+        loft("carpaint", [(-0.92, 0.40, 1.18, W), (0.0, 0.40, 1.18, W), (0.94, 0.40, 1.16, W)], 20, 0.24, tint, caps=True, var=0.015)
+        # Front & rear upper fenders over wheel arches
+        loft("carpaint", [
+            (0.92, 0.90, 1.16, W), (1.50, 0.90, 1.12, W * 0.985), (1.96, 0.89, 1.05, W * 0.95),
+            (2.24, 0.86, 0.98, W * 0.88), (2.36, 0.78, 0.90, W * 0.78),
+        ], 20, 0.28, tint, caps=True, var=0.015)
+        loft("carpaint", [
+            (-2.34, 0.90, 1.12, W * 0.88), (-2.16, 0.90, 1.18, W * 0.96), (-1.50, 0.90, 1.18, W), (-0.90, 0.90, 1.18, W),
+        ], 20, 0.26, tint, caps=True, var=0.015)
+        loft("carpaint", [(1.98, 0.46, 0.92, W * 0.94), (2.26, 0.48, 0.88, W * 0.88), (2.36, 0.54, 0.85, W * 0.78)], 16, 0.28, tint, caps=True, var=0.015)
+        loft("carpaint", [(-2.34, 0.48, 0.92, W * 0.88), (-2.16, 0.44, 0.92, W * 0.96), (-1.98, 0.42, 0.92, W)], 16, 0.24, tint, caps=True, var=0.015)
+
+        # Solid sculpted SUV roof + solid rear tailgate surround & tapered D-pillars + tinted glass
+        loft("carpaint", [
+            (-2.08, 1.82, 1.90, 1.56), (-1.65, 1.82, 1.94, 1.62), (0.0, 1.82, 1.94, 1.62), (0.48, 1.82, 1.89, 1.54),
+        ], 18, 0.42, tint, caps=True, var=0.012)
+        rbox("carpaint", -2.26, 1.12, -0.88, -2.02, 1.32, 0.88, tint, k=0.02, p=0.35, M=8)
+        rbox("carpaint", -2.12, 1.74, -0.78, -1.96, 1.88, 0.78, tint, k=0.02, p=0.35, M=8)
         for sg in (-1, 1):
-            wheel(xw, Rw, sg * (W / 2 - 0.2), sg, R=Rw, W=0.26, rim=Rw * 0.58)
-            arch(xw, Rw + 0.02, sg * (W / 2 - 0.0), sg, R=Rw + 0.1, lip_tint=tint)
-    # undercarriage
-    box("paint", wxs[0], 0.3, -0.7, wxs[1], 0.5, 0.7, "#15161a", 0.5, dirt=False)
+            beam((1.12, 1.15, sg * 0.89), (0.46, 1.85, sg * 0.77), 0.046, "carpaint", tint, 0.046)
+            beam((-0.38, 1.16, sg * 0.89), (-0.42, 1.85, sg * 0.78), 0.036, "cartrim", "#16181c", 0.036)
+            beam((-1.32, 1.16, sg * 0.89), (-1.34, 1.85, sg * 0.78), 0.040, "cartrim", "#16181c", 0.040)
+            for cx_ in (-2.12, -2.02):
+                beam((cx_, 1.16, sg * 0.88), (cx_ + 0.08, 1.84, sg * 0.77), 0.055, "carpaint", tint, 0.055)
+            beam((-1.98, 1.84, sg * 0.78), (0.46, 1.84, sg * 0.77), 0.036, "carpaint", tint, 0.036)
+            # Alloy roof rails
+            beam((-1.82, 1.97, sg * 0.62), (0.34, 1.97, sg * 0.62), 0.024, "carchrome", "#a8b0b8", 0.024)
+            _quad_glass((1.06, 1.17, sg * 0.87), (-1.96, 1.17, sg * 0.87), (-1.96, 1.83, sg * 0.77), (0.44, 1.83, sg * 0.77))
+            mirror(0.84, 1.26, sg * 0.95, sg, tint=tint)
+            rbox("cartrim", -0.88, 0.34, min(sg * 0.90, sg * 1.06), 0.88, 0.39, max(sg * 0.90, sg * 1.06), "#1f2226", k=0.014, p=0.4, M=8)
+            cz0, cz1 = sorted((sg * (hw - 0.01), sg * (hw + 0.015)))
+            box("cartrim", -0.92, 0.40, cz0, 0.92, 0.52, cz1, "#22252a", 0.3, dirt=False)
+        _quad_glass((1.12, 1.16, -0.86), (1.12, 1.16, 0.86), (0.46, 1.85, 0.76), (0.46, 1.85, -0.76))
+        _quad_glass((-2.16, 1.30, 0.64), (-2.16, 1.30, -0.64), (-2.06, 1.76, -0.62), (-2.06, 1.76, 0.62))
+        rbox("cartrim", -0.35, 1.08, -0.68, 0.15, 1.54, 0.68, "#1c1f24", k=0.04, p=0.4, M=8)
+        rbox("cartrim", -1.45, 1.08, -0.68, -1.05, 1.56, 0.68, "#1c1f24", k=0.04, p=0.4, M=8)
+        rbox("cartrim", 0.62, 1.10, -0.76, 1.02, 1.34, 0.76, "#181a1e", k=0.04, p=0.4, M=8)
+        side_slit(0.28, 0.52, 1.14, hw + 0.004)
+        side_slit(-0.92, 0.52, 1.14, hw + 0.004)
+        rbox("cartrim", 2.26, 0.42, -0.90, 2.48, 0.64, 0.90, "#202328", k=0.03, p=0.35, M=10)
+        rbox("cartrim", -2.48, 0.42, -0.92, -2.26, 0.64, 0.92, "#202328", k=0.03, p=0.35, M=10)
+        rbox("carchrome", 2.28, 0.68, -0.52, 2.42, 0.91, 0.52, "#bcc4cc", k=0.02, p=0.3, M=8)
+        box("cartrim", 2.34, 0.71, -0.48, 2.435, 0.88, 0.48, "#14161a", 0.3, dirt=False)
+        for sg in (-1, 1):
+            vlight(2.35, 0.84, sg * 0.70, "head")
+            vlight(-2.38, 0.96, sg * 0.84, "tail")
+
+    # ---- 5. REAL 3D WHEELS, FENDER CUTOUTS & INNER CHASSIS ----
     for xw in wxs:
-        cylz("metal", xw, Rw, -0.85, 0.85, 0.045, seg=6, tint="#1a1b1d", dirt=False)
+        # Narrow dark inner engine/chassis bay behind wheel wells (z = -0.66..+0.66)
+        box("cartrim", xw - Ra - 0.08, 0.38, -0.66, xw + Ra + 0.08, y_arch_top, 0.66, "#141619", 0.5, dirt=False)
+        for sg in (-1, 1):
+            fender_cutout(xw, Rw, sg * hw, sg, Ra=Ra, y_top=y_arch_top, x_pad=0.065, tint=tint)
+            wheel(xw, Rw, sg * (hw - 0.13), sg, R=Rw, W=0.27, rim=Rw * 0.60)
+    # Dark undercarriage & axles
+    box("cartrim", wxs[0], 0.32, -0.66, wxs[1], 0.48, 0.66, "#141619", 0.5, dirt=False)
+    for xw in wxs:
+        cylz("cartrim", xw, Rw, -0.78, 0.78, 0.048, seg=8, tint="#1d2024", dirt=False)
     pop()
     Lh = 2.8 if kind == "pickup" else 2.45
     col_rot(x, z, Lh, W / 2, rot, y, y + (1.8 if kind == "pickup" else 1.95), F_DEFAULT, S_METAL)
@@ -4196,6 +4438,12 @@ def build_glb(tex):
         elif name == "glow":
             pbr = {"baseColorFactor": [0.08, 0.06, 0.04, 1.0], "metallicFactor": 0.0, "roughnessFactor": 0.6}
             mj["emissiveFactor"] = [1.0, 0.62, 0.26]
+        elif name == "carpaint":
+            pbr = {"baseColorFactor": [1, 1, 1, 1], "metallicFactor": 0.28, "roughnessFactor": 0.24}
+        elif name == "carchrome":
+            pbr = {"baseColorFactor": [1, 1, 1, 1], "metallicFactor": 0.90, "roughnessFactor": 0.22}
+        elif name == "cartrim":
+            pbr = {"baseColorFactor": [1, 1, 1, 1], "metallicFactor": 0.06, "roughnessFactor": 0.78}
         else:  # mountain (vertex colours only)
             pbr = {"baseColorFactor": [1, 1, 1, 1], "metallicFactor": 0.0, "roughnessFactor": 1.0}
         mj["pbrMetallicRoughness"] = pbr

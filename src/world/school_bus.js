@@ -81,15 +81,15 @@ export function buildSchoolBuses(groundAt, world) {
         if (glass) {
           m.transparent = true;
           m.depthWrite = false;
-          m.opacity = 0.6;
-          m.roughness = 0.05;
-          m.metalness = 0.0;
-          m.envMapIntensity = 2.2;
+          m.opacity = 0.68;
+          m.roughness = 0.10;
+          m.metalness = 0.05;
+          m.envMapIntensity = 2.4;
           m.side = THREE.FrontSide;
           o.renderOrder = 2;
         } else {
-          m.envMapIntensity = 1.0;
-          smoothPaint(m, 0.55);   // the baked paint dirt reads as blotches
+          m.envMapIntensity = 1.35;
+          smoothPaint(m, 0.62);   // calm blotches while keeping gentle school-bus weathering
         }
         owned.push(o);
       });

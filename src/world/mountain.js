@@ -1,13 +1,15 @@
-// Backdrop mountains: a cheap triplanar rock shader on the GLB's mountain material.
-// Rock texture (taken from the terrain rock layer) projected along x / y / z, forest green on the low gentle
-// slopes, snow on high up-facing ground, a little darker than the export. Fog supplies the distance haze.
+// Backdrop mountains: chiseled Cascade granite crags, exposed alpine rock ribs,
+// couloir snowfields, conifer foothills, and light valley mist.
+// Mali/Adreno safe: no derivatives in non-uniform branches, guarded normalizes, pow-free weights.
 import * as THREE from 'three';
 import { getMaxAnisotropy } from './textures.js';
 
 export async function applyMountainShader(mat, rockImageB64, sunDir = [-0.5003, 0.7204, 0.4803]) {
   let rock = null;
   try {
-    const src = rockImageB64.startsWith('data:') ? rockImageB64 : 'data:image/png;base64,' + (rockImageB64.indexOf(',') >= 0 ? rockImageB64.slice(rockImageB64.indexOf(',') + 1) : rockImageB64);
+    const src = rockImageB64.startsWith('data:')
+      ? rockImageB64
+      : 'data:image/png;base64,' + (rockImageB64.indexOf(',') >= 0 ? rockImageB64.slice(rockImageB64.indexOf(',') + 1) : rockImageB64);
     const img = await new Promise((resolve, reject) => {
       const im = new Image();
       im.onload = () => resolve(im);
@@ -22,50 +24,166 @@ export async function applyMountainShader(mat, rockImageB64, sunDir = [-0.5003, 
     rock.flipY = false;
     rock.needsUpdate = true;
   } catch (e) { console.warn('mountain rock texture failed', e); return mat; }
+
   const sDir = new THREE.Vector3(sunDir[0], sunDir[1], sunDir[2]).normalize();
   const uniforms = { uRock: { value: rock }, uSunDir: { value: sDir } };
+  mat.roughness = 0.94;
+  mat.metalness = 0.0;
+  mat.vertexColors = false;
+
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;\nvarying vec3 vWN;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvWN = normalize(mat3(modelMatrix) * normal);');
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+        vWN = normalize(mat3(modelMatrix) * normal);`);
+
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
         varying vec3 vWPos;
         varying vec3 vWN;
         uniform sampler2D uRock;
         uniform vec3 uSunDir;
-        float mhash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-        float mnoise(vec2 p) {
-          vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
-          return mix(mix(mhash(i), mhash(i + vec2(1.0, 0.0)), f.x), mix(mhash(i + vec2(0.0, 1.0)), mhash(i + vec2(1.0, 1.0)), f.x), f.y);
+
+        float mHash(vec2 p) {
+          vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+          p3 += dot(p3, p3.yzx + 33.33);
+          return fract((p3.x + p3.y) * p3.z);
+        }
+        float mNoise(vec2 p) {
+          vec2 i = floor(p), f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          return mix(
+            mix(mHash(i), mHash(i + vec2(1.0, 0.0)), f.x),
+            mix(mHash(i + vec2(0.0, 1.0)), mHash(i + vec2(1.0, 1.0)), f.x),
+            f.y
+          );
+        }
+        float mFbm(vec2 p) {
+          float s = mNoise(p) * 0.54;
+          p = mat2(0.8, -0.6, 0.6, 0.8) * p * 2.07;
+          s += mNoise(p) * 0.30;
+          p = mat2(0.8, -0.6, 0.6, 0.8) * p * 2.03;
+          s += mNoise(p) * 0.16;
+          return s;
+        }
+        // Macro + medium geological cliff crags visible clearly from 350-650m distance
+        float mCliffHeight(vec3 p) {
+          float warp = mNoise(p.xz * 0.0085 + vec2(p.y * 0.004, 3.1));
+          // Broad diagonal sedimentary/metamorphic cliff strata
+          float strata = sin(p.y * 0.105 + warp * 5.2 + p.x * 0.009) * 0.5 + 0.5;
+          // Prominent vertical granite buttresses & glacially carved couloirs
+          float rib0 = 1.0 - abs(mNoise(p.xz * 0.016 + vec2(p.y * 0.003, -p.y * 0.003)) * 2.0 - 1.0);
+          float rib1 = 1.0 - abs(mNoise(p.xz * 0.042 + vec2(-p.y * 0.009, p.y * 0.008)) * 2.0 - 1.0);
+          float rib2 = 1.0 - abs(mNoise(p.xz * 0.105 + vec2(p.y * 0.02, -p.y * 0.015)) * 2.0 - 1.0);
+          return strata * 0.24 + rib0 * rib0 * 0.42 + rib1 * rib1 * 0.24 + rib2 * 0.10;
         }`)
       .replace('#include <color_fragment>', `#include <color_fragment>
+        float mSnowMask = 0.0;
+        vec3 mBumpGrad = vec3(0.0);
         {
           vec3 n = normalize(vWN);
-          vec3 w = pow(abs(n), vec3(4.0));
-          w /= (w.x + w.y + w.z + 1e-4);
-          // triplanar rock at two scales (the big one breaks the repetition)
+          vec3 an = abs(n);
+          vec3 w2 = an * an;
+          vec3 w = w2 * w2;
+          w /= max(w.x + w.y + w.z, 1e-4);
+
           vec3 p = vWPos;
-          vec3 r1 = texture2D(uRock, p.zy / 26.0).rgb * w.x + texture2D(uRock, p.xz / 26.0).rgb * w.y + texture2D(uRock, p.xy / 26.0).rgb * w.z;
-          vec3 r2 = texture2D(uRock, p.zy / 140.0).rgb * w.x + texture2D(uRock, p.xz / 140.0).rgb * w.y + texture2D(uRock, p.xy / 140.0).rgb * w.z;
-          vec3 rockC = r1 * r2 * 1.9 * vec3(0.92, 0.94, 1.0);
-          float h = vWPos.y;
-          float nz = mnoise(vWPos.xz * 0.02) * 0.6 + mnoise(vWPos.xz * 0.09) * 0.4;
-          float up = n.y;
-          // forest: low and not too steep, darker green with the rock showing through
-          float forest = (1.0 - smoothstep(50.0 + nz * 50.0, 140.0 + nz * 70.0, h)) * smoothstep(0.45, 0.75, up);
-          float grain = mnoise(vWPos.xz * 0.45) * 0.5 + mnoise(vWPos.xz * 1.7) * 0.5;   // tree-canopy mottling
-          vec3 forestC = mix(vec3(0.03, 0.06, 0.03), vec3(0.075, 0.12, 0.05), nz) * (0.45 + 1.1 * grain) * (0.7 + 0.6 * r1.g);
-          // snow: high, and only where the slope is gentle
-          float snow = smoothstep(250.0 + nz * 90.0, 330.0 + nz * 90.0, h) * smoothstep(0.42, 0.7, up + (nz - 0.5) * 0.2);
-          vec3 c = mix(rockC, forestC, forest);
-          c = mix(c, vec3(0.78, 0.82, 0.88), snow);
-          diffuseColor.rgb = c * 0.88;
-        }`);
+          // Crisp dual-scale triplanar rock detail (no giant stretched cobbles)
+          vec3 r1 = texture2D(uRock, p.zy * 0.052).rgb * w.x
+                  + texture2D(uRock, p.xz * 0.052).rgb * w.y
+                  + texture2D(uRock, p.xy * 0.052).rgb * w.z;
+          vec3 r2 = texture2D(uRock, p.zy * 0.016 + vec2(0.37, 0.19)).rgb * w.x
+                  + texture2D(uRock, p.xz * 0.016 + vec2(0.37, 0.19)).rgb * w.y
+                  + texture2D(uRock, p.xy * 0.016 + vec2(0.37, 0.19)).rgb * w.z;
+
+          float rMicro = clamp(dot(r1, vec3(0.3333)), 0.0, 1.0);
+          float rMacro = clamp(dot(r2, vec3(0.3333)), 0.0, 1.0);
+
+          float hC = mCliffHeight(p);
+          float eps = 5.5;
+          mBumpGrad = vec3(
+            mCliffHeight(p + vec3(eps, 0.0, 0.0)) - hC,
+            mCliffHeight(p + vec3(0.0, eps, 0.0)) - hC,
+            mCliffHeight(p + vec3(0.0, 0.0, eps)) - hC
+          ) / eps;
+
+          // Compute bumped rock slope so steep procedural rock ribs shed snow naturally!
+          vec3 rockWN = normalize(n - mBumpGrad * 8.5);
+          float rockUp = rockWN.y;
+
+          // Rich Cascade alpine granite: deep shadowed slate gullies + warm grey-ochre sunlit ribs
+          float nzLarge = mFbm(p.xz * 0.009 + vec2(2.4, -1.7));
+          float nzMed   = mFbm(p.xz * 0.032 + vec2(-4.1, 6.3));
+          float strataBand = smoothstep(0.28, 0.78, sin(p.y * 0.11 + nzLarge * 5.8) * 0.5 + 0.5);
+          vec3 darkCrevice = vec3(0.055, 0.068, 0.088);
+          vec3 midGranite  = vec3(0.165, 0.175, 0.195);
+          vec3 warmLedge   = vec3(0.235, 0.210, 0.182);
+          vec3 rockC = mix(darkCrevice, midGranite, clamp(hC * 1.10 + rMacro * 0.25 - 0.10, 0.0, 1.0));
+          rockC = mix(rockC, warmLedge, strataBand * 0.44 * (0.35 + 0.65 * nzMed));
+          rockC *= (0.72 + 0.54 * rMicro);
+
+          float h = p.y;
+
+          // Conifer foothills: deep evergreen pine forest broken by rocky outcrops & shadow variation
+          float treeline = 92.0 + (nzLarge - 0.5) * 48.0 + (nzMed - 0.5) * 26.0;
+          float forestAlt = 1.0 - smoothstep(treeline - 24.0, treeline + 32.0, h);
+          float forestSlope = smoothstep(0.62, 0.86, rockUp + (nzMed - 0.5) * 0.12);
+          float forest = forestAlt * forestSlope;
+          float canopy = mNoise(p.xz * 0.22) * 0.52 + mNoise(p.xz * 0.58) * 0.48;
+          vec3 pineDark = vec3(0.018, 0.044, 0.024);
+          vec3 pineMid  = vec3(0.044, 0.078, 0.036);
+          vec3 forestC = mix(pineDark, pineMid, clamp(canopy * 0.75 + nzMed * 0.25, 0.0, 1.0)) * (0.56 + 0.74 * canopy);
+
+          // Sub-alpine talus & scrub transition
+          float scree = smoothstep(treeline - 16.0, treeline + 18.0, h)
+                      * (1.0 - smoothstep(treeline + 38.0, treeline + 95.0, h))
+                      * smoothstep(0.66, 0.88, rockUp);
+          vec3 screeC = mix(vec3(0.11, 0.115, 0.095), vec3(0.185, 0.175, 0.145), nzMed) * (0.78 + 0.40 * rMicro);
+
+          // Sculpted glacier snowfields & couloirs:
+          // Snow settles in recessed bowls/couloirs (low hC) and gentler bumped ledges (high rockUp),
+          // leaving sharp granite buttresses & rocky crags boldly exposed all the way to the summit!
+          float gully = smoothstep(0.56, 0.16, hC);
+          float snowAlt = smoothstep(145.0 + (nzLarge - 0.5) * 44.0 - gully * 38.0,
+                                     225.0 + (nzLarge - 0.5) * 38.0 - gully * 26.0, h);
+          float couloirDrift = smoothstep(0.42, 0.76, gully) * smoothstep(0.52, 0.80, rockUp + 0.12);
+          float benchSnow = smoothstep(0.76, 0.92, rockUp + (nzMed - 0.5) * 0.14) * smoothstep(175.0, 245.0, h);
+          float summitCap = smoothstep(235.0, 300.0, h) * smoothstep(0.66, 0.86, rockUp + (gully - 0.30) * 0.25);
+          mSnowMask = clamp(max(snowAlt * couloirDrift, max(benchSnow, summitCap)), 0.0, 1.0);
+
+          // Physical glacier snow: crisp cool blue in shadow creases, warm bright snow on sunlit facets
+          float sunSide = clamp(dot(rockWN, uSunDir) * 0.5 + 0.5, 0.0, 1.0);
+          vec3 snowC = mix(vec3(0.42, 0.54, 0.70), vec3(0.76, 0.80, 0.84), smoothstep(0.18, 0.82, sunSide));
+          snowC *= (0.90 + 0.18 * rMicro);
+
+          vec3 col = mix(rockC, screeC, scree * 0.65);
+          col = mix(col, forestC, forest);
+          col = mix(col, snowC, mSnowMask);
+          diffuseColor.rgb = col;
+        }`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        roughnessFactor = mix(0.95, 0.72, mSnowMask);`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        {
+          vec3 wn = normalize(vWN);
+          // Bold chiseled granite faces vs sculpted snow gullies
+          float bumpAmt = mix(9.5, 2.8, mSnowMask);
+          vec3 pertW = normalize(wn - mBumpGrad * bumpAmt);
+          normal = normalize(transformDirection(pertW, viewMatrix));
+        }`)
+      .replace('#include <fog_fragment>', `
+        {
+          // Subtle low-altitude valley mist only (keeps upper granite & glacier peaks razor-crisp)
+          float dist = length(vWPos.xz - cameraPosition.xz);
+          float valleyHaze = smoothstep(210.0, 760.0, dist) * (1.0 - smoothstep(25.0, 165.0, vWPos.y));
+          vec3 valleyMist = vec3(0.48, 0.64, 0.82);
+          gl_FragColor.rgb = mix(gl_FragColor.rgb, valleyMist, clamp(valleyHaze * 0.24, 0.0, 0.30));
+        }
+        #include <fog_fragment>`);
   };
-  mat.vertexColors = true;
-  mat.customProgramCacheKey = () => 'lodge-mountain';
+  mat.customProgramCacheKey = () => 'lodge-mountain-v4';
   mat.needsUpdate = true;
   return mat;
 }
