@@ -21,27 +21,27 @@ function toTex(canvas, repeat = false) {
 }
 
 const BRANDS = [
-  ['MAISON VERO', 'new york · paris', '#e6b87d', '#140c12'],
-  ['CHRONO APEX', 'calibre 9040', '#58c4ff', '#0b1018'],
-  ['ORBIT AUDIO', 'studio pro', '#ff4d6d', '#120b14'],
-  ['KINETIC RUN', 'carbon series', '#4dffb8', '#091210'],
-  ['CASK & RYE', 'small batch', '#f0a848', '#160d08'],
-  ['NORDIC SKIN', 'pure botanical', '#a6d8ff', '#0c151c'],
-  ['MERIDIAN', 'private wealth', '#d8c28a', '#10141c'],
-  ['SOLARIS', 'electric gt', '#ff7a33', '#120e12'],
-  ['VELO AIR', 'nonstop global', '#66d9ff', '#091422'],
-  ['RIVET & CO', 'selvedge denim', '#e85d3f', '#141110'],
-  ['ASTOR ROAST', 'reserve blend', '#d99a52', '#17100a'],
-  ['LUMINA', 'oled cinema', '#c466ff', '#0e0918'],
+  ['MAISON VERO', 'new york · paris', '#ff4d8d', '#ff9e44'],
+  ['CHRONO APEX', 'calibre 9040', '#2cc8ff', '#1b4bff'],
+  ['ORBIT AUDIO', 'studio pro', '#ff3b6b', '#8e24ff'],
+  ['KINETIC RUN', 'carbon series', '#1ee89a', '#00a896'],
+  ['CASK & RYE', 'small batch', '#ffb838', '#d95b16'],
+  ['NORDIC SKIN', 'pure botanical', '#42c6ff', '#0077e6'],
+  ['MERIDIAN', 'private wealth', '#f5c451', '#1a3a6c'],
+  ['SOLARIS', 'electric gt', '#ff7324', '#ff2d64'],
+  ['VELO AIR', 'nonstop global', '#00d2ff', '#2e58ff'],
+  ['RIVET & CO', 'selvedge denim', '#ff5238', '#ffb32c'],
+  ['ASTOR ROAST', 'reserve blend', '#ff9f40', '#8c3312'],
+  ['LUMINA', 'oled cinema', '#c855ff', '#2e8bff'],
 ];
 
 const SHOWS = [
-  ['THE GLASS HARBOR', 'NOW PLAYING · BROADWAY', '#e8b954', '#0b1222'],
-  ['MIDNIGHT REVUE', 'NEW MUSICAL COMEDY', '#ff3b5c', '#180912'],
-  ['CITY OF SILENCE', 'LIMITED ENGAGEMENT', '#7ac4ff', '#09111d'],
-  ['ACT III: ENCORE', '8 TONY NOMINATIONS', '#f2cf72', '#170e0b'],
-  ['NEON NOCTURNE', 'ORIGINAL DRAMA', '#42e3b5', '#081716'],
-  ['WINTER ON 5TH', 'MATINEE & EVENING', '#ff8c42', '#140d16'],
+  ['THE GLASS HARBOR', 'NOW PLAYING · BROADWAY', '#ffe066', '#162b5c', 'ASTORIA THEATRE'],
+  ['MIDNIGHT REVUE', 'NEW MUSICAL COMEDY', '#ff4d6d', '#5e1438', 'CRESCENT STAGE'],
+  ['CITY OF SILENCE', 'LIMITED ENGAGEMENT', '#52d1ff', '#113462', 'MERIDIAN HALL'],
+  ['ACT III: ENCORE', '8 STAGE AWARDS', '#ffd859', '#5a1e12', 'SAVOY BROADWAY'],
+  ['NEON NOCTURNE', 'ORIGINAL DRAMA', '#36f5bd', '#0b4448', 'ASTORIA THEATRE'],
+  ['WINTER ON 5TH', 'MATINEE & EVENING', '#ff9f45', '#4c1848', 'CRESCENT STAGE'],
 ];
 
 export const AD_PALETTES = BRANDS.map((b) => [b[2], b[3]]);
@@ -51,11 +51,11 @@ function drawBokeh(g, x, y, w, h, rng, color, count = 8) {
   for (let i = 0; i < count; i++) {
     const bx = x + rng.next() * w;
     const by = y + rng.next() * h;
-    const br = (0.04 + rng.next() * 0.14) * Math.min(w, h);
+    const br = (0.05 + rng.next() * 0.16) * Math.min(w, h);
     const rg = g.createRadialGradient(bx, by, 0, bx, by, br);
     rg.addColorStop(0, color);
     rg.addColorStop(1, 'rgba(0,0,0,0)');
-    g.globalAlpha = 0.08 + rng.next() * 0.16;
+    g.globalAlpha = 0.18 + rng.next() * 0.24;
     g.fillStyle = rg;
     g.beginPath();
     g.arc(bx, by, br, 0, Math.PI * 2);
@@ -70,7 +70,7 @@ function drawEditorialAd(g, x, y, w, h, rng, idx) {
   const br = BRANDS[(idx * 5 + 1) % BRANDS.length];
   const sh = SHOWS[idx % SHOWS.length];
   const accent = br[2];
-  const darkBg = br[3];
+  const accent2 = br[3];
 
   g.save();
   g.beginPath();
@@ -78,20 +78,19 @@ function drawEditorialAd(g, x, y, w, h, rng, idx) {
   g.clip();
 
   if (style === 0) {
-    // 1. Luxury fashion / fragrance studio portrait silhouette + rim light
-    const bg = g.createRadialGradient(x + w * 0.38, y + h * 0.42, 4, x + w * 0.45, y + h * 0.5, Math.max(w, h) * 0.85);
-    bg.addColorStop(0, '#362129');
-    bg.addColorStop(0.55, darkBg);
-    bg.addColorStop(1, '#040406');
+    // 1. Bright sunset/editorial fashion portrait against vivid photographic gradient wash
+    const bg = g.createLinearGradient(x, y, x + w, y + h);
+    bg.addColorStop(0, accent2);
+    bg.addColorStop(0.55, accent);
+    bg.addColorStop(1, '#ffd488');
     g.fillStyle = bg;
     g.fillRect(x, y, w, h);
-    drawBokeh(g, x, y, w, h, rng, accent, 10);
+    drawBokeh(g, x, y, w, h, rng, '#ffffff', 8);
 
-    // Rim-lit model silhouette (head, neck, coat shoulder)
     const cx = x + w * (tall ? 0.5 : 0.30);
     const cy = y + h * (tall ? 0.36 : 0.54);
     const sc = Math.min(w, h);
-    g.fillStyle = '#09070a';
+    g.fillStyle = 'rgba(20, 12, 22, 0.88)';
     g.beginPath();
     g.ellipse(cx, cy - sc * 0.15, sc * 0.13, sc * 0.17, 0, 0, Math.PI * 2);
     g.fill();
@@ -102,194 +101,159 @@ function drawEditorialAd(g, x, y, w, h, rng, idx) {
     g.quadraticCurveTo(cx + sc * 0.24, cy + sc * 0.05, cx + sc * 0.32, y + h);
     g.closePath();
     g.fill();
-    g.strokeStyle = accent;
-    g.lineWidth = Math.max(1.5, sc * 0.014);
-    g.globalAlpha = 0.72;
+    g.strokeStyle = '#ffffff';
+    g.lineWidth = Math.max(2, sc * 0.016);
+    g.globalAlpha = 0.85;
     g.beginPath();
-    g.arc(cx, cy - sc * 0.15, sc * 0.132, -2.3, -0.4);
+    g.arc(cx, cy - sc * 0.15, sc * 0.134, -2.3, -0.4);
     g.stroke();
     g.globalAlpha = 1;
 
-    // Editorial serif typography
     const tx = x + w * (tall ? 0.5 : 0.68);
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.fillStyle = '#f5efe6';
-    g.font = `700 ${Math.floor(Math.min(w * (tall ? 0.12 : 0.075), h * 0.15))}px Georgia, serif`;
+    g.fillStyle = '#ffffff';
+    g.font = `800 ${Math.floor(Math.min(w * (tall ? 0.125 : 0.078), h * 0.16))}px Georgia, serif`;
     g.fillText(br[0], tx, y + h * (tall ? 0.74 : 0.44), w * (tall ? 0.86 : 0.52));
-    g.fillStyle = accent;
-    g.font = `600 ${Math.floor(Math.min(w, h) * 0.055)}px sans-serif`;
+    g.fillStyle = '#16121a';
+    g.font = `700 ${Math.floor(Math.min(w, h) * 0.058)}px sans-serif`;
     g.fillText(br[1].toUpperCase(), tx, y + h * (tall ? 0.84 : 0.60), w * 0.6);
   } else if (style === 1) {
-    // 2. Luxury watch / precision hardware macro on dark reflective plinth
-    const bg = g.createLinearGradient(x, y, x, y + h);
-    bg.addColorStop(0, '#070b12');
-    bg.addColorStop(0.68, '#101824');
-    bg.addColorStop(1, '#04060a');
-    g.fillStyle = bg;
+    // 2. Pure white/ivory luxury fashion & skincare campaign with crisp vivid color block
+    g.fillStyle = '#f8f6f1';
     g.fillRect(x, y, w, h);
+    const barG = g.createLinearGradient(x, y, x + w, y + h);
+    barG.addColorStop(0, accent);
+    barG.addColorStop(1, accent2);
+    g.fillStyle = barG;
+    if (tall) g.fillRect(x + w * 0.08, y + h * 0.08, w * 0.84, h * 0.44);
+    else g.fillRect(x + w * 0.05, y + h * 0.10, w * 0.42, h * 0.80);
 
-    // Subtle studio horizon floor reflection
-    g.fillStyle = 'rgba(130, 185, 255, 0.08)';
-    g.fillRect(x, y + h * 0.72, w, h * 0.28);
-
-    const cx = x + w * (tall ? 0.5 : 0.28);
-    const cy = y + h * (tall ? 0.36 : 0.50);
-    const rad = Math.min(w, h) * (tall ? 0.24 : 0.30);
-
-    // Strap + steel case + dial
-    g.fillStyle = '#1c2128';
-    g.fillRect(cx - rad * 0.48, cy - rad * 1.45, rad * 0.96, rad * 2.9);
-    const bezel = g.createLinearGradient(cx - rad, cy - rad, cx + rad, cy + rad);
-    bezel.addColorStop(0, '#cfd6df');
-    bezel.addColorStop(0.5, '#525b66');
-    bezel.addColorStop(1, '#dce3ec');
-    g.fillStyle = bezel;
+    const cx = x + w * (tall ? 0.5 : 0.26);
+    const cy = y + h * (tall ? 0.30 : 0.50);
+    const sc = Math.min(w, h);
+    g.fillStyle = '#ffffff';
     g.beginPath();
-    g.arc(cx, cy, rad, 0, Math.PI * 2);
+    g.arc(cx, cy, sc * 0.16, 0, Math.PI * 2);
     g.fill();
-    g.fillStyle = '#090d14';
+    g.fillStyle = '#12151c';
     g.beginPath();
-    g.arc(cx, cy, rad * 0.84, 0, Math.PI * 2);
+    g.arc(cx + sc * 0.05, cy, sc * 0.09, 0, Math.PI * 2);
     g.fill();
 
-    // Dial indices & hands
-    g.strokeStyle = accent;
-    g.lineWidth = Math.max(1.2, rad * 0.05);
-    for (let k = 0; k < 12; k++) {
-      const a = (k / 12) * Math.PI * 2;
-      g.beginPath();
-      g.moveTo(cx + Math.cos(a) * rad * 0.66, cy + Math.sin(a) * rad * 0.66);
-      g.lineTo(cx + Math.cos(a) * rad * 0.79, cy + Math.sin(a) * rad * 0.79);
-      g.stroke();
-    }
-    g.strokeStyle = '#ffffff';
-    g.lineWidth = Math.max(1.5, rad * 0.06);
-    g.beginPath();
-    g.moveTo(cx, cy);
-    g.lineTo(cx + rad * 0.44, cy - rad * 0.34);
-    g.moveTo(cx, cy);
-    g.lineTo(cx - rad * 0.25, cy - rad * 0.56);
-    g.stroke();
-
-    const tx = x + w * (tall ? 0.5 : 0.68);
+    const tx = x + w * (tall ? 0.5 : 0.73);
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.fillStyle = '#eef4ff';
-    g.font = `700 ${Math.floor(Math.min(w * (tall ? 0.12 : 0.075), h * 0.14))}px sans-serif`;
-    g.fillText(br[0], tx, y + h * (tall ? 0.75 : 0.43), w * (tall ? 0.86 : 0.54));
-    g.fillStyle = accent;
-    g.font = `500 ${Math.floor(Math.min(w, h) * 0.052)}px sans-serif`;
-    g.fillText(br[1].toUpperCase(), tx, y + h * (tall ? 0.85 : 0.59), w * 0.56);
+    g.fillStyle = '#12151c';
+    g.font = `900 ${Math.floor(Math.min(w * (tall ? 0.12 : 0.08), h * 0.16))}px sans-serif`;
+    g.fillText(br[0], tx, y + h * (tall ? 0.69 : 0.43), w * (tall ? 0.86 : 0.46));
+    g.fillStyle = accent2;
+    g.font = `700 ${Math.floor(Math.min(w, h) * 0.056)}px sans-serif`;
+    g.fillText(br[1].toUpperCase(), tx, y + h * (tall ? 0.81 : 0.60), w * 0.46);
   } else if (style === 2) {
-    // 3. Broadway Playbill / Stage Musical Key Art
-    const bg = g.createLinearGradient(x, y, x, y + h);
+    // 3. Vibrant jewel-tone Broadway Musical / Stage Key Art (invented theatre name)
+    const bg = g.createLinearGradient(x, y, x + w * 0.3, y + h);
     bg.addColorStop(0, sh[3]);
-    bg.addColorStop(0.65, '#190b16');
-    bg.addColorStop(1, '#07060a');
+    bg.addColorStop(0.55, sh[2]);
+    bg.addColorStop(1, '#1c1028');
     g.fillStyle = bg;
     g.fillRect(x, y, w, h);
 
-    // Diagonal stage spotlight beams
     for (const bx of [0.22, 0.78]) {
       const sg = g.createLinearGradient(x + w * bx, y, x + w * 0.5, y + h * 0.85);
-      sg.addColorStop(0, 'rgba(255,220,150,0.22)');
-      sg.addColorStop(1, 'rgba(255,220,150,0)');
+      sg.addColorStop(0, 'rgba(255,244,196,0.42)');
+      sg.addColorStop(1, 'rgba(255,244,196,0)');
       g.fillStyle = sg;
       g.beginPath();
       g.moveTo(x + w * bx, y);
-      g.lineTo(x + w * (bx + 0.08), y);
-      g.lineTo(x + w * 0.68, y + h);
-      g.lineTo(x + w * 0.32, y + h);
+      g.lineTo(x + w * (bx + 0.10), y);
+      g.lineTo(x + w * 0.72, y + h);
+      g.lineTo(x + w * 0.28, y + h);
       g.closePath();
       g.fill();
     }
 
-    // Skyline silhouette along bottom
-    g.fillStyle = '#050508';
+    g.fillStyle = 'rgba(10,8,18,0.68)';
     for (let k = 0; k < 14; k++) {
       const bw = w / 14;
-      const bh = (0.08 + rng.next() * 0.14) * h;
+      const bh = (0.07 + rng.next() * 0.12) * h;
       g.fillRect(x + k * bw, y + h - bh, bw + 1, bh);
     }
 
-    // Fine gold art-deco border
-    const pad = Math.min(w, h) * 0.055;
-    g.strokeStyle = sh[2];
-    g.lineWidth = Math.max(1.5, Math.min(w, h) * 0.012);
+    const pad = Math.min(w, h) * 0.05;
+    g.strokeStyle = '#fff5d6';
+    g.lineWidth = Math.max(2, Math.min(w, h) * 0.015);
     g.strokeRect(x + pad, y + pad, w - pad * 2, h - pad * 2);
 
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.fillStyle = sh[2];
-    g.font = `600 ${Math.floor(Math.min(w, h) * 0.05)}px sans-serif`;
-    g.fillText(sh[1], x + w * 0.5, y + h * 0.22, w * 0.82);
+    g.fillStyle = '#fff3c4';
+    g.font = `700 ${Math.floor(Math.min(w, h) * 0.052)}px sans-serif`;
+    g.fillText(sh[1], x + w * 0.5, y + h * 0.21, w * 0.82);
 
     const words = sh[0].split(' ');
-    const fs = Math.floor(Math.min(w * 0.13, h * 0.15));
-    g.fillStyle = '#fff9ee';
+    const fs = Math.floor(Math.min(w * 0.135, h * 0.16));
+    g.fillStyle = '#ffffff';
     g.font = `900 ${fs}px Georgia, serif`;
     const lines = tall ? words : [words.slice(0, 2).join(' '), words.slice(2).join(' ')].filter(Boolean);
-    lines.forEach((ln, li) => g.fillText(ln, x + w * 0.5, y + h * 0.48 + (li - (lines.length - 1) * 0.5) * fs * 1.12, w * 0.82));
+    lines.forEach((ln, li) => g.fillText(ln, x + w * 0.5, y + h * 0.48 + (li - (lines.length - 1) * 0.5) * fs * 1.12, w * 0.84));
 
-    g.fillStyle = sh[2];
-    g.font = `700 ${Math.floor(Math.min(w, h) * 0.048)}px sans-serif`;
-    g.fillText('★ ★ ★ ★ ★   WINTER GARDEN', x + w * 0.5, y + h * 0.80, w * 0.78);
+    g.fillStyle = '#ffe58f';
+    g.font = `700 ${Math.floor(Math.min(w, h) * 0.05)}px sans-serif`;
+    g.fillText(`★ ★ ★ ★ ★   ${sh[4]}`, x + w * 0.5, y + h * 0.81, w * 0.80);
   } else if (style === 3) {
-    // 4. Cinematic Film / Streaming Key Art (teal-amber horizon + dramatic silhouette)
+    // 4. High-luminance Cinema / Streaming Key Art (bright sky + warm golden sunset + clear skyband)
     const sky = g.createLinearGradient(x, y, x, y + h);
-    sky.addColorStop(0, '#0a1426');
-    sky.addColorStop(0.55, '#1d3c5e');
-    sky.addColorStop(0.84, '#d96b38');
-    sky.addColorStop(1, '#120c0e');
+    sky.addColorStop(0, '#1e6fd9');
+    sky.addColorStop(0.50, '#58b4ff');
+    sky.addColorStop(0.80, '#ffb454');
+    sky.addColorStop(1, '#261428');
     g.fillStyle = sky;
     g.fillRect(x, y, w, h);
 
-    // Anamorphic cyan flare bar
-    const fl = g.createLinearGradient(x, y + h * 0.56, x + w, y + h * 0.56);
-    fl.addColorStop(0, 'rgba(90,210,255,0)');
-    fl.addColorStop(0.5, 'rgba(130,225,255,0.45)');
-    fl.addColorStop(1, 'rgba(90,210,255,0)');
+    const fl = g.createLinearGradient(x, y + h * 0.58, x + w, y + h * 0.58);
+    fl.addColorStop(0, 'rgba(255,255,255,0)');
+    fl.addColorStop(0.5, 'rgba(255,250,220,0.65)');
+    fl.addColorStop(1, 'rgba(255,255,255,0)');
     g.fillStyle = fl;
-    g.fillRect(x, y + h * 0.54, w, Math.max(2, h * 0.025));
+    g.fillRect(x, y + h * 0.56, w, Math.max(3, h * 0.032));
 
-    // City / figure foreground silhouette
-    g.fillStyle = '#07080c';
-    g.fillRect(x, y + h * 0.74, w, h * 0.26);
-    const fx = x + w * 0.26;
+    g.fillStyle = '#12101a';
+    g.fillRect(x, y + h * 0.78, w, h * 0.22);
+    const fx = x + w * 0.24;
     g.beginPath();
-    g.arc(fx, y + h * 0.56, Math.min(w, h) * 0.055, 0, Math.PI * 2);
+    g.arc(fx, y + h * 0.58, Math.min(w, h) * 0.055, 0, Math.PI * 2);
     g.fill();
-    g.fillRect(fx - Math.min(w, h) * 0.045, y + h * 0.61, Math.min(w, h) * 0.09, h * 0.20);
+    g.fillRect(fx - Math.min(w, h) * 0.045, y + h * 0.63, Math.min(w, h) * 0.09, h * 0.18);
 
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.fillStyle = '#ffffff';
-    g.font = `800 ${Math.floor(Math.min(w * 0.11, h * 0.15))}px sans-serif`;
-    g.fillText(sh[0], x + w * 0.56, y + h * 0.36, w * 0.78);
-    g.fillStyle = '#d4e2f2';
-    g.font = `600 ${Math.floor(Math.min(w, h) * 0.045)}px sans-serif`;
-    g.fillText('AN ORIGINAL FEATURE  ·  STREAMING FRIDAY', x + w * 0.56, y + h * 0.88, w * 0.82);
+    g.font = `900 ${Math.floor(Math.min(w * 0.12, h * 0.16))}px sans-serif`;
+    g.fillText(sh[0], x + w * 0.56, y + h * 0.36, w * 0.80);
+    g.fillStyle = '#ffe9b8';
+    g.font = `700 ${Math.floor(Math.min(w, h) * 0.05)}px sans-serif`;
+    g.fillText('AN ORIGINAL FEATURE  ·  STREAMING FRIDAY', x + w * 0.56, y + h * 0.89, w * 0.84);
   } else if (style === 4) {
-    // 5. Craft Beverage / Espresso Bistro Studio Shot (smooth tapered glass silhouette)
-    const bg = g.createRadialGradient(x + w * 0.35, y + h * 0.5, 4, x + w * 0.45, y + h * 0.5, Math.max(w, h) * 0.78);
-    bg.addColorStop(0, '#402612');
-    bg.addColorStop(0.6, '#180e08');
-    bg.addColorStop(1, '#050404');
+    // 5. Saturated full-bleed Studio Product Bottle Shot on vibrant backlit gradient
+    const bg = g.createRadialGradient(x + w * 0.32, y + h * 0.48, 6, x + w * 0.45, y + h * 0.5, Math.max(w, h) * 0.82);
+    bg.addColorStop(0, '#ffe396');
+    bg.addColorStop(0.45, accent);
+    bg.addColorStop(1, accent2);
     g.fillStyle = bg;
     g.fillRect(x, y, w, h);
-    drawBokeh(g, x, y, w, h, rng, '#ffb85c', 8);
+    drawBokeh(g, x, y, w, h, rng, '#ffffff', 9);
 
     const cx = x + w * (tall ? 0.5 : 0.28);
     const cy = y + h * (tall ? 0.38 : 0.52);
-    const bh = Math.min(w, h) * 0.62;
+    const bh = Math.min(w, h) * 0.64;
     const bw = bh * 0.34;
 
     const bgGlass = g.createLinearGradient(cx - bw * 0.5, cy, cx + bw * 0.5, cy);
-    bgGlass.addColorStop(0, '#2a1608');
-    bgGlass.addColorStop(0.32, '#b06222');
-    bgGlass.addColorStop(0.62, '#4a220c');
-    bgGlass.addColorStop(0.88, '#e8a256');
+    bgGlass.addColorStop(0, '#1e1008');
+    bgGlass.addColorStop(0.32, '#c87228');
+    bgGlass.addColorStop(0.62, '#5a280e');
+    bgGlass.addColorStop(0.88, '#ffd082');
     bgGlass.addColorStop(1, '#1c0f06');
     g.fillStyle = bgGlass;
     g.beginPath();
@@ -301,38 +265,37 @@ function drawEditorialAd(g, x, y, w, h, rng, idx) {
     g.bezierCurveTo(cx - bw * 0.50, cy - bh * 0.08, cx - bw * 0.46, cy - bh * 0.22, cx - bw * 0.18, cy - bh * 0.30);
     g.closePath();
     g.fill();
-    // Gold foil capsule + subtle rim highlight + cream label
-    g.fillStyle = '#c89b4b';
+    g.fillStyle = '#e6b85c';
     g.fillRect(cx - bw * 0.17, cy - bh * 0.48, bw * 0.34, bh * 0.12);
-    g.fillStyle = 'rgba(255,245,220,0.40)';
-    g.fillRect(cx - bw * 0.34, cy - bh * 0.12, Math.max(2, bw * 0.08), bh * 0.50);
-    g.fillStyle = '#ebe2cf';
+    g.fillStyle = 'rgba(255,250,235,0.58)';
+    g.fillRect(cx - bw * 0.34, cy - bh * 0.12, Math.max(2, bw * 0.09), bh * 0.50);
+    g.fillStyle = '#fff9ee';
     g.fillRect(cx - bw * 0.44, cy - bh * 0.02, bw * 0.88, bh * 0.24);
 
     const tx = x + w * (tall ? 0.5 : 0.67);
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.fillStyle = '#f8e6cc';
-    g.font = `700 ${Math.floor(Math.min(w * (tall ? 0.12 : 0.075), h * 0.14))}px Georgia, serif`;
+    g.fillStyle = '#ffffff';
+    g.font = `900 ${Math.floor(Math.min(w * (tall ? 0.12 : 0.078), h * 0.15))}px Georgia, serif`;
     g.fillText(br[0], tx, y + h * (tall ? 0.76 : 0.42), w * (tall ? 0.85 : 0.54));
-    g.fillStyle = '#d99a52';
-    g.font = `600 ${Math.floor(Math.min(w, h) * 0.05)}px sans-serif`;
+    g.fillStyle = '#151218';
+    g.font = `700 ${Math.floor(Math.min(w, h) * 0.054)}px sans-serif`;
     g.fillText(br[1].toUpperCase(), tx, y + h * (tall ? 0.86 : 0.58), w * 0.56);
   } else if (style === 5) {
-    // 6. Athletic / Automotive Dynamic Energy Streaks on Dark Charcoal
-    g.fillStyle = '#0b0d12';
+    // 6. Radiant Animated LED Motion Wall (electric color sweep + dynamic neon ribbons)
+    const bg = g.createLinearGradient(x, y, x + w, y + h);
+    bg.addColorStop(0, accent2);
+    bg.addColorStop(0.5, accent);
+    bg.addColorStop(1, '#fff07c');
+    g.fillStyle = bg;
     g.fillRect(x, y, w, h);
     for (let s = 0; s < 7; s++) {
-      const sy = y + h * (0.18 + s * 0.11);
-      const sg = g.createLinearGradient(x, sy, x + w, sy - h * 0.22);
-      sg.addColorStop(0, 'rgba(0,0,0,0)');
-      sg.addColorStop(0.45, accent);
-      sg.addColorStop(1, 'rgba(0,0,0,0)');
-      g.globalAlpha = s % 2 ? 0.35 : 0.18;
-      g.strokeStyle = sg;
-      g.lineWidth = Math.max(2, Math.min(w, h) * (s % 2 ? 0.025 : 0.01));
+      const sy = y + h * (0.16 + s * 0.12);
+      g.globalAlpha = s % 2 ? 0.42 : 0.24;
+      g.strokeStyle = s % 2 ? '#ffffff' : '#101422';
+      g.lineWidth = Math.max(3, Math.min(w, h) * (s % 2 ? 0.036 : 0.016));
       g.beginPath();
-      g.moveTo(x - w * 0.1, sy + h * 0.15);
+      g.moveTo(x - w * 0.1, sy + h * 0.16);
       g.lineTo(x + w * 1.1, sy - h * 0.28);
       g.stroke();
     }
@@ -340,39 +303,64 @@ function drawEditorialAd(g, x, y, w, h, rng, idx) {
     g.textAlign = 'left';
     g.textBaseline = 'middle';
     g.fillStyle = '#ffffff';
-    g.font = `900 italic ${Math.floor(Math.min(w * 0.11, h * 0.18))}px sans-serif`;
-    g.fillText(br[0], x + w * 0.09, y + h * 0.42, w * 0.82);
-    g.fillStyle = accent;
-    g.font = `700 ${Math.floor(Math.min(w, h) * 0.065)}px sans-serif`;
-    g.fillText(`${br[1].toUpperCase()}  //  ZERO LIMITS`, x + w * 0.09, y + h * 0.64, w * 0.82);
+    g.font = `900 italic ${Math.floor(Math.min(w * 0.12, h * 0.20))}px sans-serif`;
+    g.fillText(br[0], x + w * 0.08, y + h * 0.42, w * 0.84);
+    g.fillStyle = '#11141e';
+    g.font = `800 ${Math.floor(Math.min(w, h) * 0.072)}px sans-serif`;
+    g.fillText(`${br[1].toUpperCase()}  //  ZERO LIMITS`, x + w * 0.08, y + h * 0.65, w * 0.84);
   } else {
-    // 7. Swiss Editorial / Cultural Exhibit / Static Print Aesthetic
-    g.fillStyle = '#e8e2d5';
+    // 7. Crisp Dark Luxury Watch Macro (kept at ~14% frequency for contrast punch)
+    const bg = g.createLinearGradient(x, y, x, y + h);
+    bg.addColorStop(0, '#09111e');
+    bg.addColorStop(0.68, '#142236');
+    bg.addColorStop(1, '#060a10');
+    g.fillStyle = bg;
     g.fillRect(x, y, w, h);
-    g.fillStyle = '#15181f';
-    g.fillRect(x + w * 0.05, y + h * 0.08, w * 0.90, h * 0.03);
-    g.fillRect(x + w * 0.05, y + h * 0.89, w * 0.90, h * 0.015);
-    const gx = x + w * (tall ? 0.5 : 0.24), gy = y + h * (tall ? 0.38 : 0.52);
-    const gr = Math.min(w, h) * 0.22;
-    g.fillStyle = accent;
+
+    const cx = x + w * (tall ? 0.5 : 0.28);
+    const cy = y + h * (tall ? 0.36 : 0.50);
+    const rad = Math.min(w, h) * (tall ? 0.24 : 0.30);
+    g.fillStyle = '#202630';
+    g.fillRect(cx - rad * 0.48, cy - rad * 1.45, rad * 0.96, rad * 2.9);
+    const bezel = g.createLinearGradient(cx - rad, cy - rad, cx + rad, cy + rad);
+    bezel.addColorStop(0, '#dbe2eb');
+    bezel.addColorStop(0.5, '#596370');
+    bezel.addColorStop(1, '#e6edf5');
+    g.fillStyle = bezel;
     g.beginPath();
-    g.arc(gx, gy, gr, 0, Math.PI * 2);
+    g.arc(cx, cy, rad, 0, Math.PI * 2);
     g.fill();
-    g.strokeStyle = '#15181f';
-    g.lineWidth = Math.max(2, gr * 0.14);
+    g.fillStyle = '#09101c';
     g.beginPath();
-    g.arc(gx + gr * 0.35, gy + gr * 0.18, gr * 0.68, 0, Math.PI * 2);
+    g.arc(cx, cy, rad * 0.84, 0, Math.PI * 2);
+    g.fill();
+    g.strokeStyle = accent;
+    g.lineWidth = Math.max(1.5, rad * 0.06);
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2;
+      g.beginPath();
+      g.moveTo(cx + Math.cos(a) * rad * 0.66, cy + Math.sin(a) * rad * 0.66);
+      g.lineTo(cx + Math.cos(a) * rad * 0.80, cy + Math.sin(a) * rad * 0.80);
+      g.stroke();
+    }
+    g.strokeStyle = '#ffffff';
+    g.lineWidth = Math.max(1.8, rad * 0.07);
+    g.beginPath();
+    g.moveTo(cx, cy);
+    g.lineTo(cx + rad * 0.44, cy - rad * 0.34);
+    g.moveTo(cx, cy);
+    g.lineTo(cx - rad * 0.25, cy - rad * 0.56);
     g.stroke();
 
     const tx = x + w * (tall ? 0.5 : 0.68);
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.fillStyle = '#14171e';
-    g.font = `800 ${Math.floor(Math.min(w * (tall ? 0.115 : 0.078), h * 0.14))}px sans-serif`;
-    g.fillText(br[0], tx, y + h * (tall ? 0.74 : 0.44), w * (tall ? 0.84 : 0.54));
-    g.fillStyle = '#484d58';
-    g.font = `600 ${Math.floor(Math.min(w, h) * 0.052)}px sans-serif`;
-    g.fillText(br[1].toUpperCase(), tx, y + h * (tall ? 0.84 : 0.60), w * 0.54);
+    g.fillStyle = '#ffffff';
+    g.font = `800 ${Math.floor(Math.min(w * (tall ? 0.12 : 0.078), h * 0.15))}px sans-serif`;
+    g.fillText(br[0], tx, y + h * (tall ? 0.75 : 0.43), w * (tall ? 0.86 : 0.54));
+    g.fillStyle = accent;
+    g.font = `600 ${Math.floor(Math.min(w, h) * 0.056)}px sans-serif`;
+    g.fillText(br[1].toUpperCase(), tx, y + h * (tall ? 0.85 : 0.59), w * 0.56);
   }
 
   // Subtle LED cabinet module gridlines + edge vignette

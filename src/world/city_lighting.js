@@ -306,8 +306,8 @@ export function applyCityLighting(mat, lightMap, {
       ? (hasRw && mode === 'ground'
         ? `{
             float _clLum = dot(_clm.rgb, vec3(0.2126, 0.7152, 0.0722));
-            vec3 _diffBounce = mix(vec3(_clLum), _clm.rgb, 0.32);
-            vec3 spill = _diffBounce * (diffuseColor.rgb * 0.85) * ${spillGain.toFixed(2)} * mix(0.42, 1.0, _clm.a);
+            vec3 _diffBounce = mix(vec3(_clLum), _clm.rgb, 0.44);
+            vec3 spill = _diffBounce * (diffuseColor.rgb * 0.88 + vec3(0.015)) * ${spillGain.toFixed(2)} * mix(0.42, 1.0, _clm.a);
             vec3 _vdf = vWp - cameraPosition;
             float _vdl = max(length(_vdf), 0.1);
             vec3 _vdir = _vdf / _vdl;
@@ -318,13 +318,13 @@ export function applyCityLighting(mat, lightMap, {
             float _fres = 0.03 + 0.97 * _f2 * _f2 * _f1;
             vec3 _ahead = sampleCityLight(vWp.xz + _hdir * mix(6.0, 16.0, _fres)).rgb;
             float _gr = 0.65 + 0.35 * rwGr;
-            float _wSpec = (rwPuddle * mix(0.14, 0.88, _fres) + rwDamp * (1.0 - rwPuddle) * mix(0.02, 0.20, _fres)) * _gr;
-            totalEmissiveRadiance += spill + _ahead * _wSpec * uMedWetSpec * 0.44 * mix(0.35, 1.0, _clm.a);
+            float _wSpec = (rwPuddle * mix(0.24, 1.0, _fres) + rwDamp * (1.0 - rwPuddle) * mix(0.04, 0.26, _fres)) * _gr;
+            totalEmissiveRadiance += spill + _ahead * _wSpec * uMedWetSpec * 0.88 * mix(0.40, 1.0, _clm.a);
           }`
         : `{
             float _clLum = dot(_clm.rgb, vec3(0.2126, 0.7152, 0.0722));
-            vec3 _diffBounce = mix(vec3(_clLum), _clm.rgb, 0.40);
-            vec3 spill = _diffBounce * (diffuseColor.rgb * 0.88) * ${spillGain.toFixed(2)} * mix(0.45, 1.0, _clm.a);
+            vec3 _diffBounce = mix(vec3(_clLum), _clm.rgb, 0.50);
+            vec3 spill = _diffBounce * (diffuseColor.rgb * 0.92 + vec3(0.015)) * ${spillGain.toFixed(2)} * mix(0.45, 1.0, _clm.a);
             totalEmissiveRadiance += spill;
           }`)
       : `{

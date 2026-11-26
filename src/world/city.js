@@ -79,7 +79,7 @@ function ledScreen(mat, tex, pitch = 3) {
           float fw = max(fwidth(pg.x), fwidth(pg.y));
           led = mix(led, 0.84, clamp(fw * 1.2 - 0.25, 0.0, 1.0));
           float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-          diffuseColor.rgb = mix(vec3(lum), diffuseColor.rgb, 0.90) * led * 1.18;
+          diffuseColor.rgb = mix(vec3(lum), diffuseColor.rgb, 0.96) * led * 1.46;
         }`);
   };
   mat.customProgramCacheKey = () => 'led' + pitch;
@@ -422,9 +422,9 @@ export function buildCity({ onProgress } = {}) {
   // Bake world-space Times Square neon spill + analytical ground/building contact AO
   const lightMap = buildCityLightMap(ctx);
   ctx.lightMap = lightMap;
-  applyCityLighting(M.ground, lightMap, { mode: 'ground', spillGain: 0.12, aoStrength: 1.0, key: 'ground' });
-  applyCityLighting(M.walk, lightMap, { mode: 'walk', spillGain: 0.15, aoStrength: 1.0, key: 'walk' });
-  applyCityLighting(M.marks, lightMap, { mode: 'marks', spillGain: 0.14, aoStrength: 0.85, key: 'marks' });
+  applyCityLighting(M.ground, lightMap, { mode: 'ground', spillGain: 0.28, aoStrength: 1.0, key: 'ground' });
+  applyCityLighting(M.walk, lightMap, { mode: 'walk', spillGain: 0.34, aoStrength: 1.0, key: 'walk' });
+  applyCityLighting(M.marks, lightMap, { mode: 'marks', spillGain: 0.24, aoStrength: 0.85, key: 'marks' });
   applyCityLighting(M.flat, lightMap, { mode: 'flat', spillGain: 0.48, aoStrength: 0.85, baseAO: 0.32, key: 'flat' });
   for (let i = 0; i < T.FACADES.length; i++) {
     applyCityLighting(M['facade' + i], lightMap, { mode: 'flat', spillGain: 0.82, aoStrength: 0.75, baseAO: 0.38, key: 'fac' + i });

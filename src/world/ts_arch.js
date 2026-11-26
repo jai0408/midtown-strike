@@ -32,11 +32,11 @@ function wallPrism(G, ax, az, bx, bz, y0, y1, offIn, offOut, col, cTop) {
 }
 
 function addScreenLight(ctx, mx, mz, nx, nz, w, h, y0, col) {
-  if (!ctx.light || y0 >= 50 || w <= 4.5) return;
-  const hAtten = clamp(1.06 - y0 / 48, 0.12, 1.0);
-  const rad = clamp(Math.sqrt(w * h) * 0.78 + 3, 7, 13.5);
-  const pushOut = clamp(3.6 + y0 * 0.14, 3.6, 9.0);
-  const str = clamp(Math.sqrt(w * h) * 0.0115 * hAtten, 0.05, 0.21);
+  if (!ctx.light || y0 >= 52 || w <= 4.0) return;
+  const hAtten = clamp(1.10 - y0 / 48, 0.14, 1.0);
+  const rad = clamp(Math.sqrt(w * h) * 0.95 + 4, 8, 17);
+  const pushOut = clamp(4.0 + y0 * 0.16, 4.0, 10.5);
+  const str = clamp(Math.sqrt(w * h) * 0.0175 * hAtten, 0.08, 0.32);
   ctx.light(mx + nx * pushOut, mz + nz * pushOut, rad, col, str);
 }
 
@@ -348,39 +348,42 @@ export function buildTktsSteps(ctx) {
   const sx0 = -34, sx1 = -18, sz = -118, run = 1.2, rise = 0.36, steps = 12;
   const topY = CURB + steps * rise, zTop = sz - steps * run, zBack = -141;
 
-  const redGlass = C('#840d17'), redRiser = C('#cc1e2c');
-  const nosing = C('#191d24'), flankWhite = C('#d6dce4'), seamSteel = C('#3a3e48');
+  const redTreadHi = C('#ff4656', 1.25), redTreadLo = C('#cc1828');
+  const riserGlow = C('#740c16'), sideGlass = C('#4a0810');
+  const nosing = C('#14171d'), flankWhite = C('#d6dce4'), seamSteel = C('#2e323c');
 
-  // Layered ruby illuminated glass steps + dark anodized steel tread nosings + vertical glass seams
+  // Layered illuminated red glass treads (brightest) + dimmer ruby backlit risers + dark steel nosings
   for (let i = 0; i < steps; i++) {
-    const zf = sz - i * run, zb = sz - (i + 1) * run, yt = CURB + (i + 1) * rise;
+    const zf = sz - i * run, zb = sz - (i + 1) * run, zMid = (zf + zb) * 0.5, yt = CURB + (i + 1) * rise;
+    const stepBright = 0.85 + (i / steps) * 0.28;
     E.setRM(0.14, 0.05);
-    E.floor(sx0, zb, sx1, zf, yt, redGlass);
-    E.wall(sx1, zf, sx0, zf, yt - rise, yt, redRiser);
+    E.floor(sx0, zMid, sx1, zf, yt, mulC(redTreadHi, stepBright));
+    E.floor(sx0, zb, sx1, zMid, yt, mulC(redTreadLo, stepBright));
+    E.wall(sx1, zf, sx0, zf, yt - rise, yt, mulC(riserGlow, stepBright));
     E.setRM(0.85, 0);
     F.setRM(0.45, 0.65);
-    F.box(sx0, yt - 0.055, zf - 0.11, sx1, yt + 0.015, zf + 0.03, nosing, 16 | 4 | 1 | 2);
+    F.box(sx0, yt - 0.06, zf - 0.11, sx1, yt + 0.015, zf + 0.032, nosing, 16 | 4 | 1 | 2);
     for (let mx = sx0 + 2.6; mx < sx1 - 1.0; mx += 2.6) {
-      F.box(mx - 0.025, yt - rise, zf - 0.02, mx + 0.025, yt, zf + 0.022, seamSteel, 4 | 1 | 2);
+      F.box(mx - 0.025, yt - rise, zf - 0.02, mx + 0.025, yt, zf + 0.026, seamSteel, 4 | 1 | 2);
     }
     world.addBox(sx0, CURB, zb, sx1, yt, zf, F_DEFAULT, S_GLASS);
   }
   // Upper glass promenade deck
   E.setRM(0.14, 0.05);
-  E.floor(sx0, zBack, sx1, zTop, topY, redGlass);
+  E.floor(sx0, zBack, sx1, zTop, topY, redTreadLo);
   E.setRM(0.85, 0);
   world.addBox(sx0, CURB, zBack, sx1, topY, zTop, F_DEFAULT, S_GLASS);
 
-  // Tapered glazed side walls + continuous diagonal white-steel structural flank stringers
-  E.quad([sx0, CURB, sz], [sx0, CURB, zBack], [sx0, topY, zBack], [sx0, topY, zTop], mulC(redGlass, 0.72));
-  E.quad([sx1, CURB, zBack], [sx1, CURB, sz], [sx1, topY, zTop], [sx1, topY, zBack], mulC(redGlass, 0.72));
-  E.wall(sx0, zBack, sx1, zBack, CURB, topY, mulC(redGlass, 0.55));
+  // Darker glazed side walls + continuous diagonal white-steel structural flank stringers
+  F.setRM(0.14, 0.20);
+  F.quad([sx0, CURB, sz], [sx0, CURB, zBack], [sx0, topY, zBack], [sx0, topY, zTop], sideGlass);
+  F.quad([sx1, CURB, zBack], [sx1, CURB, sz], [sx1, topY, zTop], [sx1, topY, zBack], sideGlass);
+  F.wall(sx0, zBack, sx1, zBack, CURB, topY, mulC(sideGlass, 0.85));
   F.setRM(0.35, 0.75);
   for (const fx of [sx0 - 0.14, sx1 + 0.02]) {
     const f0 = fx, f1 = fx + 0.12;
     F.box(f0, CURB, zBack - 0.2, f1, topY + 1.05, zBack + 0.25, flankWhite, 31);
     F.box(f0, topY - 0.16, zBack, f1, topY + 0.05, zTop + 0.15, flankWhite, 31);
-    // Angled diagonal stringer beam following the step slope cleanly
     F.quad([f0, CURB + rise, sz], [f0, CURB, sz], [f0, topY - 0.22, zTop], [f0, topY + 0.04, zTop], flankWhite);
     F.quad([f1, CURB, sz], [f1, CURB + rise, sz], [f1, topY + 0.04, zTop], [f1, topY - 0.22, zTop], flankWhite);
     F.quad([f0, CURB + rise, sz], [f0, topY + 0.04, zTop], [f1, topY + 0.04, zTop], [f1, CURB + rise, sz], mulC(flankWhite, 1.12));
@@ -394,7 +397,7 @@ export function buildTktsSteps(ctx) {
   }
   world.addBox(sx0, CURB, zBack, sx1, topY + 1.0, zBack + 0.15, F_DEFAULT, S_CONCRETE);
 
-  // Recessed TKTS ticket pavilion under the north wall: canopy, illuminated service bays, stanchions & sign
+  // Recessed TIX ticket pavilion under the north wall: canopy, illuminated service bays, stanchions & sign
   F.setRM(0.45, 0.65);
   F.box(sx0 + 1.0, CURB, zBack - 2.6, sx1 - 1.0, CURB + 3.4, zBack, C('#1b1e24'), 31, TRUSS_TRIM);
   F.box(sx0 + 0.4, CURB + 3.4, zBack - 3.6, sx1 - 0.4, CURB + 3.75, zBack + 0.1, C('#2b303a'), 31, flankWhite);
@@ -402,30 +405,36 @@ export function buildTktsSteps(ctx) {
     F.box(bx - 0.08, CURB + 0.95, zBack - 2.68, bx + 0.08, CURB + 2.6, zBack - 2.55, C('#14161b'), 15);
     E.wall(bx + 1.1, zBack - 2.62, bx + 0.12, zBack - 2.62, CURB + 1.05, CURB + 2.45, C('#ffd8c4', 0.85));
   }
-  const tk = ctx.signCells.TKTS;
+  const tk = ctx.signCells.TIX;
   ctx.B('signs', -26, zBack - 3.6).wall(sx1 - 2.2, zBack - 3.64, sx0 + 2.2, zBack - 3.64, CURB + 3.42, CURB + 3.92, null, [tk.u0, tk.v0, tk.u1, tk.v1]);
   // Queue stanchions on the north concourse
   for (let px = sx0 + 1.5; px <= sx1 - 1.5; px += 2.6) {
     F.cyl(px, zBack - 4.4, CURB, CURB + 0.92, 0.035, 0.035, 6, C('#8c929c'));
   }
 
-  // Tight ruby glow pools right beside the steps (no distant magenta wash)
+  // Ruby glow pools around the steps
   for (const [px, pz] of [[-26, -112], [-26, -128], [-37, -126], [-15, -126]]) {
-    ctx.pool(px, pz, 10, '#e62234', 0.28);
-    if (ctx.light) ctx.light(px, pz, 12, '#e62234', 0.34);
+    ctx.pool(px, pz, 11, '#e62234', 0.34);
+    if (ctx.light) ctx.light(px, pz, 14, '#e62234', 0.40);
   }
 
-  // Father Duffy bronze statue, stepped granite pedestal & Celtic cross in front
+  // Sculpted bronze standing memorial statue on a stepped granite plinth (no cross behind)
   const S = ctx.B('flat', -26, -104);
   S.setRM(0.75, 0.05);
-  S.box(-27.2, CURB, -105.3, -24.8, CURB + 0.45, -102.9, STONE_BASE, 31, mulC(STONE_BASE, 1.15));
-  S.box(-26.85, CURB + 0.45, -104.95, -25.15, CURB + 2.05, -103.25, mulC(STONE_BASE, 0.92), 31, STONE_BASE);
-  S.setRM(0.45, 0.65);
-  S.cyl(-26, -103.9, CURB + 2.05, CURB + 3.85, 0.34, 0.26, 8, BRONZE, true, mulC(BRONZE, 1.15));
-  S.blob(-26, CURB + 4.18, -103.9, 0.24, 0.30, 0.24, BRONZE);
-  S.setRM(0.75, 0.05);
-  S.box(-26.18, CURB + 2.05, -105.0, -25.82, CURB + 7.4, -104.65, STONE_BASE, 31, mulC(STONE_BASE, 1.15));
-  S.box(-27.0, CURB + 5.55, -105.0, -25.0, CURB + 5.95, -104.65, STONE_BASE, 31 | 32);
+  S.box(-27.2, CURB, -105.2, -24.8, CURB + 0.42, -102.8, STONE_BASE, 31, mulC(STONE_BASE, 1.15));
+  S.box(-26.85, CURB + 0.42, -104.85, -25.15, CURB + 1.95, -103.15, mulC(STONE_BASE, 0.90), 31, STONE_BASE);
+  S.box(-26.55, CURB + 1.95, -104.55, -25.45, CURB + 2.18, -103.45, mulC(STONE_BASE, 1.05), 31);
+  // Bronze plaque on front face
+  S.setRM(0.40, 0.72);
+  S.box(-26.55, CURB + 0.85, -103.14, -25.45, CURB + 1.50, -103.10, BRONZE, 4);
+  // Standing bronze figure: boots/legs -> overcoat -> torso/shoulders -> head -> raised arm
+  S.cyl(-26.14, -103.95, CURB + 2.18, CURB + 3.05, 0.11, 0.10, 6, BRONZE, false);
+  S.cyl(-25.86, -104.05, CURB + 2.18, CURB + 3.05, 0.11, 0.10, 6, BRONZE, false);
+  S.cyl(-26.0, -104.0, CURB + 2.90, CURB + 3.85, 0.25, 0.30, 8, BRONZE, true, mulC(BRONZE, 1.15));
+  S.box(-26.32, CURB + 3.25, -104.16, -25.68, CURB + 3.82, -103.84, mulC(BRONZE, 1.06), 31);
+  S.cyl(-26.0, -104.0, CURB + 3.85, CURB + 4.02, 0.09, 0.08, 6, BRONZE, false);
+  S.blob(-26.0, CURB + 4.18, -103.98, 0.15, 0.19, 0.16, BRONZE);
+  S.box(-25.72, CURB + 3.55, -104.02, -25.52, CURB + 4.08, -103.72, BRONZE, 31);
   S.setRM(0.85, 0);
   world.addBox(-27.1, CURB, -105.2, -24.9, CURB + 4.5, -103.0, F_DEFAULT, S_CONCRETE);
 }

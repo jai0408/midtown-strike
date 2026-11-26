@@ -43,9 +43,9 @@ export const ROAD_WETNESS_GLSL = `
     float lowSpot = coarse * 0.62 + mid * 0.38;
 
     // Gutters along avenue & cross-street kerbs (broken into intermittent pools)
-    float aveGutter = smoothstep(6.6, 8.6, abs(ax)) * (1.0 - smoothstep(9.0, 10.6, abs(ax)));
-    float stGutter  = smoothstep(3.6, 5.0, abs(sz)) * (1.0 - smoothstep(5.3, 8.8, abs(sz)));
-    float gutter = max(aveGutter, stGutter) * smoothstep(0.38, 0.78, mid) * (1.0 - isWalk);
+    float aveGutter = smoothstep(6.2, 8.4, abs(ax)) * (1.0 - smoothstep(8.9, 10.6, abs(ax)));
+    float stGutter  = smoothstep(3.4, 4.9, abs(sz)) * (1.0 - smoothstep(5.3, 8.8, abs(sz)));
+    float gutter = max(aveGutter, stGutter) * smoothstep(0.32, 0.72, mid) * (1.0 - isWalk);
 
     // Paired tyre-track bands inside 3.0 m traffic lanes (polynomial peak, zero exp)
     float lAx = abs(fract((ax + 1.5) / 3.0) - 0.5) - 0.26;
@@ -57,9 +57,9 @@ export const ROAD_WETNESS_GLSL = `
     // Roadways drain outward from a drier centre crown
     float crownDry = max(0.0, 1.0 - ax * ax * 0.045) * (1.0 - isWalk) * 0.46;
 
-    float wetField = lowSpot + gutter * 0.22 + rut * 0.16 - crownDry * 0.28 - isWalk * 0.20;
-    float puddle = smoothstep(0.60, 0.84, wetField + (mid - 0.5) * 0.06);
-    float damp = smoothstep(0.28, 0.68, wetField + 0.10 * (1.0 - isWalk));
+    float wetField = lowSpot + gutter * 0.30 + rut * 0.22 - crownDry * 0.28 - isWalk * 0.22;
+    float puddle = smoothstep(0.50, 0.74, wetField + (mid - 0.5) * 0.06);
+    float damp = smoothstep(0.24, 0.62, wetField + 0.12 * (1.0 - isWalk));
     return vec4(damp, puddle, rut, ax);
   }
 `;
@@ -166,21 +166,21 @@ export function applyRoadSurface(mat, { isWalk = false, key = 'road' } = {}) {
         {
           ${isWalk
             ? `roughnessFactor = mix(roughnessFactor, 0.78 + 0.12 * rwGr, rwDamp * 0.52);
-               roughnessFactor = mix(roughnessFactor, 0.38 + 0.08 * rwGr, rwPuddle * 0.76);`
+               roughnessFactor = mix(roughnessFactor, 0.14 + 0.08 * rwGr, rwPuddle * 0.85);`
             : `roughnessFactor = mix(roughnessFactor, rwWear.y, rwWear.z);
-               float _dampR = mix(0.88, 0.66, rwDamp) - rwRut * 0.08 + (rwGr - 0.5) * 0.09;
-               roughnessFactor = mix(roughnessFactor, clamp(_dampR, 0.50, 0.96), 0.72);
-               roughnessFactor = mix(roughnessFactor, 0.36 + 0.07 * rwGr, rwPuddle);`}
+               float _dampR = mix(0.88, 0.58, rwDamp) - rwRut * 0.10 + (rwGr - 0.5) * 0.08;
+               roughnessFactor = mix(roughnessFactor, clamp(_dampR, 0.44, 0.95), 0.76);
+               roughnessFactor = mix(roughnessFactor, 0.09 + 0.07 * rwGr, rwPuddle);`}
         }`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         {
           vec3 _upV = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
-          normal = normalize(mix(normal, _upV, rwPuddle * ${isWalk ? '0.32' : '0.34'}));
+          normal = normalize(mix(normal, _upV, rwPuddle * ${isWalk ? '0.55' : '0.72'}));
         }`)
       .replace('#include <lights_fragment_end>', isWalk ? '#include <lights_fragment_end>' : `#include <lights_fragment_end>
         {
-          reflectedLight.directSpecular *= mix(0.14, 0.30, rwPuddle);
-          reflectedLight.indirectSpecular = min(reflectedLight.indirectSpecular, vec3(0.16));
+          reflectedLight.directSpecular *= mix(0.12, 0.52, rwPuddle);
+          reflectedLight.indirectSpecular = min(reflectedLight.indirectSpecular, vec3(mix(0.14, 0.48, rwPuddle)));
         }`);
   };
   mat.customProgramCacheKey = () => `${prevKey}|rw_${key}`;

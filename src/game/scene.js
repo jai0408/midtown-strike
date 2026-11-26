@@ -24,14 +24,14 @@ const _fwd = new THREE.Vector3();
 // One preset = everything that sets a map's mood. fog.far null = follow the draw distance.
 export const ATMOSPHERES = {
   midtown: {
-    sky: { top: 0x1d3a66, mid: 0x5f86b3, horizon: 0xd9b08c, haze: 0x56606e, sunCol: 0xffc98a, gain: 1.6, stars: 1 },
+    sky: { top: 0x1d3a66, mid: 0x5f86b3, horizon: 0xd9b08c, haze: 0x56606e, sunCol: 0xffc98a, gain: 1.6, stars: 0 },
     sunDir: [-0.82, 0.44, 0.36], sunColor: 0xffdcb0, sunIntensity: 3.4,
     hemi: { sky: 0x9ab8e8, ground: 0x202026, intensity: 0.72 },
     fog: { color: 0x24334b, near: 120, far: 960 },
     exposure: 1.0, envIntensity: 0.9, envFloor: 0x25262a, shadowR: 55, shadowRadius: 2.5, shadowNormalBias: 0.05, shadowIntensity: 0.86,
     grade: { sat: 0.96, curve: 0.20, warm: 1.0 },
     bloom: { strength: 0.34, threshold: 0.90, medStrength: 0.48, medThreshold: 0.64 },
-    reflect: { strength: 0.72, wetBase: 0.03 },   // damp NYC asphalt with patchy puddles & stretched neon streaks
+    reflect: { strength: 0.92, wetBase: 0.05 },   // damp NYC asphalt with patchy puddles & stretched neon streaks
   },
   // clear sunny afternoon at Cedar Lodge: warm golden sun, airy neutral-sky fill &
   // warm earth bounce so shadows stay luminous and soft instead of harsh blue-black.
@@ -106,10 +106,12 @@ export function createScene(canvas, qualityName = 'medium') {
           col = mix(col, top, smoothstep(0.2, 0.8, h));
           float s = max(dot(normalize(vec3(d.x, d.y * 1.6, d.z)), sunDir), 0.0);
           col += sunCol * (pow(s, 5.0) * 0.55 + pow(s, 40.0) * 0.9);
-          // a few stars high up
-          vec2 g = floor(d.xz / max(0.15, d.y) * 90.0);
-          float star = step(0.9975, hash(g)) * smoothstep(0.35, 0.8, h);
-          col += vec3(star) * 0.8 * stars;
+          // faint pinpoint stars high up (off on Midtown twilight)
+          vec2 gs = d.xz / max(0.15, d.y) * 180.0;
+          vec2 gi = floor(gs);
+          float dotR = length(fract(gs) - 0.5);
+          float star = step(0.996, hash(gi)) * smoothstep(0.22, 0.0, dotR) * smoothstep(0.45, 0.88, h);
+          col += vec3(star) * 0.28 * stars;
           if (clouds > 0.0 && h > 0.0) {
             // a flat cloud layer: soft cumulus, bright rims towards the sun, grey-blue undersides
             vec2 cp = d.xz / (h + 0.18) * 2.6 + vec2(3.1, 7.3);

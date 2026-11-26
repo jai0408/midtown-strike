@@ -81,7 +81,7 @@ const traceFragment = `
 
     vec4 wet = rwEvalWetness(wp.xz, wp.y);
     float damp = wet.x, puddle = wet.y;
-    if (puddle < 0.08 && (wp.y > 0.06 || damp < 0.24)) return;
+    if (puddle < 0.05 && (wp.y > 0.06 || damp < 0.20)) return;
 
     vec2 gc = groundCheck(vUv, d, wp, invSize);
     if (gc.x < ${GROUND_FLATNESS.toFixed(2)} || gc.y > 0.09) return;
@@ -157,7 +157,7 @@ const traceFragment = `
 
     // Gate toward bright emitters (neon signs, lamps, car lights)
     float peak = max(refl.r, max(refl.g, refl.b));
-    float emitW = mix(smoothstep(0.24, 0.92, peak), smoothstep(0.12, 0.56, peak), puddle * 0.65);
+    float emitW = mix(smoothstep(0.16, 0.72, peak), smoothstep(0.08, 0.42, peak), puddle * 0.70);
     refl *= emitW;
 
     vec2 edge = smoothstep(vec2(0.0), vec2(0.08), hitUv) * smoothstep(vec2(0.0), vec2(0.08), 1.0 - hitUv);
@@ -256,9 +256,9 @@ const compositeFragment = `
     float baseLum = dot(base.rgb, vec3(0.299, 0.587, 0.114));
     float paintMask = 1.0 - smoothstep(0.24, 0.68, baseLum) * 0.45;
 
-    float puddleAmt = puddle * mix(0.05, 0.68, fres) * mix(1.0, 0.58, isWalk);
-    float dampAmt = max(damp, wetBase) * (1.0 - puddle) * mix(0.012, 0.22, fres) * mix(1.0, 0.48, isWalk);
-    float k = clamp(strength * (puddleAmt + dampAmt) * flatMask * paintMask * grainMask, 0.0, 0.48);
+    float puddleAmt = puddle * mix(0.14, 0.88, fres) * mix(1.0, 0.62, isWalk);
+    float dampAmt = max(damp, wetBase) * (1.0 - puddle) * mix(0.025, 0.28, fres) * mix(1.0, 0.48, isWalk);
+    float k = clamp(strength * (puddleAmt + dampAmt) * flatMask * paintMask * grainMask, 0.0, 0.64);
 
     vec3 col = base.rgb * (1.0 - k * 0.22 * refl.a) + refl.rgb * k;
     gl_FragColor = vec4(safeHdr(col), base.a);
