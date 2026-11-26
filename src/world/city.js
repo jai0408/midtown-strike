@@ -13,6 +13,7 @@ import { vehicleMaterial } from './vehicle_material.js';
 import * as T from './textures.js';
 import { waterTower } from './props.js';
 import { specialBlock, buildLandmarks, populateStreets } from './landmarks.js';
+import { buildCityLightMap, applyCityLighting } from './city_lighting.js';
 import { buildNav } from './nav.js';
 
 const CHUNKS = 5;
@@ -76,7 +77,7 @@ function ledScreen(mat, tex, pitch = 3) {
           float fw = max(fwidth(pg.x), fwidth(pg.y));
           led = mix(led, 0.84, clamp(fw * 1.2 - 0.25, 0.0, 1.0));
           float lum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-          diffuseColor.rgb = mix(vec3(lum), diffuseColor.rgb, 0.88) * led * 0.92;
+          diffuseColor.rgb = mix(vec3(lum), diffuseColor.rgb, 0.90) * led * 1.18;
         }`);
   };
   mat.customProgramCacheKey = () => 'led' + pitch;
@@ -148,7 +149,7 @@ function makeMaterials() {
   M.signCells = signs.cells;
   const glow = T.glowTexture();
   M.pool = new THREE.MeshBasicMaterial({
-    map: glow, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, opacity: 0.4,
+    map: glow, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, opacity: 0.46,
     depthWrite: false, fog: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3,
   });
   M.points = new THREE.PointsMaterial({
@@ -220,7 +221,11 @@ export function buildCity({ onProgress } = {}) {
     parks: [],       // rects drawn green on the minimap
     plazas: [],
     emitters: [],    // fire / smoke effect anchors
+    lights: [],      // baked world-space light-spill sources (billboards, lamps, plazas)
+    occluders: [],   // ground contact-AO footprints (props, booths, containers)
     lampCount: 0,
+    light(x, z, r, color, k = 0.5) { this.lights.push({ x, z, r, color, k }); },
+    occluder(x0, z0, x1, z1, pad = 1.2, minAO = 0.36) { this.occluders.push({ x0, z0, x1, z1, pad, minAO }); },
     /** Additive glow sprite (street lamps, signals, neon). */
     glow(x, y, z, color, size = 1) {
       const key = `${clamp(Math.floor((x + HALF) / 460), 0, 4)}|${clamp(Math.floor((z + HALF) / 460), 0, 4)}`;
@@ -403,6 +408,16 @@ export function buildCity({ onProgress } = {}) {
   buildLandmarks(ctx);
   if (onProgress) onProgress(0.7);
   populateStreets(ctx);
+  // Bake world-space Times Square neon spill + analytical ground/building contact AO
+  const lightMap = buildCityLightMap(ctx);
+  ctx.lightMap = lightMap;
+  applyCityLighting(M.ground, lightMap, { mode: 'ground', spillGain: 0.52, aoStrength: 1.0, key: 'ground' });
+  applyCityLighting(M.walk, lightMap, { mode: 'walk', spillGain: 0.48, aoStrength: 1.0, key: 'walk' });
+  applyCityLighting(M.marks, lightMap, { mode: 'marks', spillGain: 0.34, aoStrength: 0.85, key: 'marks' });
+  applyCityLighting(M.flat, lightMap, { mode: 'flat', spillGain: 0.48, aoStrength: 0.85, baseAO: 0.32, key: 'flat' });
+  for (let i = 0; i < T.FACADES.length; i++) {
+    applyCityLighting(M['facade' + i], lightMap, { mode: 'flat', spillGain: 0.82, aoStrength: 0.75, baseAO: 0.38, key: 'fac' + i });
+  }
   if (onProgress) onProgress(0.85);
   world.finalize();
 
@@ -620,7 +635,7 @@ export function addBuilding(ctx, b) {
     }
   }
   world.addBox(b.x0, 0, b.z0, b.x1, top, b.z1, F_ALL | F_BUILDING, b.style === 0 || b.style === 1 ? S_GLASS : S_CONCRETE);
-  const rec = { x0: b.x0, z0: b.z0, x1: b.x1, z1: b.z1, h: b.h, style: b.style, nearTS: !!b.nearTS, noAds: !!b.noAds };
+  const rec = { x0: b.x0, z0: b.z0, x1: b.x1, z1: b.z1, h: b.h, style: b.style, nearTS: !!b.nearTS, noAds: !!b.noAds, shops: b.shops || 0 };
   ctx.buildings.push(rec);
   return rec;
 }

@@ -5,6 +5,7 @@ import { CURB, groundAt } from './layout.js';
 import { decodeVehicle } from './vehicle_material.js';
 import { treeMesh, shrubMesh, emit, TREE_KINDS, hash2 as hashK } from './plants.js';
 import { VEHICLE_ASSETS } from './vehicles_asset.js';
+import { AD_LAND } from './textures.js';
 import { F_DEFAULT, F_SOLID, F_BULLET, F_CAMERA, F_SEE, S_METAL, S_CONCRETE, S_WOOD, S_DIRT, S_GLASS } from '../core/physics.js';
 
 const BLACK = C('#101114'), TIRE = C('#0b0b0d'), GLASS = C('#152030'), CHROME = C('#8a8f98');
@@ -131,10 +132,11 @@ export function lampPost(ctx, x, z, dirX, dirZ, color = '#ffd9a0') {
   G.box(Math.min(x, hx) - 0.06, y + 8.45, Math.min(z, hz) - 0.06, Math.max(x, hx) + 0.06, y + 8.6, Math.max(z, hz) + 0.06, POLE, 31);
   G.box(hx - 0.4, y + 8.46, hz - 0.4, hx + 0.4, y + 8.6, hz + 0.4, mulC(POLE, 0.7), 31);
   const E = ctx.B('glow', x, z);
-  E.box(hx - 0.32, y + 8.28, hz - 0.32, hx + 0.32, y + 8.46, hz + 0.32, C(color), 31 | 32);
+  E.box(hx - 0.34, y + 8.26, hz - 0.34, hx + 0.34, y + 8.46, hz + 0.34, C(color, 1.35), 31 | 32);
   rm(G, R_DEF);
-  ctx.glow(hx, y + 8.3, hz, color, 1);
-  ctx.pool(hx + dirX * 1.5, hz + dirZ * 1.5, 11, color, 0.55);
+  ctx.glow(hx, y + 8.3, hz, color, 1.35);
+  ctx.pool(hx + dirX * 1.5, hz + dirZ * 1.5, 11.5, color, 0.62);
+  if (ctx.light) ctx.light(hx + dirX * 1.6, hz + dirZ * 1.6, 11.0, '#ffc978', 0.60);
 }
 
 export function trafficLight(ctx, x, z, dirX, dirZ, green, labels) {
@@ -193,6 +195,7 @@ export function jerseyBarrier(ctx, x, z, alongX, len = 3) {
   if (len > 2) G.box(x - (alongX ? hl - 0.02 : 0.05), y + 0.97, z - (alongX ? 0.05 : hl - 0.02), x + (alongX ? hl - 0.02 : 0.05), y + 0.975, z + (alongX ? 0.05 : hl - 0.02), mulC(base, 0.8), 16);
   rm(G, R_DEF);
   ctx.world.addBox(b[0], y, b[1] + (alongX ? 0.1 : 0), b[2], y + 0.95, b[3] - (alongX ? 0.1 : 0), F_DEFAULT, S_CONCRETE);
+  if (ctx.occluder) ctx.occluder(b[0], b[1], b[2], b[3], 0.9, 0.48);
 }
 
 export function sandbags(ctx, x, z, alongX, len = 2.6, h = 1.05) {
@@ -210,8 +213,13 @@ export function sandbags(ctx, x, z, alongX, len = 2.6, h = 1.05) {
     else G.box(x - hw + inset, y0, z - hl + inset + off * 0.3, x + hw - inset, y1, z + hl - inset, mulC(c, 0.8), 31, mulC(c, 1.1));
   }
   rm(G, R_DEF);
-  if (alongX) ctx.world.addBox(x - hl, y, z - hw, x + hl, y + h, z + hw, F_DEFAULT, S_DIRT);
-  else ctx.world.addBox(x - hw, y, z - hl, x + hw, y + h, z + hl, F_DEFAULT, S_DIRT);
+  if (alongX) {
+    ctx.world.addBox(x - hl, y, z - hw, x + hl, y + h, z + hw, F_DEFAULT, S_DIRT);
+    if (ctx.occluder) ctx.occluder(x - hl, z - hw, x + hl, z + hw, 0.9, 0.46);
+  } else {
+    ctx.world.addBox(x - hw, y, z - hl, x + hw, y + h, z + hl, F_DEFAULT, S_DIRT);
+    if (ctx.occluder) ctx.occluder(x - hw, z - hl, x + hw, z + hl, 0.9, 0.46);
+  }
 }
 
 export function crate(ctx, x, z, size = 1.2, stack = 1, kind = 'wood') {
@@ -238,6 +246,7 @@ export function crate(ctx, x, z, size = 1.2, stack = 1, kind = 'wood') {
   }
   rm(G, R_DEF);
   ctx.world.addBox(x - h, y, z - h, x + h, y + size * stack, z + h, F_DEFAULT, kind === 'wood' ? S_WOOD : S_METAL);
+  if (ctx.occluder) ctx.occluder(x - h, z - h, x + h, z + h, 0.9, 0.38);
 }
 
 export function container(ctx, x, z, alongX, color) {
@@ -281,6 +290,7 @@ export function container(ctx, x, z, alongX, color) {
   else G.box((x0 + x1) / 2 - 0.012, y + 0.1, z1 + 0.002, (x0 + x1) / 2 + 0.012, y + h - 0.1, z1 + 0.012, grime, 4);
   rm(G, R_DEF);
   ctx.world.addBox(x0, y, z0, x1, y + h, z1, F_DEFAULT, S_METAL);
+  if (ctx.occluder) ctx.occluder(x0, z0, x1, z1, 1.5, 0.30);
 }
 
 export function planter(ctx, x, z, w = 1.4, d = 1.4, shrub = true) {
@@ -300,6 +310,7 @@ export function planter(ctx, x, z, w = 1.4, d = 1.4, shrub = true) {
   }
   rm(G, R_DEF);
   ctx.world.addBox(x - w / 2, y, z - d / 2, x + w / 2, y + 0.75, z + d / 2, F_DEFAULT, S_CONCRETE);
+  if (ctx.occluder) ctx.occluder(x - w / 2, z - d / 2, x + w / 2, z + d / 2, 0.85, 0.46);
 }
 
 export function bench(ctx, x, z, alongX, len = 3.2) {
@@ -413,25 +424,46 @@ export function newsstand(ctx, x, z, alongX) {
   const hl = 1.9, hw = 1.1;
   const x0 = alongX ? x - hl : x - hw, x1 = alongX ? x + hl : x + hw;
   const z0 = alongX ? z - hw : z - hl, z1 = alongX ? z + hw : z + hl;
-  const body = C('#2a3b30'), trim = C('#1c261f');
+  const body = C('#2e4236'), trim = C('#1e2822'), frame = C('#454c54');
   rm(G, R_PAINT);
-  G.box(x0, y + 0.12, z0, x1, y + 2.5, z1, mulC(body, 0.85), 31, mulC(body, 1.2));
+  G.box(x0, y + 0.12, z0, x1, y + 2.5, z1, mulC(body, 0.88), 31, mulC(body, 1.2));
   G.box(x0 - 0.04, y, z0 - 0.04, x1 + 0.04, y + 0.12, z1 + 0.04, mulC(trim, 0.7), 31);   // plinth
   for (const px of [x0, x1 - 0.12]) for (const pz of [z0, z1 - 0.12]) G.box(px - 0.02, y + 0.12, pz - 0.02, px + 0.14, y + 2.5, pz + 0.14, trim, 31); // posts
   G.box(x0 - 0.25, y + 2.5, z0 - 0.25, x1 + 0.25, y + 2.62, z1 + 0.25, trim, 31 | 32);     // roof slab
-  G.box(x0 - 0.27, y + 2.44, z0 - 0.27, x1 + 0.27, y + 2.5, z1 + 0.27, mulC(trim, 1.4), 15);
-  rm(G, R_GLASS);
-  // dark display glazing on the sides that face away from the lit window
-  if (alongX) G.box(x0 + 0.2, y + 1.0, z0 - 0.015, x1 - 0.2, y + 2.1, z0, C('#0d1316'), 8);
-  else G.box(x0 - 0.015, y + 1.0, z0 + 0.2, x0, y + 2.1, z1 - 0.2, C('#0d1316'), 2);
+  G.box(x0 - 0.27, y + 2.44, z0 - 0.27, x1 + 0.27, y + 2.5, z1 + 0.27, mulC(trim, 1.5), 15);
+  // Illuminated NYC street-side backlit ad panel on the back wall (replaces the old solid black panel)
+  const ad = AD_LAND[Math.floor(hash2(x * 1.7 + 3, z * 1.3 - 5) * AD_LAND.length) % AD_LAND.length];
+  const adUv = [ad.u0 + 0.004, ad.v0 + 0.006, ad.u1 - 0.004, ad.v1 - 0.006];
+  rm(G, R_CAST);
+  if (alongX) {
+    G.box(x0 + 0.14, y + 0.92, z0 - 0.045, x1 - 0.14, y + 2.18, z0 + 0.01, frame, 31);
+    ctx.B('ads', x, z).wall(x0 + 0.22, z0 - 0.052, x1 - 0.22, z0 - 0.052, y + 1.0, y + 2.1, null, adUv);
+  } else {
+    G.box(x0 - 0.045, y + 0.92, z0 + 0.14, x0 + 0.01, y + 2.18, z1 - 0.14, frame, 31);
+    ctx.B('ads', x, z).wall(x0 - 0.052, z1 - 0.22, x0 - 0.052, z0 + 0.22, y + 1.0, y + 2.1, null, adUv);
+  }
   rm(G, R_PAINT);
   G.box(x0 + 0.1, y + 0.85, z0 + 0.1, x1 - 0.1, y + 1.0, z1 - 0.1, mulC(body, 1.5), 16);   // counter ledge
+  // Warm lit service window + subtle vertical mullions on the front side
   const E = ctx.B('glow', x, z);
-  if (alongX) E.box(x0 + 0.2, y + 1.0, z1, x1 - 0.2, y + 2.1, z1 + 0.02, C('#ffd58a', 0.8), 4);
-  else E.box(x1, y + 1.0, z0 + 0.2, x1 + 0.02, y + 2.1, z1 - 0.2, C('#ffd58a', 0.8), 1);
+  if (alongX) {
+    E.box(x0 + 0.2, y + 1.0, z1, x1 - 0.2, y + 2.1, z1 + 0.02, C('#ffd58a', 0.9), 4);
+    G.box(x - 0.04, y + 1.0, z1 + 0.02, x + 0.04, y + 2.1, z1 + 0.04, trim, 31);
+    G.box(x0 + 0.2, y + 1.48, z1 + 0.02, x1 - 0.2, y + 1.54, z1 + 0.04, trim, 31);
+  } else {
+    E.box(x1, y + 1.0, z0 + 0.2, x1 + 0.02, y + 2.1, z1 - 0.2, C('#ffd58a', 0.9), 1);
+    G.box(x1 + 0.02, y + 1.0, z - 0.04, x1 + 0.04, y + 2.1, z + 0.04, trim, 31);
+    G.box(x1 + 0.02, y + 1.48, z0 + 0.2, x1 + 0.04, y + 1.54, z1 - 0.2, trim, 31);
+  }
   rm(G, R_DEF);
   ctx.world.addBox(x0, y, z0, x1, y + 2.6, z1, F_DEFAULT, S_METAL);
-  ctx.pool(x + (alongX ? 0 : 2), z + (alongX ? 2 : 0), 5, '#ffd58a', 0.5);
+  if (ctx.occluder) ctx.occluder(x0, z0, x1, z1, 1.25, 0.34);
+  ctx.pool(x + (alongX ? 0 : 2), z + (alongX ? 2 : 0), 5.5, '#ffd58a', 0.58);
+  ctx.pool(x + (alongX ? 0 : -2), z + (alongX ? -2 : 0), 5.5, ad.color || '#88ccff', 0.42);
+  if (ctx.light) {
+    ctx.light(x + (alongX ? 0 : 2.2), z + (alongX ? 2.2 : 0), 7.5, '#ffd58a', 0.45);
+    ctx.light(x + (alongX ? 0 : -2.2), z + (alongX ? -2.2 : 0), 7.5, ad.color || '#88ccff', 0.42);
+  }
 }
 
 /** Subway entrance: railings around a stair well with globe lamps. Fast-travel point. */

@@ -714,10 +714,12 @@ function drawAd(g, x, y, w, h, rng, idx) {
 }
 
 /** Static ads: 8 landscape cells on the top half, 8 portrait cells below. */
+export const AD_PALETTES = PALETTES;
 export const AD_LAND = [], AD_PORT = [];
 for (let i = 0; i < 8; i++) {
-  AD_LAND.push({ u0: (i % 4) / 4, v0: 1 - (Math.floor(i / 4) + 1) / 4, u1: (i % 4 + 1) / 4, v1: 1 - Math.floor(i / 4) / 4 });
-  AD_PORT.push({ u0: i / 8, v0: 0, u1: (i + 1) / 8, v1: 0.5 });
+  AD_LAND.push({ u0: (i % 4) / 4, v0: 1 - (Math.floor(i / 4) + 1) / 4, u1: (i % 4 + 1) / 4, v1: 1 - Math.floor(i / 4) / 4, color: PALETTES[i % PALETTES.length][0] });
+  const pi = i + 8 + (i % 2 ? 0 : 3);
+  AD_PORT.push({ u0: i / 8, v0: 0, u1: (i + 1) / 8, v1: 0.5, color: PALETTES[pi % PALETTES.length][0] });
 }
 export function adsTexture() {
   const rng = new RNG(77);
