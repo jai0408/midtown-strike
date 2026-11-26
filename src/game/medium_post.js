@@ -75,8 +75,10 @@ const compositeFragment = `
 
 export class MediumPostPipeline {
   constructor(renderer) {
-    const caps = renderer.capabilities;
-    const useHalf = caps.isWebGL2 || renderer.extensions.has('EXT_color_buffer_half_float');
+    // Rendering into a half-float target needs one of these extensions; some Mali/Adreno GPUs
+    // lack both, and an incomplete framebuffer would leave the screen black, so fall back to RGBA8.
+    const ext = renderer.extensions;
+    const useHalf = ext.has('EXT_color_buffer_float') || ext.has('EXT_color_buffer_half_float');
     const sceneType = useHalf ? THREE.HalfFloatType : THREE.UnsignedByteType;
     // HDR HalfFloat sceneRT preserves full dynamic range & matches High RT format (zero pipeline stalls)
     this.sceneRT = new THREE.WebGLRenderTarget(4, 4, {
