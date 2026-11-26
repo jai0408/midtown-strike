@@ -132,14 +132,64 @@ const PAGE_SHOT = `async (v, settleMs) => {
   return { stats, jpg: r.domElement.toDataURL('image/jpeg', 0.9) };
 }`;
 
+// Page-side locomotion strip: runs a Marine bot cleanly past a fixed camera in Times Square.
+const PAGE_STRIP = `async (nFrames, settleMs) => {
+  const G = window.__game;
+  G.settings.view = 'tpp';
+  G.settings.quality = 'high'; G.view.setQuality('high'); if (G.map.setQuality) G.map.setQuality('high');
+  if (G.state !== 'playing' || !G.game.mode || G.game.mode.id !== 'tdm') {
+    await G.start('tdm');
+    await new Promise((r) => setTimeout(r, settleMs));
+  }
+  const g = G.game;
+  const bot = g.actors.find((a) => !a.isPlayer && a.alive && a.team === 0);
+  if (!bot) throw new Error('No alive Marine bot for locomotion strip');
+  for (const a of g.actors) if (a !== bot && !a.isPlayer) a.update = () => {};
+  g.player.place(12, 165, 0);
+  bot.update = () => {};
+  bot.place(0.4, 132.4, 0);
+  bot.adsK = 0; bot.sprinting = false; bot.sliding = false;
+  bot.setStance(0);
+  g.paused = false;
+  // Warm up 15 ticks so gait blends and steady-state 4.5 m/s run stride settle before frame 0
+  for (let i = 0; i < 15; i++) {
+    bot.move(1 / 60, 0, -1, 4.5);
+    bot.updateModel(1 / 60, true);
+  }
+  const cam = g.camera, r = G.view.renderer;
+  const shots = [];
+  for (let f = 0; f < nFrames; f++) {
+    if (f > 0) {
+      for (let s = 0; s < 5; s++) {
+        bot.move(1 / 60, 0, -1, 4.5);
+        bot.updateModel(1 / 60, true);
+      }
+    }
+    cam.position.set(3.6, 1.25, 129.8);
+    cam.lookAt(0.4, 0.92, 129.8);
+    cam.updateMatrixWorld();
+    G.view.render();
+    shots.push({
+      frame: f,
+      x: +bot.x.toFixed(2),
+      z: +bot.z.toFixed(2),
+      speed: +bot.speed.toFixed(2),
+      jpg: r.domElement.toDataURL('image/jpeg', 0.9),
+    });
+  }
+  return shots;
+}`;
+
 async function main() {
   const args = process.argv.slice(2);
   const onlyIdx = args.indexOf('--only');
   const only = onlyIdx >= 0 ? new Set(args[onlyIdx + 1].split(',')) : null;
-  const outDir = resolve(ROOT, args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--only') || 'docs/visual_audit');
+  const stripIdx = args.indexOf('--strip');
+  const stripCount = stripIdx >= 0 ? Math.max(2, parseInt(args[stripIdx + 1], 10) || 8) : 0;
+  const outDir = resolve(ROOT, args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--only' && args[i - 1] !== '--strip') || 'docs/visual_audit');
   if (!existsSync(GAME)) throw new Error(`Built game not found at ${GAME}: run npm run build first`);
   mkdirSync(outDir, { recursive: true });
-  const views = VIEWS.filter((v) => !only || only.has(v.name));
+  const views = stripCount ? [] : VIEWS.filter((v) => !only || only.has(v.name));
 
   const chrome = await launch();
   const cdp = connect(chrome.wsUrl);
@@ -155,14 +205,23 @@ async function main() {
       if (Date.now() - t0 > LOAD_TIMEOUT_MS) throw new Error('game did not finish loading');
       await sleep(500);
     }
-    for (const v of views) {
-      const res = await evaluate(cdp, `(${PAGE_SHOT})(${JSON.stringify(v)}, ${MATCH_SETTLE_MS})`);
-      writeFileSync(join(outDir, v.name + '.jpg'), Buffer.from(res.jpg.split(',')[1], 'base64'));
-      report[v.name] = res.stats;
-      console.log(`${v.name.padEnd(24)} ${String(res.stats.renderMs).padStart(6)} ms  calls ${res.stats.drawCalls}`);
+    if (stripCount) {
+      const shots = await evaluate(cdp, `(${PAGE_STRIP})(${stripCount}, ${MATCH_SETTLE_MS})`);
+      for (const s of shots) {
+        const fname = `strip_run_${s.frame}.jpg`;
+        writeFileSync(join(outDir, fname), Buffer.from(s.jpg.split(',')[1], 'base64'));
+        console.log(`${fname.padEnd(20)} pos (${s.x}, ${s.z}) speed ${s.speed} m/s`);
+      }
+    } else {
+      for (const v of views) {
+        const res = await evaluate(cdp, `(${PAGE_SHOT})(${JSON.stringify(v)}, ${MATCH_SETTLE_MS})`);
+        writeFileSync(join(outDir, v.name + '.jpg'), Buffer.from(res.jpg.split(',')[1], 'base64'));
+        report[v.name] = res.stats;
+        console.log(`${v.name.padEnd(24)} ${String(res.stats.renderMs).padStart(6)} ms  calls ${res.stats.drawCalls}`);
+      }
+      writeFileSync(join(outDir, 'report.json'), JSON.stringify(report, null, 2));
+      console.log(`wrote ${views.length} views to ${outDir}`);
     }
-    writeFileSync(join(outDir, 'report.json'), JSON.stringify(report, null, 2));
-    console.log(`wrote ${views.length} views to ${outDir}`);
   } finally {
     cdp.close();
     chrome.close();

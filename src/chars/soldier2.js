@@ -507,13 +507,13 @@ export class Soldier {
     // Smooth locomotion inputs to eliminate directional blend kinks & frame-rate jitter
     const rawSpeed = s.speed || 0;
     const rawMx = s.moveX || 0, rawMz = s.moveZ || 0;
-    this._smMoveX = damp(this._smMoveX, rawMx, 14, dt);
-    this._smMoveZ = damp(this._smMoveZ, rawMz, 14, dt);
-    this._smSpeed = damp(this._smSpeed, rawSpeed, 14, dt);
-    const speed = this._smSpeed;
+    this._smMoveX = damp(this._smMoveX, rawMx, 18, dt);
+    this._smMoveZ = damp(this._smMoveZ, rawMz, 18, dt);
+    this._smSpeed = damp(this._smSpeed, rawSpeed, 18, dt);
+    const speed = rawSpeed > 0.25 ? Math.max(this._smSpeed, rawSpeed * 0.72) : this._smSpeed;
     const mx = this._smMoveX, mz = this._smMoveZ;
     const moving = speed > 0.14;
-    this.moveK = damp(this.moveK, moving ? 1 : 0, 10, dt);
+    this.moveK = damp(this.moveK, moving ? 1 : 0, 14, dt);
 
     // Double-filtered yaw turn rate & horizontal acceleration (ignore dt > 0.08s spikes)
     const curYaw = this.root.rotation.y || 0;
@@ -627,10 +627,10 @@ export class Soldier {
         }
       }
 
-      // Smooth cross-fades (~0.16-0.24s) with slightly softer transitions for posture changes
-      const fadeRate = 9.5;
+      // Crisp locomotion entry/exit (~0.07s) so start/stop plants immediately without sliding
       for (const nm of LOOP_CLIPS) {
-        this._w[nm] = damp(this._w[nm], tgt[nm], fadeRate, dt);
+        const rate = (nm.startsWith('crouch') || nm.startsWith('prone')) ? 9.5 : 14.5;
+        this._w[nm] = damp(this._w[nm], tgt[nm], rate, dt);
         if (this.actions[nm]) this.actions[nm].setEffectiveWeight(this._w[nm]);
       }
 
@@ -796,9 +796,14 @@ export class Soldier {
       mp.set(damp(mp.x, tx, 18, dt), damp(mp.y, ty, 18, dt), damp(mp.z, tz, 18, dt));
       mr.set(damp(mr.x, rx, 18, dt), damp(mr.y, ry, 18, dt), damp(mr.z, rz, 18, dt));
       const carry = clamp(speed / 4.8, 0, 1.2) * this.moveK * (1 - ads);
-      const stepWave = Math.cos(this.phase * 2), sideWave = Math.cos(this.phase);
-      this.gunMount.position.set(mp.x, mp.y - stepWave * 0.008 * carry, mp.z + this.kick * 0.045);
-      _e.set(mr.x + this.kick * 0.09 + stepWave * 0.015 * carry, mr.y, mr.z + sideWave * 0.04 * carry, 'YXZ');
+      const stepWave = Math.cos(this.phase * 2), sideWave = Math.cos(this.phase), sideSin = Math.sin(this.phase);
+      const swayLag = clamp(this._turnRate * 0.015, -0.04, 0.04) * (1 - ads);
+      this.gunMount.position.set(
+        mp.x + sideSin * 0.009 * carry,
+        mp.y - stepWave * 0.010 * carry - Math.abs(this._leanZ) * 0.04,
+        mp.z + this.kick * 0.045,
+      );
+      _e.set(mr.x + this.kick * 0.09 + stepWave * 0.018 * carry, mr.y - swayLag, mr.z + sideWave * 0.048 * carry + swayLag * 0.5, 'YXZ');
       this.gunMount.quaternion.setFromEuler(_e);
       this.gunMount.updateMatrix();
       this.gripWeapon(reload);

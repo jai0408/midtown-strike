@@ -421,9 +421,11 @@ export class Player extends Actor {
     const idleB = (1 - ads * 0.75) * (1 - sd.moveK * 0.6);
     x += Math.sin(this._breathT * 1.35) * 0.0022 * idleB;
     y += Math.sin(this._breathT * 2.70) * 0.0018 * idleB;
-    // walk/run bob
-    x += sw * 0.007 * amp; y += -Math.abs(cw) * 0.009 * amp;
-    rz += sw * 0.02 * amp;
+    // walk/run bob + subtle figure-8 rifle carry sway
+    const s2 = Math.sin(sd.phase * 2);
+    x += sw * 0.0085 * amp; y += -Math.abs(cw) * 0.011 * amp + s2 * 0.002 * amp;
+    rx += -Math.abs(cw) * 0.014 * amp;
+    rz += sw * 0.026 * amp;
     // inertial look sway (reduced in ADS)
     const swayK = 1 - ads * 0.82;
     x += this._swayX * 0.38 * swayK; y += this._swayY * 0.32 * swayK;

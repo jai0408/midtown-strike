@@ -179,8 +179,8 @@ export function applyRoadSurface(mat, { isWalk = false, key = 'road' } = {}) {
         }`)
       .replace('#include <lights_fragment_end>', isWalk ? '#include <lights_fragment_end>' : `#include <lights_fragment_end>
         {
-          reflectedLight.directSpecular *= mix(0.12, 0.52, rwPuddle);
-          reflectedLight.indirectSpecular = min(reflectedLight.indirectSpecular, vec3(mix(0.14, 0.48, rwPuddle)));
+          reflectedLight.directSpecular *= mix(0.10, 0.24, rwPuddle);
+          reflectedLight.indirectSpecular = min(reflectedLight.indirectSpecular, vec3(mix(0.12, 0.28, rwPuddle)));
         }`);
   };
   mat.customProgramCacheKey = () => `${prevKey}|rw_${key}`;
