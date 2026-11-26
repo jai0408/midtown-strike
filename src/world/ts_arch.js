@@ -99,28 +99,38 @@ export function framedBillboard(ctx, rng, ax, az, bx, bz, y0, y1, opts = {}) {
   }
   F.setRM(0.85, 0);
 
-  // Pick artwork (avoid duplicating adjacent boards)
+  // Pick artwork via deterministic non-repeating shuffle decks so no creative repeats >2x in one view
+  const drawDeck = (deckKey, lenPool) => {
+    let deck = ctx[deckKey];
+    if (!deck || !deck.length) {
+      deck = Array.from({ length: lenPool }, (_, i) => i);
+      for (let i = deck.length - 1; i > 0; i--) {
+        const j = rng.int(0, i);
+        const tmp = deck[i]; deck[i] = deck[j]; deck[j] = tmp;
+      }
+      ctx[deckKey] = deck;
+    }
+    return deck.pop();
+  };
   let col, adIdx = -1;
   const anim = opts.forceAnim || (!opts.staticVinyl && rng.chance(opts.animChance ?? 0.34));
   if (anim) {
-    let cx0 = rng.int(0, 3), cy0 = rng.int(0, 3);
-    adIdx = 16 + (3 - cy0) * 4 + cx0;
-    if (adIdx === opts.avoidIdx) {
-      cx0 = (cx0 + 1) % 4;
-      adIdx = 16 + (3 - cy0) * 4 + cx0;
-    }
+    let slot = drawDeck('_adDeckAnim', 16);
+    if (32 + slot === opts.avoidIdx) slot = (slot + 5) % 16;
+    const cx0 = slot % 4, cy0 = 3 - Math.floor(slot / 4);
+    adIdx = 32 + slot;
     const cu = cx0 / 4, cv = cy0 / 4;
     ctx.B(rng.chance(0.5) ? 'adsA' : 'adsB', mx, mz).wall(
       ax + nx * out, az + nz * out, bx + nx * out, bz + nz * out,
       y0, y1, null, [cu + ANIM_UV[0], cv + ANIM_UV[1], cu + ANIM_UV[2], cv + ANIM_UV[3]],
     );
-    col = AD_PALETTES[((3 - cy0) * 4 + cx0) % AD_PALETTES.length][0];
+    col = AD_PALETTES[slot % AD_PALETTES.length][0];
   } else {
     const isLand = len >= h;
     const pool = isLand ? AD_LAND : AD_PORT;
-    const offset = isLand ? 0 : 8;
-    let pick = rng.int(0, pool.length - 1);
-    if (offset + pick === opts.avoidIdx) pick = (pick + 3) % pool.length;
+    const offset = isLand ? 0 : 16;
+    let pick = drawDeck(isLand ? '_adDeckLand' : '_adDeckPort', pool.length);
+    if (offset + pick === opts.avoidIdx) pick = (pick + 5) % pool.length;
     adIdx = offset + pick;
     const cell = pool[pick];
     ctx.B('ads', mx, mz).wall(

@@ -254,45 +254,53 @@ export function sandbags(ctx, x, z, alongX, len = 2.6, h = 1.05) {
 
 export function crate(ctx, x, z, size = 1.2, stack = 1, kind = 'wood') {
   const y = groundAt(x, z);
-  const G = ctx.B('flat', x, z);
+  const W = ctx.B('crate', x, z);
+  const F = ctx.B('flat', x, z);
   const h = size / 2;
-  const col = kind === 'wood' ? C('#7a6240') : C('#4b5436');
-  const post = mulC(col, 0.62), plank = mulC(col, 0.82);
-  rm(G, R_WOOD);
+  const col = kind === 'wood' ? C('#b59a72') : C('#6a7652');
+  const frame = mulC(col, 0.72), dark = mulC(col, 0.56), metal = C('#2e333c');
+  rm(F, R_WOOD);
   for (let i = 0; i < stack; i++) {
     const o = i * 0.07;
-    const y0 = y + i * size, y1 = y + (i + 1) * size;
-    G.box(x - h + o, y0, z - h + o, x + h - o, y1, z + h - o, plank, 31, mulC(col, 1.15));
-    // horizontal battens
-    G.box(x - h + o - 0.02, y0 + size * 0.2, z - h + o - 0.02, x + h - o + 0.02, y0 + size * 0.3, z + h - o + 0.02, post, 15);
-    G.box(x - h + o - 0.02, y0 + size * 0.7, z - h + o - 0.02, x + h - o + 0.02, y0 + size * 0.8, z + h - o + 0.02, post, 15);
-    // corner posts
-    const p = 0.07;
+    const x0 = x - h + o, x1 = x + h - o, z0 = z - h + o, z1 = z + h - o;
+    const y0 = y + i * size, y1 = y + (i + 1) * size, bt = 0.028;
+    // Recessed textured plank core (with bevel shadow under frame rails)
+    W.box(x0 + 0.02, y0 + 0.02, z0 + 0.02, x1 - 0.02, y1 - 0.02, z1 - 0.02, col, 31, mulC(col, 1.12));
+    // Proud outer beveled structural frame rails + corner posts + horizontal/top battens
+    F.box(x0 - bt, y0, z0 - bt, x1 + bt, y0 + 0.09, z1 + bt, frame, 15, mulC(col, 0.92));
+    F.box(x0 - bt, y1 - 0.09, z0 - bt, x1 + bt, y1, z1 + bt, frame, 31, mulC(col, 1.05));
+    F.box(x0 - bt, y0 + size * 0.44, z0 - bt, x1 + bt, y0 + size * 0.54, z1 + bt, dark, 15);
+    const p = 0.075;
     for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-      const cx = x + sx * (h - o), cz = z + sz * (h - o);
-      G.box(cx - p - (sx > 0 ? -0.015 : 0.015), y0, cz - p - (sz > 0 ? -0.015 : 0.015), cx + p + (sx > 0 ? 0.015 : -0.015), y1, cz + p + (sz > 0 ? 0.015 : -0.015), post, 31, mulC(post, 1.2));
+      const cx = (sx < 0 ? x0 : x1) - sx * 0.015, cz = (sz < 0 ? z0 : z1) - sz * 0.015;
+      F.box(cx - p, y0, cz - p, cx + p, y1, cz + p, frame, 31, mulC(frame, 1.16));
+      rm(F, R_CAST);
+      F.box(cx - p - 0.008, y1 - 0.095, cz - p - 0.008, cx + p + 0.008, y1 + 0.006, cz + p + 0.008, metal, 31);
+      rm(F, R_WOOD);
     }
-    if (kind !== 'wood') G.box(x - h * 0.55, y0 + size * 0.36, z + h - o + 0.021, x + h * 0.55, y0 + size * 0.64, z + h - o + 0.026, C('#b9b27a'), 4);
+    if (kind !== 'wood') F.box(x - h * 0.52, y0 + size * 0.36, z1 + 0.024, x + h * 0.52, y0 + size * 0.62, z1 + 0.032, C('#c7be82'), 4);
   }
-  rm(G, R_DEF);
+  rm(F, R_DEF);
   ctx.world.addBox(x - h, y, z - h, x + h, y + size * stack, z + h, F_DEFAULT, kind === 'wood' ? S_WOOD : S_METAL);
   if (ctx.occluder) ctx.occluder(x - h, z - h, x + h, z + h, 0.9, 0.38);
 }
 
 export function container(ctx, x, z, alongX, color) {
   const y = groundAt(x, z);
+  const K = ctx.B('container', x, z);
   const G = ctx.B('flat', x, z);
   const hl = 3.05, hw = 1.22, h = 2.6;
   const col = mute(color, 0.45, 0.62 + 0.2 * hash2(x, z));
-  const lite = mulC(col, 1.18), ribCol = mulC(col, 0.88), grime = C('#1b1d22');
+  const lite = mulC(col, 1.18), ribCol = mulC(col, 0.88), grime = C('#1b1d22'), rust = C('#5c341f');
   const x0 = alongX ? x - hl : x - hw, x1 = alongX ? x + hl : x + hw;
   const z0 = alongX ? z - hw : z - hl, z1 = alongX ? z + hw : z + hl;
+  // Textured corrugated base shell (rust streaks, chipped base sill & normal relief)
+  K.box(x0, y, z0, x1, y + h, z1, mulC(col, 0.84), 31, lite);
   rm(G, R_PAINT);
-  G.box(x0, y, z0, x1, y + h, z1, mulC(col, 0.72), 31, lite);
-  // Real 3D corrugated steel ribs protruding 3.5 cm on both long sides
-  const n = 14, out = 0.035, ya = y + 0.16, yb = y + h - 0.14;
+  // Real 3D corrugated steel ribs protruding 4.5 cm on both long sides + roof corrugation
+  const n = 14, out = 0.045, ya = y + 0.16, yb = y + h - 0.14;
   for (let k = 0; k < n; k++) {
-    const t0 = (k + 0.26) / n, t1 = (k + 0.74) / n;
+    const t0 = (k + 0.24) / n, t1 = (k + 0.72) / n;
     if (alongX) {
       const xa = x0 + (x1 - x0) * t0, xb = x0 + (x1 - x0) * t1;
       G.box(xa, ya, z0 - out, xb, yb, z0, ribCol, 1 | 2 | 8 | 16);
@@ -303,23 +311,32 @@ export function container(ctx, x, z, alongX, color) {
       G.box(x1, ya, za, x1 + out, yb, zb, ribCol, 1 | 4 | 8 | 16);
     }
   }
-  // Welded steel corner posts, ISO corner castings & dark weathered base rail
-  const p = 0.15;
+  // Welded steel corner posts, ISO corner twist-lock castings, top/bottom structural header rails
+  const p = 0.16;
   for (const px of [x0, x1 - p]) for (const pz of [z0, z1 - p]) {
-    G.box(px - 0.014, y, pz - 0.014, px + p + 0.014, y + h, pz + p + 0.014, mulC(col, 0.68), 31, mulC(col, 0.9));
-    G.box(px - 0.025, y + h - 0.14, pz - 0.025, px + p + 0.025, y + h + 0.015, pz + p + 0.025, grime, 31);
+    G.box(px - 0.018, y, pz - 0.018, px + p + 0.018, y + h, pz + p + 0.018, mulC(col, 0.68), 31, mulC(col, 0.92));
+    G.box(px - 0.028, y + h - 0.14, pz - 0.028, px + p + 0.028, y + h + 0.020, pz + p + 0.028, grime, 31);
+    G.box(px - 0.026, y, pz - 0.026, px + p + 0.026, y + 0.14, pz + p + 0.026, rust, 15);
   }
-  G.box(x0 - 0.015, y, z0 - 0.015, x1 + 0.015, y + 0.15, z1 + 0.015, grime, 15);
-  // Door end: galvanized locking bars, cam keepers & center seam
+  G.box(x0 - 0.02, y + h - 0.12, z0 - 0.02, x1 + 0.02, y + h + 0.01, z1 + 0.02, mulC(col, 0.72), 15);
+  G.box(x0 - 0.02, y, z0 - 0.02, x1 + 0.02, y + 0.15, z1 + 0.02, grime, 15);
+  // Door end: galvanized locking bars, cam keepers, handle latches & center seam
   rm(G, R_GALV);
   const bars = [0.14, 0.36, 0.64, 0.86];
   for (const f of bars) {
-    if (alongX) { const bx = x1 + 0.0, bz = z0 + (z1 - z0) * f; G.box(bx, y + 0.18, bz - 0.022, bx + 0.048, y + h - 0.18, bz + 0.022, C('#7b8086'), 31); }
-    else { const bz = z1 + 0.0, bx = x0 + (x1 - x0) * f; G.box(bx - 0.022, y + 0.18, bz, bx + 0.022, y + h - 0.18, bz + 0.048, C('#7b8086'), 31); }
+    if (alongX) {
+      const bx = x1, bz = z0 + (z1 - z0) * f;
+      G.box(bx, y + 0.18, bz - 0.024, bx + 0.054, y + h - 0.18, bz + 0.024, C('#858b92'), 31);
+      G.box(bx + 0.01, y + 1.05, bz - 0.04, bx + 0.072, y + 1.13, bz + 0.06, C('#9ea4ac'), 31);
+    } else {
+      const bz = z1, bx = x0 + (x1 - x0) * f;
+      G.box(bx - 0.024, y + 0.18, bz, bx + 0.024, y + h - 0.18, bz + 0.054, C('#858b92'), 31);
+      G.box(bx - 0.04, y + 1.05, bz + 0.01, bx + 0.06, y + 1.13, bz + 0.072, C('#9ea4ac'), 31);
+    }
   }
   rm(G, R_PAINT);
-  if (alongX) G.box(x1 + 0.002, y + 0.1, (z0 + z1) / 2 - 0.012, x1 + 0.014, y + h - 0.1, (z0 + z1) / 2 + 0.012, grime, 1);
-  else G.box((x0 + x1) / 2 - 0.012, y + 0.1, z1 + 0.002, (x0 + x1) / 2 + 0.012, y + h - 0.1, z1 + 0.014, grime, 4);
+  if (alongX) G.box(x1 + 0.002, y + 0.1, (z0 + z1) / 2 - 0.014, x1 + 0.016, y + h - 0.1, (z0 + z1) / 2 + 0.014, grime, 1);
+  else G.box((x0 + x1) / 2 - 0.014, y + 0.1, z1 + 0.002, (x0 + x1) / 2 + 0.014, y + h - 0.1, z1 + 0.016, grime, 4);
   rm(G, R_DEF);
   ctx.world.addBox(x0, y, z0, x1, y + h, z1, F_DEFAULT, S_METAL);
   if (ctx.occluder) ctx.occluder(x0, z0, x1, z1, 1.5, 0.30);
@@ -617,17 +634,13 @@ export function waterTower(ctx, x, y, z) {
 export function manhole(ctx, x, z) {
   const y = groundAt(x, z);
   const G = ctx.B('flat', x, z);
-  const damp = C('#08090b'), iron = C('#15171b'), dish = C('#0f1114'), rim = C('#5a606b'), rib = C('#262a30');
-  rm(G, [0.30, 0.05]);
-  G.cyl(x, z, y + 0.002, y + 0.007, 0.64, 0.60, 12, damp, true);
-  rm(G, [0.62, 0.72]);
-  G.cyl(x, z, y + 0.007, y + 0.017, 0.48, 0.47, 12, iron, true, rim);
-  G.cyl(x, z, y + 0.016, y + 0.021, 0.42, 0.41, 12, dish, true, iron);
-  rm(G, [0.28, 0.88]);
-  G.cyl(x, z, y + 0.017, y + 0.023, 0.46, 0.44, 12, rim, false);
-  rm(G, [0.58, 0.70]);
-  G.box(x - 0.30, y + 0.019, z - 0.030, x + 0.30, y + 0.025, z + 0.030, rib, 31);
-  G.box(x - 0.030, y + 0.019, z - 0.30, x + 0.030, y + 0.025, z + 0.30, rib, 31);
+  const frame = C('#1d2025'), iron = C('#15171b'), dish = C('#111317'), rim = C('#3a3e46'), rib = C('#23262c');
+  rm(G, R_CAST);
+  // Flush NYC 0.72m cast-iron manhole frame + round 20-seg cover
+  G.cyl(x, z, y + 0.002, y + 0.006, 0.38, 0.37, 20, frame, true, rim);
+  G.cyl(x, z, y + 0.006, y + 0.008, 0.34, 0.33, 20, dish, true, iron);
+  G.box(x - 0.22, y + 0.007, z - 0.014, x + 0.22, y + 0.009, z + 0.014, rib, 16);
+  G.box(x - 0.014, y + 0.007, z - 0.22, x + 0.014, y + 0.009, z + 0.22, rib, 16);
   rm(G, R_DEF);
 }
 

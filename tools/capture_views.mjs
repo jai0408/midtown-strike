@@ -132,7 +132,7 @@ const PAGE_SHOT = `async (v, settleMs) => {
   return { stats, jpg: r.domElement.toDataURL('image/jpeg', 0.9) };
 }`;
 
-// Page-side locomotion strip: runs a Marine bot cleanly past a fixed camera in Times Square.
+// Page-side locomotion strip: runs/walks/strafes a Marine bot cleanly past a fixed camera in Times Square.
 const PAGE_STRIP = `async (nFrames, settleMs) => {
   const G = window.__game;
   G.settings.view = 'tpp';
@@ -147,37 +147,41 @@ const PAGE_STRIP = `async (nFrames, settleMs) => {
   for (const a of g.actors) if (a !== bot && !a.isPlayer) a.update = () => {};
   g.player.place(12, 165, 0);
   bot.update = () => {};
-  bot.place(0.4, 132.4, 0);
   bot.adsK = 0; bot.sprinting = false; bot.sliding = false;
   bot.setStance(0);
   g.paused = false;
-  // Warm up 15 ticks so gait blends and steady-state 4.5 m/s run stride settle before frame 0
-  for (let i = 0; i < 15; i++) {
-    bot.move(1 / 60, 0, -1, 4.5);
-    bot.updateModel(1 / 60, true);
-  }
   const cam = g.camera, r = G.view.renderer;
-  const shots = [];
-  for (let f = 0; f < nFrames; f++) {
-    if (f > 0) {
-      for (let s = 0; s < 5; s++) {
-        bot.move(1 / 60, 0, -1, 4.5);
-        bot.updateModel(1 / 60, true);
-      }
+  const runCase = (tag, { x0, z0, dx, dz, spd, yaw, ticksPerFrame, camPos, camLook }) => {
+    bot.place(x0, z0, yaw);
+    bot.speed = 0; bot.localX = 0; bot.localZ = 0;
+    for (let i = 0; i < 20; i++) {
+      bot.move(1 / 60, dx, dz, spd);
+      bot.updateModel(1 / 60, true);
     }
-    cam.position.set(3.6, 1.25, 129.8);
-    cam.lookAt(0.4, 0.92, 129.8);
-    cam.updateMatrixWorld();
-    G.view.render();
-    shots.push({
-      frame: f,
-      x: +bot.x.toFixed(2),
-      z: +bot.z.toFixed(2),
-      speed: +bot.speed.toFixed(2),
-      jpg: r.domElement.toDataURL('image/jpeg', 0.9),
-    });
-  }
-  return shots;
+    const out = [];
+    for (let f = 0; f < nFrames; f++) {
+      if (f > 0) {
+        for (let s = 0; s < ticksPerFrame; s++) {
+          bot.move(1 / 60, dx, dz, spd);
+          bot.updateModel(1 / 60, true);
+        }
+      }
+      cam.position.set(camPos[0], camPos[1], camPos[2]);
+      cam.lookAt(camLook[0], camLook[1], camLook[2]);
+      cam.updateMatrixWorld();
+      G.view.render();
+      out.push({
+        tag, frame: f, x: +bot.x.toFixed(2), z: +bot.z.toFixed(2), speed: +bot.speed.toFixed(2),
+        jpg: r.domElement.toDataURL('image/jpeg', 0.9),
+      });
+    }
+    return out;
+  };
+  return [
+    ...runCase('run',    { x0: 0.4,  z0: 132.4, dx: 0, dz: -1, spd: 4.5, yaw: 0, ticksPerFrame: 5, camPos: [3.6, 1.25, 129.8], camLook: [0.4, 0.92, 129.8] }),
+    ...runCase('walk',   { x0: 0.4,  z0: 131.8, dx: 0, dz: -1, spd: 1.8, yaw: 0, ticksPerFrame: 9, camPos: [3.4, 1.24, 130.6], camLook: [0.4, 0.92, 130.6] }),
+    ...runCase('strafe', { x0: -1.8, z0: 131.6, dx: 1, dz:  0, spd: 3.6, yaw: 0, ticksPerFrame: 5, camPos: [0.2, 1.28, 128.0], camLook: [0.2, 0.94, 131.6] }),
+  ];
 }`;
 
 async function main() {
@@ -208,7 +212,7 @@ async function main() {
     if (stripCount) {
       const shots = await evaluate(cdp, `(${PAGE_STRIP})(${stripCount}, ${MATCH_SETTLE_MS})`);
       for (const s of shots) {
-        const fname = `strip_run_${s.frame}.jpg`;
+        const fname = `strip_${s.tag}_${s.frame}.jpg`;
         writeFileSync(join(outDir, fname), Buffer.from(s.jpg.split(',')[1], 'base64'));
         console.log(`${fname.padEnd(20)} pos (${s.x}, ${s.z}) speed ${s.speed} m/s`);
       }

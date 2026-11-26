@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { RNG } from '../core/util.js';
 export { AD_PALETTES, AD_LAND, AD_PORT, adsTexture, adsAnimTexture, tickerTexture } from './ad_art.js';
-export { SHOP_COLS, SHOP_ROWS, shopTexture, shopTextures, signsTexture, glowTexture, smokeTexture, flashTexture } from './shop_textures.js';
+export { SHOP_COLS, SHOP_ROWS, shopTexture, shopTextures, signsTexture, glowTexture, smokeTexture, flashTexture, crateTextures, containerTextures } from './shop_textures.js';
 
 export function makeCanvas(w, h) {
   const c = document.createElement('canvas');

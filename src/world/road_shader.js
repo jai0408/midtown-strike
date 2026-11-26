@@ -160,17 +160,17 @@ export function applyRoadSurface(mat, { isWalk = false, key = 'road' } = {}) {
                diffuseColor.rgb *= (0.76 + 0.42 * _drift) * rwWear.x;
                diffuseColor.rgb *= 1.0 + rwRut * 0.14 * (1.0 - rwPuddle);
                float _wetDark = clamp(rwDamp * 0.56 + rwPuddle * 0.48, 0.0, 1.0);
-               diffuseColor.rgb *= mix(1.0, 0.54, _wetDark);`}
+               diffuseColor.rgb *= mix(0.84, 0.48, _wetDark);`}
         }`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
         {
           ${isWalk
-            ? `roughnessFactor = mix(roughnessFactor, 0.78 + 0.12 * rwGr, rwDamp * 0.52);
-               roughnessFactor = mix(roughnessFactor, 0.14 + 0.08 * rwGr, rwPuddle * 0.85);`
-            : `roughnessFactor = mix(roughnessFactor, rwWear.y, rwWear.z);
-               float _dampR = mix(0.88, 0.58, rwDamp) - rwRut * 0.10 + (rwGr - 0.5) * 0.08;
-               roughnessFactor = mix(roughnessFactor, clamp(_dampR, 0.44, 0.95), 0.76);
-               roughnessFactor = mix(roughnessFactor, 0.09 + 0.07 * rwGr, rwPuddle);`}
+            ? `roughnessFactor = mix(roughnessFactor, 0.84 + 0.10 * rwGr, rwDamp * 0.52);
+               roughnessFactor = mix(roughnessFactor, 0.16 + 0.08 * rwGr, rwPuddle * 0.85);`
+            : `roughnessFactor = mix(roughnessFactor, max(rwWear.y, 0.62), rwWear.z);
+               float _dampR = mix(0.95, 0.72, rwDamp) - rwRut * 0.08 + (rwGr - 0.5) * 0.06;
+               roughnessFactor = mix(roughnessFactor, clamp(_dampR, 0.54, 0.97), 0.78);
+               roughnessFactor = mix(roughnessFactor, 0.11 + 0.08 * rwGr, rwPuddle * rwPuddle);`}
         }`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         {
@@ -179,8 +179,9 @@ export function applyRoadSurface(mat, { isWalk = false, key = 'road' } = {}) {
         }`)
       .replace('#include <lights_fragment_end>', isWalk ? '#include <lights_fragment_end>' : `#include <lights_fragment_end>
         {
-          reflectedLight.directSpecular *= mix(0.10, 0.24, rwPuddle);
-          reflectedLight.indirectSpecular = min(reflectedLight.indirectSpecular, vec3(mix(0.12, 0.28, rwPuddle)));
+          float _pSq = rwPuddle * rwPuddle;
+          reflectedLight.directSpecular *= mix(0.02, 0.20, _pSq);
+          reflectedLight.indirectSpecular = min(reflectedLight.indirectSpecular, vec3(mix(0.025, 0.24, _pSq)));
         }`);
   };
   mat.customProgramCacheKey = () => `${prevKey}|rw_${key}`;
@@ -214,6 +215,13 @@ export function applyMarkingsWear(mat) {
           float _wear = smoothstep(0.18, 0.54, _scuff);
           diffuseColor.a *= mix(0.46, 1.0, _wear);
           diffuseColor.rgb *= 0.74 + 0.22 * _scuff;
+        }`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        roughnessFactor = max(roughnessFactor, 0.92);`)
+      .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+        {
+          reflectedLight.directSpecular *= 0.04;
+          reflectedLight.indirectSpecular = min(reflectedLight.indirectSpecular, vec3(0.025));
         }`);
   };
   mat.customProgramCacheKey = () => `${prevKey}|mw_3`;

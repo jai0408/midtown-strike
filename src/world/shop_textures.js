@@ -241,3 +241,96 @@ export function flashTexture() {
   g.fill();
   return toTexture(c, { repeat: false, aniso: false });
 }
+
+/** Weathered wood-plank crate texture set (256x256 albedo, normal, ORM) with plank gaps & nails. */
+export function crateTextures() {
+  const S = 256, rng = new RNG(612);
+  const c = makeCanvas(S, S), g = c.getContext('2d');
+  const hc = makeCanvas(S, S), gh = hc.getContext('2d');
+  const oc = makeCanvas(S, S), go = oc.getContext('2d');
+  g.fillStyle = '#a4875e'; g.fillRect(0, 0, S, S);
+  gh.fillStyle = gray(148); gh.fillRect(0, 0, S, S);
+  go.fillStyle = rgbRM(0.86, 0.0); go.fillRect(0, 0, S, S);
+  const planks = 5, ph = S / planks;
+  for (let i = 0; i < planks; i++) {
+    const y0 = i * ph, tint = 0.88 + rng.next() * 0.24;
+    g.fillStyle = `rgb(${Math.round(166 * tint)},${Math.round(134 * tint)},${Math.round(92 * tint)})`;
+    g.fillRect(0, y0 + 2, S, ph - 4);
+    for (let k = 0; k < 28; k++) {
+      g.fillStyle = rng.chance(0.5) ? 'rgba(65,42,20,0.16)' : 'rgba(225,195,148,0.12)';
+      const gy = y0 + 4 + rng.next() * (ph - 8);
+      g.fillRect(0, gy, S, 1 + rng.next() * 2);
+      gh.fillStyle = gray(132 + rng.next() * 34); gh.fillRect(0, gy, S, 1.5);
+    }
+    g.fillStyle = '#241a10'; g.fillRect(0, y0, S, 3);
+    gh.fillStyle = gray(40); gh.fillRect(0, y0, S, 3);
+  }
+  // Outer bevel frame + diagonal cross-brace + corner nail rows
+  g.strokeStyle = '#6f5534'; g.lineWidth = 22; g.strokeRect(11, 11, S - 22, S - 22);
+  gh.strokeStyle = gray(215); gh.lineWidth = 22; gh.strokeRect(11, 11, S - 22, S - 22);
+  g.strokeStyle = '#7e623d'; g.lineWidth = 18;
+  g.beginPath(); g.moveTo(16, S - 16); g.lineTo(S - 16, 16); g.stroke();
+  gh.strokeStyle = gray(196); gh.lineWidth = 18;
+  g.beginPath(); gh.moveTo(16, S - 16); gh.lineTo(S - 16, 16); gh.stroke();
+  g.fillStyle = '#2c2f36';
+  for (let i = 0; i < planks; i++) {
+    for (const nx of [12, S - 12]) {
+      g.beginPath(); g.arc(nx, i * ph + ph * 0.5, 2.6, 0, Math.PI * 2); g.fill();
+    }
+  }
+  const hd = gh.getImageData(0, 0, S, S).data, hf = new Float32Array(S * S);
+  for (let i = 0; i < S * S; i++) hf[i] = hd[i * 4] / 255;
+  return {
+    map: toTexture(c, { repeat: false }),
+    normalMap: toTexture(normalCanvas(hf, S, S, 2.8), { repeat: false, srgb: false }),
+    orm: toTexture(oc, { repeat: false, srgb: false }),
+  };
+}
+
+/** Corrugated shipping container PBR set (256x256) with vertical ribs, rust streaks & chipped paint. */
+export function containerTextures() {
+  const S = 256, rng = new RNG(914);
+  const c = makeCanvas(S, S), g = c.getContext('2d');
+  const hc = makeCanvas(S, S), gh = hc.getContext('2d');
+  const oc = makeCanvas(S, S), go = oc.getContext('2d');
+  g.fillStyle = '#c8ccd2'; g.fillRect(0, 0, S, S);
+  gh.fillStyle = gray(128); gh.fillRect(0, 0, S, S);
+  go.fillStyle = rgbRM(0.56, 0.35); go.fillRect(0, 0, S, S);
+  const ribs = 14, rw = S / ribs;
+  for (let i = 0; i < ribs; i++) {
+    const x0 = i * rw;
+    const gr = g.createLinearGradient(x0, 0, x0 + rw, 0);
+    gr.addColorStop(0, '#90959c'); gr.addColorStop(0.28, '#e2e5ea');
+    gr.addColorStop(0.68, '#d4d8de'); gr.addColorStop(1, '#7c8188');
+    g.fillStyle = gr; g.fillRect(x0, 12, rw, S - 24);
+    const hr = gh.createLinearGradient(x0, 0, x0 + rw, 0);
+    hr.addColorStop(0, gray(70)); hr.addColorStop(0.3, gray(212));
+    hr.addColorStop(0.7, gray(196)); hr.addColorStop(1, gray(64));
+    gh.fillStyle = hr; gh.fillRect(x0, 12, rw, S - 24);
+  }
+  // Top & bottom structural header rails
+  g.fillStyle = '#757b84'; g.fillRect(0, 0, S, 13); g.fillRect(0, S - 14, S, 14);
+  gh.fillStyle = gray(232); gh.fillRect(0, 0, S, 13); gh.fillRect(0, S - 14, S, 14);
+  // Subtle rust drips & chipped bare steel scuffs near bottom sill
+  for (let i = 0; i < 36; i++) {
+    const rx = rng.next() * S, ry = 10 + rng.next() * 40, len = 18 + rng.next() * 68;
+    const dg = g.createLinearGradient(0, ry, 0, ry + len);
+    dg.addColorStop(0, 'rgba(116,58,28,0.42)'); dg.addColorStop(1, 'rgba(116,58,28,0)');
+    g.fillStyle = dg; g.fillRect(rx, ry, 1.5 + rng.next() * 3, len);
+  }
+  for (let i = 0; i < 42; i++) {
+    g.fillStyle = rng.chance(0.5) ? 'rgba(92,48,26,0.38)' : 'rgba(165,172,180,0.35)';
+    g.fillRect(rng.next() * S, S - 26 + rng.next() * 22, 4 + rng.next() * 14, 1.5 + rng.next() * 3);
+    go.fillStyle = rgbRM(0.76, 0.2); go.fillRect(rng.next() * S, S - 26 + rng.next() * 22, 6, 2);
+  }
+  // Subtle ISO data stencil block
+  g.fillStyle = 'rgba(240,242,245,0.52)';
+  g.fillRect(S - 54, 24, 34, 5); g.fillRect(S - 54, 33, 24, 4);
+  const hd = gh.getImageData(0, 0, S, S).data, hf = new Float32Array(S * S);
+  for (let i = 0; i < S * S; i++) hf[i] = hd[i * 4] / 255;
+  return {
+    map: toTexture(c, { repeat: false }),
+    normalMap: toTexture(normalCanvas(hf, S, S, 2.6), { repeat: false, srgb: false }),
+    orm: toTexture(oc, { repeat: false, srgb: false }),
+  };
+}

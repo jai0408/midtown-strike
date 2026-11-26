@@ -254,10 +254,10 @@ const compositeFragment = `
 
     float grainMask = mix(0.55 + 0.90 * abs(g1), 1.0, puddle);
     float baseLum = dot(base.rgb, vec3(0.299, 0.587, 0.114));
-    float paintMask = 1.0 - smoothstep(0.24, 0.68, baseLum) * 0.45;
+    float paintMask = 1.0 - smoothstep(0.18, 0.50, baseLum) * 0.90;
 
     float puddleAmt = puddle * mix(0.14, 0.88, fres) * mix(1.0, 0.62, isWalk);
-    float dampAmt = max(damp, wetBase) * (1.0 - puddle) * mix(0.025, 0.28, fres) * mix(1.0, 0.48, isWalk);
+    float dampAmt = max(damp, wetBase) * (1.0 - puddle) * mix(0.012, 0.16, fres) * mix(1.0, 0.48, isWalk);
     float k = clamp(strength * (puddleAmt + dampAmt) * flatMask * paintMask * grainMask, 0.0, 0.64);
 
     vec3 col = base.rgb * (1.0 - k * 0.22 * refl.a) + refl.rgb * k;

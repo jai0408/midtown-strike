@@ -24,6 +24,7 @@ export const SHOP_H = 4.6;
 // which vertex attributes each material family needs
 const LAYOUT = {
   walk: { uv: true }, flat: { rm: true }, veh: { uv: true, rm: true }, glow: { normal: false }, marks: { uv: true, color: false },
+  crate: { uv: true }, container: { uv: true },
   shop: { uv: true, color: false }, ads: { uv: true, normal: false, color: false },
   adsA: { uv: true, normal: false, color: false }, adsB: { uv: true, normal: false, color: false },
   ticker: { uv: true, normal: false, color: false }, signs: { uv: true, normal: false, color: false },
@@ -102,9 +103,19 @@ function makeMaterials() {
   M.veh = vehicleMaterial();
   M.glow = new THREE.MeshBasicMaterial({ vertexColors: true });
   M.marks = applyMarkingsWear(new THREE.MeshStandardMaterial({
-    map: T.markingsTexture(), transparent: true, depthWrite: false, roughness: 0.78, metalness: 0,
+    map: T.markingsTexture(), transparent: true, depthWrite: false, roughness: 0.94, metalness: 0, envMapIntensity: 0.06,
     polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
   }));
+  const cr = T.crateTextures();
+  M.crate = new THREE.MeshStandardMaterial({
+    map: cr.map, normalMap: cr.normalMap, normalScale: new THREE.Vector2(1.2, 1.2),
+    roughnessMap: cr.orm, metalnessMap: cr.orm, roughness: 1, metalness: 1, vertexColors: true,
+  });
+  const ct = T.containerTextures();
+  M.container = new THREE.MeshStandardMaterial({
+    map: ct.map, normalMap: ct.normalMap, normalScale: new THREE.Vector2(1.3, 1.3),
+    roughnessMap: ct.orm, metalnessMap: ct.orm, roughness: 1, metalness: 1, vertexColors: true,
+  });
   T.FACADES.forEach((def, i) => {
     const tex = T.facadeTextures(def, 100 + i * 17);
     M['facade' + i] = new THREE.MeshStandardMaterial({
@@ -426,6 +437,8 @@ export function buildCity({ onProgress } = {}) {
   applyCityLighting(M.walk, lightMap, { mode: 'walk', spillGain: 0.34, aoStrength: 1.0, key: 'walk' });
   applyCityLighting(M.marks, lightMap, { mode: 'marks', spillGain: 0.24, aoStrength: 0.85, key: 'marks' });
   applyCityLighting(M.flat, lightMap, { mode: 'flat', spillGain: 0.48, aoStrength: 0.85, baseAO: 0.32, key: 'flat' });
+  applyCityLighting(M.crate, lightMap, { mode: 'flat', spillGain: 0.44, aoStrength: 0.85, baseAO: 0.34, key: 'crate' });
+  applyCityLighting(M.container, lightMap, { mode: 'flat', spillGain: 0.44, aoStrength: 0.85, baseAO: 0.34, key: 'container' });
   for (let i = 0; i < T.FACADES.length; i++) {
     applyCityLighting(M['facade' + i], lightMap, { mode: 'flat', spillGain: 0.82, aoStrength: 0.75, baseAO: 0.38, key: 'fac' + i });
     applyFacadeParallax(M['facade' + i], T.FACADES[i], i);
@@ -446,8 +459,8 @@ export function buildCity({ onProgress } = {}) {
   for (const [key, b] of builders) {
     if (!b.ni) continue;
     const mesh = new THREE.Mesh(b.build(), M[b.mat]);
-    mesh.receiveShadow = b.mat === 'flat' || b.mat === 'walk' || b.mat === 'marks' || b.mat === 'foliage' || b.mat === 'bark' || b.mat === 'grass' || b.mat === 'soil' || b.mat.startsWith('facade');
-    mesh.castShadow = b.mat === 'flat' || b.mat.startsWith('facade');
+    mesh.receiveShadow = b.mat === 'flat' || b.mat === 'crate' || b.mat === 'container' || b.mat === 'walk' || b.mat === 'marks' || b.mat === 'foliage' || b.mat === 'bark' || b.mat === 'grass' || b.mat === 'soil' || b.mat.startsWith('facade');
+    mesh.castShadow = b.mat === 'flat' || b.mat === 'crate' || b.mat === 'container' || b.mat.startsWith('facade');
     if (b.mat === 'veh') { mesh.receiveShadow = true; mesh.castShadow = false; mesh.userData.shadowHigh = true; }
     if (b.mat === 'foliage' || b.mat === 'bark') mesh.userData.shadowHigh = true; // main.js shadowCasters(): High/Ultra only
     mesh.matrixAutoUpdate = false;
