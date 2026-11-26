@@ -82,9 +82,10 @@ const SAFE_ROOM_GLSL = `
   }
 `;
 
-// Shared uniform controlling interior-parallax cutoff distance per quality preset
-// (High/Ultra = 200 m, Medium = 85 m, Low = 0 m).
+// Shared uniforms controlling interior-parallax cutoff distances per quality preset
+// (High/Ultra = 190/160 m, Medium = 0/55 m so phones keep deep storefronts cheaply, Low = 0 m).
 export const FACADE_PARALLAX_DIST = { value: 190.0 };
+export const SHOP_PARALLAX_DIST = { value: 160.0 };
 
 /**
  * Patches a building facade MeshStandardMaterial with single-ray interior mapping,
@@ -155,9 +156,10 @@ export function applyFacadeParallax(mat, def, idx) {
               float litAmt = clamp(max(roomLit, extraLit), 0.0, 1.0);
               vec3 room = traceInteriorRoom(cellP, rayLocal, cellId, litAmt, uFacWarm, mix(0.85, 0.68, uFacRun));
 
-              // Fresnel exterior glass reflection blends over the 3D interior
-              float NdotV = clamp(dot(wn, -vDir), 0.0, 1.0);
-              float fres = 0.06 + 0.94 * pow(max(0.0, 1.0 - NdotV), 4.0);
+              // Fresnel exterior glass reflection blends over the 3D interior (pow-free)
+              float f1 = 1.0 - clamp(dot(wn, -vDir), 0.0, 1.0);
+              float f2 = f1 * f1;
+              float fres = 0.06 + 0.94 * f2 * f2;
               float trans = (1.0 - fres * 0.68) * isGlass * distFade;
               totalEmissiveRadiance = mix(totalEmissiveRadiance, room * 1.15, trans);
               diffuseColor.rgb = mix(diffuseColor.rgb, mix(room * 0.35, diffuseColor.rgb * 1.25, fres), isGlass * distFade * 0.7);
@@ -180,7 +182,7 @@ export function applyShopParallax(mat, lightMap, cols, rows) {
   mat.onBeforeCompile = (s, renderer) => {
     if (prevCompile) prevCompile(s, renderer);
     s.uniforms.uShopGrid = { value: new THREE.Vector2(cols, rows) };
-    s.uniforms.uPxMaxD = FACADE_PARALLAX_DIST;
+    s.uniforms.uPxMaxD = SHOP_PARALLAX_DIST;
     if (lightMap) {
       s.uniforms.uCityLight = { value: lightMap.texture };
       s.uniforms.uCityRect = { value: lightMap.rect };
@@ -223,8 +225,9 @@ export function applyShopParallax(mat, lightMap, cols, rows) {
               vec2 shopId = floor(vWp.xz * 0.14) + floor(gUv) * 7.0;
               vec3 rayLocal = vec3(dot(vDir, tanU), vDir.y, dot(vDir, -wn));
               vec3 shopRoom = traceInteriorRoom(winP, rayLocal, shopId, 1.05, 0.72, 1.05);
-              float NdotV = clamp(dot(wn, -vDir), 0.0, 1.0);
-              float fres = 0.07 + 0.93 * pow(max(0.0, 1.0 - NdotV), 4.0);
+              float f1 = 1.0 - clamp(dot(wn, -vDir), 0.0, 1.0);
+              float f2 = f1 * f1;
+              float fres = 0.07 + 0.93 * f2 * f2;
               vec3 neonRefl = vec3(0.16, 0.22, 0.34);
               ${lightMap ? `{
                 vec2 clUv = (vWp.xz - uCityRect.xy) * uCityRect.zw;

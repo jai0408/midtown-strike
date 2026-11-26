@@ -213,13 +213,18 @@ uniform float uAmp;
 uniform float uFlutter;
 uniform vec3 uCam;
 uniform vec3 uFocus;
+uniform vec3 uSunDir;
 uniform float uFadeR;
 varying float vGT;
+varying float vCrown;
+varying vec3 vSunV;
 `;
 
 /** Shrinks grass into the ground towards the edge of the field, adds traveling wind waves, and player trampling physics. */
 const FADE = `
 vGT = 0.5;
+vCrown = clamp(aSway, 0.0, 1.0);
+vSunV = normalize((viewMatrix * vec4(uSunDir, 0.0)).xyz);
 if (uFadeR > 0.0) {
   #ifdef USE_INSTANCING
   vec3 gw = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;
@@ -321,20 +326,38 @@ function windMaterial(p) {
       .replace('#include <common>', '#include <common>\n' + VERT_PARS)
       .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + FADE + SWAY);
     if (p.twoSidedLight) {
-      // leaves are lit like thin shells: no normal flip on the back face (normals are bent already)
-      // plus subsurface light scattering / canopy translucency when backlit by the sun
+      // Leaves are lit like thin translucent shells: no normal flip on back faces,
+      // internal crown AO depth gradient, wrap-diffuse warm sun transmission, and
+      // directional sunlit subsurface scattering on outer crown tips.
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\nuniform vec3 uSunDir;')
+        .replace('#include <common>', '#include <common>\nvarying float vCrown;\nvarying vec3 vSunV;')
+        .replace('#include <map_fragment>', `#include <map_fragment>
+          {
+            // Sculptural canopy depth: cooler/deeper inner foliage, warmer sunlit outer tips
+            float tip = smoothstep(0.08, 0.88, vCrown);
+            diffuseColor.rgb *= mix(vec3(0.74, 0.80, 0.82), vec3(1.10, 1.12, 0.96), tip);
+          }`)
         .replace('#include <normal_fragment_begin>',
           THREE.ShaderChunk.normal_fragment_begin.replace('float faceDirection = gl_FrontFacing ? 1.0 : - 1.0;', 'float faceDirection = 1.0;'))
         .replace('#include <opaque_fragment>', `
           {
             vec3 vDir = normalize(vViewPosition);
-            vec3 sunV = normalize((viewMatrix * vec4(uSunDir, 0.0)).xyz); // sun direction in view space
-            float backlight = clamp(dot(-vDir, sunV), 0.0, 1.0);
-            float sss = pow(backlight, 2.6) * 0.4;
-            vec3 sssCol = diffuseColor.rgb * vec3(1.15, 1.35, 0.75);
-            outgoingLight += sssCol * sss;
+            vec3 sunV = normalize(vSunV);
+            float nDotS = dot(normal, sunV);
+            // Wrap-diffuse transmission warms shadowed foliage undersides like light filtering through leaves
+            float wrapTrans = clamp((nDotS + 0.55) / 1.55, 0.0, 1.0) * (1.0 - max(nDotS, 0.0) * 0.45);
+            // View-dependent backlit subsurface scatter (wide canopy halo + crisp forward glow, pow-free)
+            float bl = clamp(dot(-vDir, sunV), 0.0, 1.0);
+            float bl2 = bl * bl;
+            float bl5 = bl2 * bl2 * bl;
+            float tipWeight = 0.35 + 0.65 * vCrown;
+            float sss = (bl2 * 0.42 + bl5 * 0.52) * tipWeight;
+            vec3 leafGlow = diffuseColor.rgb * vec3(1.22, 1.46, 0.54);
+            // Subtle waxy leaf sky sheen at grazing angles on outer tips
+            float f1 = 1.0 - clamp(dot(normal, vDir), 0.0, 1.0);
+            float f2 = f1 * f1;
+            float sheen = f2 * f2 * 0.08 * vCrown;
+            outgoingLight += leafGlow * (sss + wrapTrans * 0.24 * tipWeight) + vec3(0.75, 0.88, 1.0) * sheen * diffuseColor.rgb;
           }
           #include <opaque_fragment>`);
     }
@@ -342,7 +365,7 @@ function windMaterial(p) {
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', '#include <common>\nvarying float vGT;')
         .replace('#include <map_fragment>', '#include <map_fragment>\ndiffuseColor.rgb *= mix(vec3(0.8, 0.88, 0.7), vec3(1.2, 1.1, 0.8), vGT);')
-        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n{ float ndv = clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0); totalEmissiveRadiance += diffuseColor.rgb * pow(1.0 - ndv, 3.0) * 0.16; }');
+        .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n{ float ndv = clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0); totalEmissiveRadiance += diffuseColor.rgb * pow(max(0.0, 1.0 - ndv), 3.0) * 0.14; }');
     }
     if (p.selfLit > 0) {
       shader.fragmentShader = shader.fragmentShader
@@ -408,7 +431,7 @@ function modelFor(kind, x, z, tree) {
 /** Per-instance tint of the leaf / plant colour (the atlas supplies the real colour; this only varies it). */
 function tintFor(model, h1, h2, out) {
   const v = 0.88 + 0.22 * h1;
-  if (model.startsWith('birch')) { out.r = v * (1.0 + 0.08 * h2); out.g = v * 0.98; out.b = v * 0.94; }
+  if (model.startsWith('birch')) { const bv = v * 0.88; out.r = bv * (1.0 + 0.06 * h2); out.g = bv * 0.97; out.b = bv * 0.93; }
   else if (model.startsWith('maple')) { out.r = v * (1.0 + 0.1 * h2); out.g = v; out.b = v * 0.92; }
   else if (model.startsWith('pine')) { out.r = v * (0.94 + 0.06 * h2); out.g = v * 0.99; out.b = v * (1.0 + 0.06 * h2); }
   else if (model.startsWith('spruce')) { out.r = v * 0.96; out.g = v; out.b = v * (1.0 + 0.06 * h2); }

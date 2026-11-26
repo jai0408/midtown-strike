@@ -28,21 +28,21 @@ export const ATMOSPHERES = {
     sunDir: [-0.82, 0.44, 0.36], sunColor: 0xffdcb0, sunIntensity: 3.4,
     hemi: { sky: 0xa9c4ee, ground: 0x4a443e, intensity: 0.9 },
     fog: { color: 0x56606e, near: 90, far: null },
-    exposure: 1.0, envIntensity: 0.9, envFloor: 0x25262a, shadowR: 55, shadowRadius: 2, shadowNormalBias: 0.05,
+    exposure: 1.0, envIntensity: 0.9, envFloor: 0x25262a, shadowR: 55, shadowRadius: 2.5, shadowNormalBias: 0.05, shadowIntensity: 0.86,
     grade: { sat: 0.95, curve: 0.08, warm: 1.0 },
     bloom: { strength: 0.34, threshold: 0.90, medStrength: 0.48, medThreshold: 0.64 },
     reflect: { strength: 0.9, wetBase: 0.24 },   // rain-damp streets mirror the neon
   },
-  // clear sunny afternoon, CoD-Mobile-daytime style: saturated blue zenith, light blue horizon,
-  // soft clouds, strong warm sun, rich environment reflections, light blue haze from ~120 m
+  // clear sunny afternoon at Cedar Lodge: warm golden sun, airy neutral-sky fill &
+  // warm earth bounce so shadows stay luminous and soft instead of harsh blue-black.
   lodge: {
-    sky: { top: 0x0d47b8, mid: 0x3f8fe6, horizon: 0x9ccbf0, haze: 0x86aed8, sunCol: 0xfff0d0, gain: 1.15, stars: 0, clouds: 0.55 },
-    sunDir: [-0.5003, 0.7204, 0.4803], sunColor: 0xffedcc, sunIntensity: 4.6,
-    hemi: { sky: 0x80abf2, ground: 0x464c36, intensity: 0.72 },
-    fog: { color: 0x7ea8dc, near: 150, far: 2600, uncapped: true },
-    exposure: 1.02, envIntensity: 1.12, envFloor: 0x3e4a30, shadowR: 44, shadowRadius: 1.2, shadowNormalBias: 0.03,
-    grade: { sat: 1.08, curve: 0.35, warm: 1.0 },
-    bloom: { strength: 0.26, threshold: 1.05, medStrength: 0.22, medThreshold: 1.08 },
+    sky: { top: 0x1452b8, mid: 0x569de6, horizon: 0xb6d6f0, haze: 0x9abbe0, sunCol: 0xfff2d4, gain: 1.12, stars: 0, clouds: 0.55 },
+    sunDir: [-0.5003, 0.7204, 0.4803], sunColor: 0xfff0d4, sunIntensity: 3.75,
+    hemi: { sky: 0xc8daf0, ground: 0x7a7058, intensity: 1.18 },
+    fog: { color: 0x90b4dc, near: 145, far: 2500, uncapped: true },
+    exposure: 1.02, envIntensity: 0.90, envFloor: 0x5c5e4a, shadowR: 44, shadowRadius: 2.8, shadowNormalBias: 0.04, shadowIntensity: 0.78,
+    grade: { sat: 1.04, curve: 0.22, warm: 1.0 },
+    bloom: { strength: 0.24, threshold: 1.06, medStrength: 0.22, medThreshold: 1.08 },
     reflect: { strength: 0, wetBase: 0 },        // dry gravel and grass: no street reflections
   },
 };
@@ -159,7 +159,7 @@ export function createScene(canvas, qualityName = 'medium') {
   sun.position.copy(sunDir).multiplyScalar(100);
   scene.add(sun);
   scene.add(sun.target);
-  let SHADOW_R = ATMOSPHERES.midtown.shadowR, shadowRadius = 2, shadowNormalBias = 0.05;
+  let SHADOW_R = ATMOSPHERES.midtown.shadowR, shadowRadius = 2.5, shadowNormalBias = 0.05, shadowIntensity = 0.86;
   let fogFar = null;   // the preset's own fog distance (null: follow the draw distance)
   let fogUncapped = false;
   const fogFarNow = () => (fogUncapped && fogFar ? fogFar : Math.min(fogFar || Infinity, q.far * 0.82));
@@ -174,7 +174,9 @@ export function createScene(canvas, qualityName = 'medium') {
     const c = sh.camera;
     c.left = -SHADOW_R; c.right = SHADOW_R; c.top = SHADOW_R; c.bottom = -SHADOW_R; c.near = 1; c.far = 700;
     c.updateProjectionMatrix();
-    sh.bias = -0.0004; sh.normalBias = shadowNormalBias; sh.radius = shadowRadius;
+    sh.bias = -0.0004; sh.normalBias = shadowNormalBias;
+    sh.radius = q.shadow >= 2048 ? shadowRadius : shadowRadius * 0.65;
+    sh.intensity = shadowIntensity;
   }
   setupShadow();
 
@@ -205,6 +207,7 @@ export function createScene(canvas, qualityName = 'medium') {
     envFloor.material.color.set(A.envFloor);
     scene.environmentIntensity = A.envIntensity;
     SHADOW_R = A.shadowR; shadowRadius = A.shadowRadius; shadowNormalBias = A.shadowNormalBias;
+    shadowIntensity = A.shadowIntensity !== undefined ? A.shadowIntensity : 0.85;
     pendingGrade = A.grade;
     pendingBloom = A.bloom || { strength: 0.32, threshold: 1.0, medStrength: 0.36, medThreshold: 0.85 };
     reflectLook = A.reflect;

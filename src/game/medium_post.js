@@ -147,9 +147,8 @@ export class MediumPostPipeline {
     const prevTM = renderer.toneMapping;
     renderer.toneMapping = THREE.NoToneMapping;
 
-    // 1. Render HDR scene into offscreen RT (no MSAA)
+    // 1. Render HDR scene into offscreen RT (no MSAA; autoClear handles clearing)
     renderer.setRenderTarget(this.sceneRT);
-    renderer.clear();
     renderer.render(scene, camera);
 
     // 2. Quarter-res bright/neon extract
