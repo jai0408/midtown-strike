@@ -565,7 +565,15 @@ def terrain_h(X, Z):
     dz = np.maximum(np.abs(Z) - 66, 0)
     d = np.hypot(dx, dz)
     rise = (0.0035 * d * d + 0.13 * d) * (0.75 + 0.7 * fbm(X * 0.03 + 9, Z * 0.03 + 4, 3, 203)) + 1.2 * smooth(0, 40, d) * (fbm(X * 0.07, Z * 0.07, 4, 204) - 0.5)
-    land = base + rise
+    # Break smooth outer hills (>88m) into craggy ridges & rocky spurs without changing any playable terrain heights
+    d_out88 = np.hypot(np.maximum(np.abs(X) - 88.0, 0.0), np.maximum(np.abs(Z) - 88.0, 0.0))
+    outer_m = smooth(2.0, 26.0, d_out88)
+    r_crag = 1.0 - np.abs(vnoise(X * 0.042 + 11.3, Z * 0.042 - 7.1, 209) * 2.0 - 1.0)
+    crag_bump = outer_m * (
+        10.5 * (fbm(X * 0.022 + 17.0, Z * 0.022 - 11.0, 3, 211) - 0.48)
+        + 7.5 * (r_crag * r_crag - 0.35)
+    )
+    land = base + rise + crag_bump
     lake = np.interp(Z, LAKE_Z, LAKE_H)
     lm = smooth(-36, -46, Z) * (1 - smooth(58, 92, np.abs(X)))
     h = land * (1 - lm) + lake * lm
@@ -1259,14 +1267,61 @@ def stairs_box(x0, z0, x1, z1, rise_total, n, axis="x", dirn=1, mat="planks", ti
 def crate(x, z, s=0.9, rot=0.0, tint="#b99466", stack=1, cover=True):
     y = float(gh(x, z))
     push(roty(rot), (x, y, z))
+    skid_t = "#6b4f33"
+    core_t = "#2a1e13"
+    frame_t = "#6e5236"
+    pl_tints = ("#b89364", "#a68256", "#96734b", "#ae895c")
     for k in range(stack):
         yy = k * s
         h = s / 2
-        box("planks", -h, yy, -h, h, yy + s, h, tint, 0.9, dirt=(k == 0))
+        y_bot = yy + (0.05 if k == 0 else 0.0)
+        if k == 0:
+            # Two heavy pallet skids lifting crate slightly for real bottom shadow slot
+            for sz in (-h + 0.11, h - 0.11):
+                box("planks", -h * 0.96, yy, sz - 0.055, h * 0.96, y_bot, sz + 0.055, skid_t, 0.7, dirt=True,
+                    skip=("-x", "+x"))
+                for ex in (-1, 1):
+                    x_e = ex * h * 0.96
+                    box("endgrain", x_e - (0.015 if ex > 0 else 0), yy, sz - 0.055,
+                        x_e + (0.015 if ex < 0 else 0), y_bot, sz + 0.055, "#785a3a", 0.25, dirt=False)
+        # Recessed dark inner cavity core so 14mm gaps between planks show real depth
+        in_ = h - 0.045
+        box("planks", -in_, y_bot + 0.02, -in_, in_, yy + s - 0.02, in_, core_t, 0.6, dirt=False)
+        # 4 horizontal wood planks per wall + 4 top lid planks with 14mm physical gaps
+        npl = 4
+        gap = 0.014
+        wall_h = (yy + s - 0.04) - (y_bot + 0.04)
+        ph = (wall_h - gap * (npl - 1)) / npl
+        bt = 0.022
+        for pi in range(npl):
+            py0 = y_bot + 0.04 + pi * (ph + gap)
+            py1 = py0 + ph
+            pt = pl_tints[(pi + k) % len(pl_tints)]
+            box("planks", -h, py0, -h, h, py1, -in_ + bt, pt, 0.9, dirt=(k == 0 and pi == 0))
+            box("planks", -h, py0, in_ - bt, h, py1, h, pt, 0.9, dirt=(k == 0 and pi == 0))
+            box("planks", -h, py0, -in_, -in_ + bt, py1, in_, pt, 0.9, dirt=False)
+            box("planks", in_ - bt, py0, -in_, h, py1, in_, pt, 0.9, dirt=False)
+        # Top lid separate slats
+        lid_w = (2 * in_ - gap * (npl - 1)) / npl
+        for pi in range(npl):
+            lz0 = -in_ + pi * (lid_w + gap)
+            box("planks", -in_, yy + s - 0.036, lz0, in_, yy + s - 0.008, lz0 + lid_w, pl_tints[(pi + 2) % len(pl_tints)], 0.9, dirt=False)
+        # Proud outer beveled frame rails (top & bottom + mid collar) & chamfered corner posts with dark end-grain tops
+        o = 0.016
+        box("planks", -h - o, y_bot, -h - o, h + o, y_bot + 0.068, h + o, frame_t, 0.6, dirt=(k == 0))
+        box("planks", -h - o, yy + s - 0.068, -h - o, h + o, yy + s, h + o, frame_t, 0.6, dirt=False, skip=("+y",))
+        box("endgrain", -h - o, yy + s - 0.005, -h - o, h + o, yy + s + 0.002, h + o, "#594129", 0.35, dirt=False)
+        p = 0.044
         for sx in (-1, 1):
             for sz in (-1, 1):
-                box("planks", sx * h - 0.04 * 1, yy, sz * h - 0.04, sx * h + 0.04, yy + s, sz * h + 0.04, "#6e5236", 0.5, dirt=False)
-        box("planks", -h - 0.01, yy + s * 0.46, -h - 0.01, h + 0.01, yy + s * 0.54, h + 0.01, "#6e5236", 0.5, dirt=False)
+                cx, cz = sx * (h - 0.022), sz * (h - 0.022)
+                box("planks", cx - p, y_bot, cz - p, cx + p, yy + s - 0.004, cz + p, frame_t, 0.5, dirt=False, skip=("+y",))
+                box("endgrain", cx - p, yy + s - 0.004, cz - p, cx + p, yy + s + 0.004, cz + p, "#4d3822", 0.25, dirt=False)
+                # Metal corner reinforcement straps
+                box("metal", cx - p - 0.006, yy + s - 0.072, cz - p - 0.006, cx + p + 0.006, yy + s + 0.005, cz + p + 0.006, "#2c3138", 0.4, dirt=False)
+        # Physical 3D diagonal cross-braces on Z faces
+        for sz in (-h - 0.006, h + 0.006):
+            beam((-h + 0.07, y_bot + 0.068, sz), (h - 0.07, yy + s - 0.068, sz), 0.028, "planks", "#7b5c3c", 0.014)
     pop()
     if cover:
         col_rot(x, z, s / 2, s / 2, rot, y, y + s * stack, F_DEFAULT, S_WOOD)
@@ -2487,13 +2542,14 @@ def terrain_region(x0, x1, z0, z1, step, hole=None, splat=True, adapt=False):
         slope = 1 - N[:, 1]
         h = P[:, 1]
         n = vnoise(P[:, 0] * 0.05, P[:, 2] * 0.05, 5)
-        base = np.array(hexl("#8a9a68"))
-        rockc = np.array(hexl("#9a948a"))
-        dark = np.array(hexl("#52603c"))
-        wet = np.array(hexl("#5a4a38"))
-        col_ = base * (0.7 + 0.5 * n)[:, None]
-        col_ = col_ * (1 - smooth(8, 40, h))[:, None] + dark * smooth(8, 40, h)[:, None] * (0.8 + 0.4 * n)[:, None]
-        col_ = col_ * (1 - smooth(0.15, 0.45, slope))[:, None] + rockc * smooth(0.15, 0.45, slope)[:, None]
+        base = np.array(hexl("#2c3b22"))
+        rockc = np.array(hexl("#6e7072"))
+        dark = np.array(hexl("#1b2918"))
+        wet = np.array(hexl("#3d3326"))
+        col_ = base * (0.72 + 0.46 * n)[:, None]
+        col_ = col_ * (1 - smooth(6, 36, h))[:, None] + dark * smooth(6, 36, h)[:, None] * (0.75 + 0.45 * n)[:, None]
+        rmask = smooth(0.08, 0.28, slope + 0.08 * (n - 0.5))
+        col_ = col_ * (1 - rmask)[:, None] + rockc * rmask[:, None] * (0.85 + 0.3 * n)[:, None]
         col_ = np.where((h < -0.3)[:, None], wet * 0.8, col_)
         emit("ground", P, N, np.stack([P[:, 0] / 8, P[:, 2] / 8], 1), I2, colors=np.clip(col_, 0, 1))
     return xs, zs, H
@@ -2930,11 +2986,10 @@ def place_foliage(slopes=None):
         if abs(x) < 20 and abs(z) < 22:
             continue
         add_bush(x, z, ["bush", "fern", "bush"][rs.randint(3)])
-    # 4) far forest on the slopes outside the playable area (where the old cone silhouette
-    # stood): real pines and spruce, which the engine draws as 8-triangle impostors at range
+    # 4) far forest on the slopes outside the playable area (8-triangle impostors)
     rf = np.random.RandomState(77)
     far = 0
-    for _ in range(6000):
+    for _ in range(7000):
         x, z = rf.uniform(-158, 158, 2)
         if max(abs(x) - 70, abs(z) - 80) < 0 or (z < -50 and abs(x) < 80):
             continue
@@ -2942,9 +2997,23 @@ def place_foliage(slopes=None):
         if h < -0.5:
             continue
         kind = "pine" if rf.rand() < 0.55 else "spruce"
-        trees.append([round(x, 2), round(h, 2), round(z, 2), round(rf.uniform(1.0, 1.6), 2), round(rf.uniform(0, 6.283), 2), kind])
+        trees.append([round(x, 2), round(h, 2), round(z, 2), round(rf.uniform(1.0, 1.65), 2), round(rf.uniform(0, 6.283), 2), kind])
         far += 1
-        if far >= 320:
+        if far >= 360:
+            break
+    # Dedicated conifer clusters crowning the visible NE/E/NW outer foothills behind yard/lodge
+    far_slope = 0
+    for _ in range(3000):
+        side = -1 if rf.rand() < 0.38 else 1
+        x = side * rf.uniform(62, 146)
+        z = rf.uniform(-135, 25)
+        h = float(gh(x, z))
+        if h < 1.5:
+            continue
+        kind = "pine" if rf.rand() < 0.58 else "spruce"
+        trees.append([round(x, 2), round(h, 2), round(z, 2), round(rf.uniform(1.05, 1.65), 2), round(rf.uniform(0, 6.283), 2), kind])
+        far_slope += 1
+        if far_slope >= 120:
             break
     return trees, bushes
 
@@ -4768,15 +4837,25 @@ def main():
         if abs(x + 20) < 3 or 13 < x < 23:
             continue
         boulder(x, z, rs.uniform(0.25, 0.7), 400 + i, collide=False, sink=0.35)
+    # Visible granite rock outcrops along outer NE/E/NW foothills so hillsides never look smooth
+    for i in range(24):
+        side = -1 if rs.rand() < 0.35 else 1
+        x = side * rs.uniform(74, 132)
+        z = rs.uniform(-115, 10)
+        y = float(gh(x, z))
+        if y < 2.0:
+            continue
+        rx, ry, rz = rs.uniform(2.8, 5.5), rs.uniform(1.8, 4.0), rs.uniform(2.4, 5.0)
+        rock("rock", x, y + ry * 0.28, z, rx, ry, rz, 600 + i, 4, 7, "#858688", 0.34, rs.uniform(0, 6), 1.4)
     # --- terrain
     ix0, ix1, iz0, iz1 = TERR_INNER
     terrain_region(ix0, ix1, iz0, iz1, 1.0, None, True, True)
     terrain_region(-88, 88, -88, 88, 2.0, (ix0, ix1, iz0, iz1), True)
     terrain_skirt(ix0, ix1, iz0, iz1, 1.0)
     terrain_skirt(ix0, ix1, iz0, iz1, 2.0)
-    terrain_region(-160, 160, -160, 160, 8.0, (-88, 88, -88, 88), False)
+    terrain_region(-160, 160, -160, 160, 4.0, (-88, 88, -88, 88), False)
     terrain_skirt(-88, 88, -88, 88, 2.0)
-    terrain_skirt(-88, 88, -88, 88, 8.0, mat="ground")
+    terrain_skirt(-88, 88, -88, 88, 4.0, mat="ground")
     G["terrain"].nocolor = True
     log("terrain meshes")
     build_backdrop()

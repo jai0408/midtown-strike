@@ -258,27 +258,64 @@ export function crate(ctx, x, z, size = 1.2, stack = 1, kind = 'wood') {
   const F = ctx.B('flat', x, z);
   const h = size / 2;
   const col = kind === 'wood' ? C('#b59a72') : C('#6a7652');
-  const frame = mulC(col, 0.72), dark = mulC(col, 0.56), metal = C('#2e333c');
+  const frame = mulC(col, 0.70), endG = mulC(col, 0.44), dark = mulC(col, 0.56);
+  const coreC = C('#1a130c'), metal = C('#2a2f38');
   rm(F, R_WOOD);
   for (let i = 0; i < stack; i++) {
     const o = i * 0.07;
     const x0 = x - h + o, x1 = x + h - o, z0 = z - h + o, z1 = z + h - o;
-    const y0 = y + i * size, y1 = y + (i + 1) * size, bt = 0.028;
-    // Recessed textured plank core (with bevel shadow under frame rails)
-    W.box(x0 + 0.02, y0 + 0.02, z0 + 0.02, x1 - 0.02, y1 - 0.02, z1 - 0.02, col, 31, mulC(col, 1.12));
-    // Proud outer beveled structural frame rails + corner posts + horizontal/top battens
-    F.box(x0 - bt, y0, z0 - bt, x1 + bt, y0 + 0.09, z1 + bt, frame, 15, mulC(col, 0.92));
-    F.box(x0 - bt, y1 - 0.09, z0 - bt, x1 + bt, y1, z1 + bt, frame, 31, mulC(col, 1.05));
-    F.box(x0 - bt, y0 + size * 0.44, z0 - bt, x1 + bt, y0 + size * 0.54, z1 + bt, dark, 15);
-    const p = 0.075;
+    const y0 = y + i * size, y1 = y + (i + 1) * size, w = x1 - x0;
+    const yb = i === 0 ? y0 + 0.055 : y0;
+    if (i === 0) {
+      // Bottom pallet skids for real shadow slot under crate base
+      for (const sz of [z0 + 0.14, z1 - 0.14]) {
+        F.box(x0 + 0.02, y0, sz - 0.06, x1 - 0.02, yb, sz + 0.06, endG, 15, frame);
+      }
+    }
+    // Recessed dark inner cavity core visible behind plank gaps
+    const ci = 0.045;
+    F.box(x0 + ci, yb + 0.02, z0 + ci, x1 - ci, y1 - 0.02, z1 - ci, coreC, 31);
+    // 5 separate horizontal plank slats per side with 13 mm physical gaps
+    const nSide = 5, gap = 0.013, bnd = 0.052;
+    const spanY = (y1 - bnd) - (yb + bnd), ph = (spanY - gap * (nSide - 1)) / nSide, pt = 0.026;
+    for (let s = 0; s < nSide; s++) {
+      const py0 = yb + bnd + s * (ph + gap), py1 = py0 + ph;
+      const pc = mulC(col, 0.92 + 0.14 * ((s + i) % 3) * 0.5);
+      W.box(x0 + 0.018, py0, z0, x1 - 0.018, py1, z0 + pt, pc, 8);
+      W.box(x0 + 0.018, py0, z1 - pt, x1 - 0.018, py1, z1, pc, 4);
+      W.box(x0, py0, z0 + 0.018, x0 + pt, py1, z1 - 0.018, pc, 2);
+      W.box(x1 - pt, py0, z0 + 0.018, x1, py1, z1 - 0.018, pc, 1);
+    }
+    // 4 separate top lid planks with gaps
+    const nTop = 4, tSpan = (z1 - z0 - 0.08), tph = (tSpan - gap * (nTop - 1)) / nTop;
+    for (let s = 0; s < nTop; s++) {
+      const pz0 = z0 + 0.04 + s * (tph + gap);
+      W.box(x0 + 0.03, y1 - 0.042, pz0, x1 - 0.03, y1 - 0.008, pz0 + tph, mulC(col, 1.06), 16);
+    }
+    // Proud beveled outer frame rails + horizontal mid-collar
+    const bt = 0.026;
+    F.box(x0 - bt, yb, z0 - bt, x1 + bt, yb + 0.072, z1 + bt, frame, 15, endG);
+    F.box(x0 - bt, y1 - 0.072, z0 - bt, x1 + bt, y1, z1 + bt, frame, 15, endG);
+    F.box(x0 - bt, yb + (y1 - yb) * 0.45, z0 - bt, x1 + bt, yb + (y1 - yb) * 0.53, z1 + bt, dark, 15);
+    // Physical 3D diagonal brace bars on front & back faces
+    for (let s = 0; s < 5; s++) {
+      const f0 = s / 5, f1 = (s + 1) / 5;
+      const dx0 = x0 + 0.08 + f0 * (w - 0.16), dx1 = x0 + 0.08 + f1 * (w - 0.16);
+      const dy0 = yb + 0.07 + f0 * (y1 - yb - 0.14), dy1 = yb + 0.07 + f1 * (y1 - yb - 0.14);
+      F.box(dx0 - 0.01, dy0, z0 - 0.022, dx1 + 0.01, Math.max(dy0 + 0.045, dy1), z0 + 0.002, dark, 8 | 16);
+      F.box(dx0 - 0.01, dy0, z1 - 0.002, dx1 + 0.01, Math.max(dy0 + 0.045, dy1), z1 + 0.022, dark, 4 | 16);
+    }
+    // Stepped chamfered corner posts with dark end-grain caps + cast metal corner brackets
+    const p = 0.068;
     for (const [sx, sz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-      const cx = (sx < 0 ? x0 : x1) - sx * 0.015, cz = (sz < 0 ? z0 : z1) - sz * 0.015;
-      F.box(cx - p, y0, cz - p, cx + p, y1, cz + p, frame, 31, mulC(frame, 1.16));
+      const cx = (sx < 0 ? x0 : x1) - sx * 0.012, cz = (sz < 0 ? z0 : z1) - sz * 0.012;
+      F.box(cx - p, yb, cz - p, cx + p, y1 - 0.008, cz + p, frame, 15, mulC(frame, 1.12));
+      F.box(cx - p * 0.88, y1 - 0.008, cz - p * 0.88, cx + p * 0.88, y1 + 0.004, cz + p * 0.88, endG, 31);
       rm(F, R_CAST);
-      F.box(cx - p - 0.008, y1 - 0.095, cz - p - 0.008, cx + p + 0.008, y1 + 0.006, cz + p + 0.008, metal, 31);
+      F.box(cx - p - 0.008, y1 - 0.082, cz - p - 0.008, cx + p + 0.008, y1 + 0.006, cz + p + 0.008, metal, 15);
       rm(F, R_WOOD);
     }
-    if (kind !== 'wood') F.box(x - h * 0.52, y0 + size * 0.36, z1 + 0.024, x + h * 0.52, y0 + size * 0.62, z1 + 0.032, C('#c7be82'), 4);
+    if (kind !== 'wood') F.box(x - h * 0.48, yb + (y1 - yb) * 0.36, z1 + 0.026, x + h * 0.48, yb + (y1 - yb) * 0.60, z1 + 0.034, C('#c7be82'), 4);
   }
   rm(F, R_DEF);
   ctx.world.addBox(x - h, y, z - h, x + h, y + size * stack, z + h, F_DEFAULT, kind === 'wood' ? S_WOOD : S_METAL);

@@ -9,7 +9,7 @@ import { smoothPaint } from '../world/paint.js';
 import { scatterPlants } from './lodge_scatter.js';
 import { buildGridNav } from '../world/gridnav.js';
 import { applyTerrainSplat, testTerrainLayers } from '../world/terrain.js';
-import { applyMountainShader } from '../world/mountain.js';
+import { applyMountainShader, applyOuterGroundShader } from '../world/mountain.js';
 import { World } from '../core/physics.js';
 import { getMaxAnisotropy, makeCanvas } from '../world/textures.js';
 import { createKoiPond } from '../world/pond.js';
@@ -178,6 +178,12 @@ export async function buildLodge(onProgress = () => {}) {
     const mm = [];
     scene.traverse((o) => { if (o.isMesh && o.material && o.material.name === 'mountain') mm.push(o.material); });
     for (const m of new Set(mm)) await applyMountainShader(m, layers.layers[3].albedo, D.sun && D.sun.dir);
+  }
+  // outer terrain ring (88..160 m): break up olive hillside with granite outcrops & dark conifer mottling
+  {
+    const gm = [];
+    scene.traverse((o) => { if (o.isMesh && o.material && o.material.name === 'ground') gm.push(o.material); });
+    for (const m of new Set(gm)) applyOuterGroundShader(m);
   }
   // the baked terrain colour is oversaturated under the strong sun
   scene.traverse((o) => {

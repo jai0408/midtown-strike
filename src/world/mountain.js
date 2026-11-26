@@ -4,6 +4,38 @@
 import * as THREE from 'three';
 import { getMaxAnisotropy } from './textures.js';
 
+const MOUNTAIN_NOISE_GLSL = `
+        float mHash(vec2 p) {
+          vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+          p3 += dot(p3, p3.yzx + 33.33);
+          return fract((p3.x + p3.y) * p3.z);
+        }
+        float mNoise(vec2 p) {
+          vec2 i = floor(p), f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          return mix(
+            mix(mHash(i), mHash(i + vec2(1.0, 0.0)), f.x),
+            mix(mHash(i + vec2(0.0, 1.0)), mHash(i + vec2(1.0, 1.0)), f.x),
+            f.y
+          );
+        }
+        float mFbm(vec2 p) {
+          float s = mNoise(p) * 0.54;
+          p = mat2(0.8, -0.6, 0.6, 0.8) * p * 2.07;
+          s += mNoise(p) * 0.30;
+          p = mat2(0.8, -0.6, 0.6, 0.8) * p * 2.03;
+          s += mNoise(p) * 0.16;
+          return s;
+        }
+        float mCliffHeight(vec3 p) {
+          float warp = mNoise(p.xz * 0.0085 + vec2(p.y * 0.004, 3.1));
+          float strata = sin(p.y * 0.105 + warp * 5.2 + p.x * 0.009) * 0.5 + 0.5;
+          float rib0 = 1.0 - abs(mNoise(p.xz * 0.016 + vec2(p.y * 0.003, -p.y * 0.003)) * 2.0 - 1.0);
+          float rib1 = 1.0 - abs(mNoise(p.xz * 0.042 + vec2(-p.y * 0.009, p.y * 0.008)) * 2.0 - 1.0);
+          float rib2 = 1.0 - abs(mNoise(p.xz * 0.105 + vec2(p.y * 0.02, -p.y * 0.015)) * 2.0 - 1.0);
+          return strata * 0.24 + rib0 * rib0 * 0.42 + rib1 * rib1 * 0.24 + rib2 * 0.10;
+        }`;
+
 export async function applyMountainShader(mat, rockImageB64, sunDir = [-0.5003, 0.7204, 0.4803]) {
   let rock = null;
   try {
@@ -45,40 +77,7 @@ export async function applyMountainShader(mat, rockImageB64, sunDir = [-0.5003, 
         varying vec3 vWN;
         uniform sampler2D uRock;
         uniform vec3 uSunDir;
-
-        float mHash(vec2 p) {
-          vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-          p3 += dot(p3, p3.yzx + 33.33);
-          return fract((p3.x + p3.y) * p3.z);
-        }
-        float mNoise(vec2 p) {
-          vec2 i = floor(p), f = fract(p);
-          f = f * f * (3.0 - 2.0 * f);
-          return mix(
-            mix(mHash(i), mHash(i + vec2(1.0, 0.0)), f.x),
-            mix(mHash(i + vec2(0.0, 1.0)), mHash(i + vec2(1.0, 1.0)), f.x),
-            f.y
-          );
-        }
-        float mFbm(vec2 p) {
-          float s = mNoise(p) * 0.54;
-          p = mat2(0.8, -0.6, 0.6, 0.8) * p * 2.07;
-          s += mNoise(p) * 0.30;
-          p = mat2(0.8, -0.6, 0.6, 0.8) * p * 2.03;
-          s += mNoise(p) * 0.16;
-          return s;
-        }
-        // Macro + medium geological cliff crags visible clearly from 350-650m distance
-        float mCliffHeight(vec3 p) {
-          float warp = mNoise(p.xz * 0.0085 + vec2(p.y * 0.004, 3.1));
-          // Broad diagonal sedimentary/metamorphic cliff strata
-          float strata = sin(p.y * 0.105 + warp * 5.2 + p.x * 0.009) * 0.5 + 0.5;
-          // Prominent vertical granite buttresses & glacially carved couloirs
-          float rib0 = 1.0 - abs(mNoise(p.xz * 0.016 + vec2(p.y * 0.003, -p.y * 0.003)) * 2.0 - 1.0);
-          float rib1 = 1.0 - abs(mNoise(p.xz * 0.042 + vec2(-p.y * 0.009, p.y * 0.008)) * 2.0 - 1.0);
-          float rib2 = 1.0 - abs(mNoise(p.xz * 0.105 + vec2(p.y * 0.02, -p.y * 0.015)) * 2.0 - 1.0);
-          return strata * 0.24 + rib0 * rib0 * 0.42 + rib1 * rib1 * 0.24 + rib2 * 0.10;
-        }`)
+        ${MOUNTAIN_NOISE_GLSL}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
         float mSnowMask = 0.0;
         vec3 mBumpGrad = vec3(0.0);
@@ -186,6 +185,60 @@ export async function applyMountainShader(mat, rockImageB64, sunDir = [-0.5003, 
         #include <fog_fragment>`);
   };
   mat.customProgramCacheKey = () => 'lodge-mountain-v4';
+  mat.needsUpdate = true;
+  return mat;
+}
+
+/** Procedural granite outcrops + dark conifer mottling for Lodge outer terrain hills (88..160 m). */
+export function applyOuterGroundShader(mat) {
+  mat.roughness = 0.94;
+  mat.metalness = 0.0;
+  mat.vertexColors = false;
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;\nvarying vec3 vWN;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+        vWN = normalize(mat3(modelMatrix) * normal);`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+        varying vec3 vWPos;\nvarying vec3 vWN;
+        ${MOUNTAIN_NOISE_GLSL}`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        vec3 ogBump = vec3(0.0);
+        {
+          vec3 n = normalize(vWN);
+          vec3 p = vWPos;
+          float hC = mCliffHeight(p * 1.45);
+          float eps = 3.2;
+          ogBump = vec3(mCliffHeight((p + vec3(eps, 0.0, 0.0)) * 1.45) - hC,
+                        mCliffHeight((p + vec3(0.0, eps, 0.0)) * 1.45) - hC,
+                        mCliffHeight((p + vec3(0.0, 0.0, eps)) * 1.45) - hC) / eps;
+          vec3 rockWN = normalize(n - ogBump * 7.5);
+          float nzL = mFbm(p.xz * 0.025 + vec2(1.7, -2.9));
+          float nzM = mFbm(p.xz * 0.085 + vec2(-3.2, 4.1));
+          float crown = smoothstep(0.26, 0.78, mNoise(p.xz * 0.34) * 0.48 + mNoise(p.xz * 0.92) * 0.36 + nzM * 0.16);
+          float slopeRock = 1.0 - smoothstep(0.66, 0.88, rockWN.y + (nzM - 0.5) * 0.16);
+          float cragBreak = smoothstep(0.56, 0.78, hC * 0.68 + nzL * 0.32);
+          float rockMask = clamp(max(slopeRock, cragBreak * 0.82) * smoothstep(-0.3, 1.8, p.y), 0.0, 1.0);
+          vec3 pineDark = vec3(0.010, 0.026, 0.015);
+          vec3 pineMid  = vec3(0.028, 0.056, 0.022);
+          vec3 duff     = vec3(0.048, 0.036, 0.022);
+          vec3 vegC = mix(pineDark, pineMid, crown) * (0.45 + 0.82 * crown);
+          vegC = mix(vegC, duff, (1.0 - crown) * 0.28);
+          vec3 rockC = mix(vec3(0.075, 0.082, 0.095), vec3(0.185, 0.175, 0.155), clamp(hC * 0.9 + nzM * 0.3, 0.0, 1.0));
+          diffuseColor.rgb = mix(vegC, rockC, rockMask);
+        }`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        roughnessFactor = 0.94;`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        {
+          vec3 wn = normalize(vWN);
+          vec3 pertW = normalize(wn - ogBump * 7.5);
+          normal = normalize(transformDirection(pertW, viewMatrix));
+        }`);
+  };
+  mat.customProgramCacheKey = () => 'lodge-outer-ground-v1';
   mat.needsUpdate = true;
   return mat;
 }

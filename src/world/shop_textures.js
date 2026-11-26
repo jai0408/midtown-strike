@@ -256,6 +256,11 @@ export function crateTextures() {
     const y0 = i * ph, tint = 0.88 + rng.next() * 0.24;
     g.fillStyle = `rgb(${Math.round(166 * tint)},${Math.round(134 * tint)},${Math.round(92 * tint)})`;
     g.fillRect(0, y0 + 2, S, ph - 4);
+    for (const [gx0, g0, g1] of [[0, 'rgba(42,26,12,0.42)', 'rgba(42,26,12,0)'], [S - 28, 'rgba(42,26,12,0)', 'rgba(42,26,12,0.42)']]) {
+      const eg = g.createLinearGradient(gx0, 0, gx0 + 28, 0);
+      eg.addColorStop(0, g0); eg.addColorStop(1, g1);
+      g.fillStyle = eg; g.fillRect(gx0, y0 + 2, 28, ph - 4);
+    }
     for (let k = 0; k < 28; k++) {
       g.fillStyle = rng.chance(0.5) ? 'rgba(65,42,20,0.16)' : 'rgba(225,195,148,0.12)';
       const gy = y0 + 4 + rng.next() * (ph - 8);
@@ -278,11 +283,17 @@ export function crateTextures() {
       g.beginPath(); g.arc(nx, i * ph + ph * 0.5, 2.6, 0, Math.PI * 2); g.fill();
     }
   }
+  g.fillStyle = 'rgba(232,226,204,0.46)';
+  g.font = '700 18px "Arial Narrow",sans-serif';
+  g.fillText('US-47 // 72 KG', 34, S * 0.34);
+  g.font = '700 14px monospace';
+  g.fillText('SUPPLY', 34, S * 0.72);
+  g.fillText('▲▲', S - 58, S * 0.36);
   const hd = gh.getImageData(0, 0, S, S).data, hf = new Float32Array(S * S);
   for (let i = 0; i < S * S; i++) hf[i] = hd[i * 4] / 255;
   return {
     map: toTexture(c, { repeat: false }),
-    normalMap: toTexture(normalCanvas(hf, S, S, 2.8), { repeat: false, srgb: false }),
+    normalMap: toTexture(normalCanvas(hf, S, S, 3.2), { repeat: false, srgb: false }),
     orm: toTexture(oc, { repeat: false, srgb: false }),
   };
 }

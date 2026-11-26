@@ -37,7 +37,7 @@ function makeEmberPoints() {
         vAge = clamp(aAge, 0.0, 1.0);
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
         float z = max(-mv.z, 1.0);
-        gl_PointSize = clamp(aSize * (1.0 - 0.6 * vAge) * uScale / z, 0.0, 48.0) * step(vAge, 0.999);
+        gl_PointSize = clamp(aSize * (1.0 - 0.6 * vAge) * uScale / z, 0.0, 20.0) * step(vAge, 0.999);
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: `
@@ -88,7 +88,7 @@ function patchFlame(mat) {
           float rim = pow(1.0 - nv, 2.0);
           float lum = clamp(dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11)), 0.0, 1.0);
           float amt = (0.10 + 0.85 * tip * tip + 0.35 * rim) * (0.55 + 0.9 * lum);
-          totalEmissiveRadiance += heat * amt * 1.5 * flick;
+          totalEmissiveRadiance += heat * amt * 0.78 * flick;
         }`);
   };
   mat.needsUpdate = true;
@@ -111,7 +111,7 @@ export function createPhoenix(opts = {}) {
   const innerWrapper = new THREE.Group();
   innerWrapper.name = 'phoenix_inner';
   innerWrapper.quaternion.set(-0.5, 0.5, 0.5, 0.5);
-  const SCALE = 0.012;   // raw wingspan ~964 units -> ~11.5 m
+  const SCALE = 0.0085;   // raw wingspan ~964 units -> ~8.2 m
   innerWrapper.scale.set(SCALE, SCALE, SCALE);
   phoenixGroup.add(innerWrapper);
 
@@ -131,7 +131,7 @@ export function createPhoenix(opts = {}) {
 
   let mixer = null;
   let flameMat = null;
-  let flightTime = 0.0;
+  let flightTime = 16.0;
   let prevYaw = 0.0;
   let currentBank = 0.0;
   const owned = [];
@@ -144,9 +144,9 @@ export function createPhoenix(opts = {}) {
 
   function calcFlightPos(t, out) {
     const p = ((t % FLIGHT_PERIOD) / FLIGHT_PERIOD) * Math.PI * 2;
-    const x = 50 * Math.sin(p) + 16 * Math.sin(2 * p);
-    const z = -32 + 65 * Math.cos(p) - 18 * Math.sin(2 * p);
-    const y = 30 + 9 * Math.sin(1.5 * p) + 3 * Math.cos(3 * p);
+    const x = 46 * Math.sin(p) + 14 * Math.sin(2 * p);
+    const z = -62 + 42 * Math.cos(p) - 12 * Math.sin(2 * p);
+    const y = 44 + 8 * Math.sin(1.5 * p) + 3 * Math.cos(3 * p);
     out.set(x, y, z);
     return out;
   }

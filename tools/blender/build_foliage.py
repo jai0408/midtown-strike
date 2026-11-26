@@ -219,7 +219,7 @@ def poly(a, b, c, n=9):
     return (1 - t) ** 2 * a + 2 * (1 - t) * t * b + t ** 2 * c
 
 
-def needle_twig(cl, rng, o, ang, length, nlen, cdark, clight, tw=0.007, dens=0.0105, spread=1.12, wrap=False):
+def needle_twig(cl, rng, o, ang, length, nlen, cdark, clight, tw=0.0062, dens=0.0082, spread=1.12, wrap=False):
     """A twig with paired needles (spruce / fir style)."""
     sg = cl.segw if wrap else cl.seg
     d = np.array([math.cos(ang), math.sin(ang)])
@@ -235,7 +235,7 @@ def needle_twig(cl, rng, o, ang, length, nlen, cdark, clight, tw=0.007, dens=0.0
             ln = nlen * rng.uniform(0.7, 1.1) * env
             t = rng.uniform(0.25, 1.0) * (0.55 + 0.45 * s)
             col = lerp(cdark, clight, t)
-            sg(base, base + np.array([math.cos(a2), math.sin(a2)]) * ln, 0.0085, 0.0025, jit(col, rng) * 0.85, jit(col, rng) * 1.12, 0.6)
+            sg(base, base + np.array([math.cos(a2), math.sin(a2)]) * ln, 0.0062, 0.0018, jit(col, rng) * 0.72, jit(col, rng) * 1.24, 0.65)
 
 
 def spruce_spray(cl, rng, o, ang, length, bend, nlen, cdark, clight, shoots, shoot_len, wrap=False):
@@ -264,7 +264,7 @@ def needle_tuft(cl, rng, p, ang, n, ln, cdark, clight, fan=0.62):
         l2 = ln * rng.uniform(0.7, 1.12)
         t = rng.uniform(0.15, 1.0)
         col = lerp(cdark, clight, t)
-        cl.seg(p, np.asarray(p) + np.array([math.cos(a2), math.sin(a2)]) * l2, 0.0105, 0.0025, jit(col, rng) * 0.8, jit(col, rng) * 1.15, 0.6)
+        cl.seg(p, np.asarray(p) + np.array([math.cos(a2), math.sin(a2)]) * l2, 0.0074, 0.0018, jit(col, rng) * 0.72, jit(col, rng) * 1.24, 0.65)
 
 
 def paint_pine(cl, rng, variant):
@@ -286,13 +286,13 @@ def paint_pine(cl, rng, variant):
         ln = (0.33 - 0.2 * s) * rng.uniform(0.85, 1.15)
         e = base + np.array([math.cos(sa), math.sin(sa)]) * ln
         cl.seg(base, e, 0.01, 0.006, (0.28, 0.19, 0.11), (0.24, 0.17, 0.1), 0.6)
-        needle_tuft(cl, rng, e, sa, 38, 0.17 - 0.05 * s, cd, cb)
+        needle_tuft(cl, rng, e, sa, 48, 0.17 - 0.05 * s, cd, cb)
         m = base + (e - base) * 0.55
-        needle_tuft(cl, rng, m, sa + side * 0.35, 22, 0.12, cd, cb, 0.75)
-        needle_tuft(cl, rng, base, sa - side * 0.5, 16, 0.1, cd, cb, 0.8)
+        needle_tuft(cl, rng, m, sa + side * 0.35, 28, 0.12, cd, cb, 0.75)
+        needle_tuft(cl, rng, base, sa - side * 0.5, 20, 0.1, cd, cb, 0.8)
     top = pts[-1]
-    needle_tuft(cl, rng, top, math.atan2(*(pts[-1] - pts[-3])[::-1]), 44, 0.17, cd, cb, 0.8)
-    needle_tuft(cl, rng, pts[len(pts) // 2], math.pi / 2 + 0.4 * (1 if variant == 0 else -1), 12, 0.11, cd, cb, 0.8)
+    needle_tuft(cl, rng, top, math.atan2(*(pts[-1] - pts[-3])[::-1]), 54, 0.17, cd, cb, 0.8)
+    needle_tuft(cl, rng, pts[len(pts) // 2], math.pi / 2 + 0.4 * (1 if variant == 0 else -1), 16, 0.11, cd, cb, 0.8)
 
 
 def paint_spruce(cl, rng, variant):
@@ -629,7 +629,7 @@ def paint_leaf_atlas(rng):
         fn(c)
         cells[nm] = c.done()
     LOG("  leaf cells %.1fs" % (time.time() - t0))
-    return assemble(cells, CELLS, LEAF, CELL, 1.2, 7.0)
+    return assemble(cells, CELLS, LEAF, CELL, 0.6, 9.0)
 
 
 def paint_plants_atlas(rng):
@@ -663,28 +663,28 @@ def paint_bark_atlas(rng):
     t = np.clip(hp, 0, 1)[..., None]
     mot = (0.5 + 0.5 * np.tanh(n3))[..., None]
     plate = (0.88 + 0.16 * np.tanh(n1 * 1.6))[..., None]
-    base = lerp((0.29, 0.20, 0.135), (0.50, 0.34, 0.22), mot) * plate
+    base = lerp((0.31, 0.22, 0.15), (0.53, 0.37, 0.24), mot) * plate
     col_p = lerp(np.array((0.095, 0.070, 0.052)), base, smooth(t, 0.05, 0.7))
     col_p = col_p * (0.92 + 0.1 * n4[..., None])
     nor_p = normal_from_height(gblur(hp * 10.0, 1.3), 2.8)
-    # --- birch bark: muted warm grey-cream (won't blow out to chalk poles) with dark scars
+    # --- birch bark: weathered silver-grey (clamped so sun on Medium stays ~0.6-0.7, never white poles)
     m1 = pnoise(W, H, 90, 60, rng)
     m2 = pnoise(W, H, 22, 1.8, rng)
     m3 = pnoise(W, H, 55, 6, rng)
     m4 = pnoise(W, H, 5, 5, rng)
     m5 = pnoise(W, H, 120, 3, rng)
-    white = lerp((0.68, 0.66, 0.61), (0.80, 0.78, 0.73), (0.5 + 0.5 * np.tanh(m1))[..., None])
-    white = white * (0.95 + 0.05 * m4[..., None])
+    white = lerp((0.48, 0.47, 0.43), (0.58, 0.56, 0.52), (0.5 + 0.5 * np.tanh(m1))[..., None])
+    white = white * (0.94 + 0.06 * m4[..., None])
     lent = smooth(m2, 1.6, 2.4)  # thin dark dashes
     scar = smooth(m3, 2.0, 2.7)  # big dark patches
     edge = smooth(m3, 1.5, 2.2) * (1 - scar)  # grey margin round scars
-    peel = smooth(m5, 1.4, 2.2) * 0.35
-    col_b = white * (1 - 0.34 * edge[..., None]) * (1 - 0.14 * peel[..., None])
+    peel = smooth(m5, 1.4, 2.2) * 0.38
+    col_b = white * (1 - 0.38 * edge[..., None]) * (1 - 0.18 * peel[..., None])
     dark = np.clip(np.maximum(lent, scar), 0, 1)[..., None]
     fl = pnoise(W, H, 45, 4, rng)
     flake = smooth(fl, 1.0, 1.5)
     fedge = smooth(fl, 0.8, 1.05) * (1 - flake)
-    col_b = lerp(col_b, np.array((0.72, 0.6, 0.48)), (fedge * 0.55)[..., None]) * (1 + 0.05 * flake[..., None])
+    col_b = lerp(col_b, np.array((0.42, 0.36, 0.30)), (fedge * 0.55)[..., None]) * (1 + 0.04 * flake[..., None])
     col_b = lerp(col_b, np.array((0.05, 0.045, 0.04)), dark * 0.96)
     hb = 0.25 * m4 - 0.8 * dark[..., 0] + 0.4 * peel - 0.25 * lent + 0.7 * flake - 0.35 * fedge
     nor_b = normal_from_height(gblur(hb * 4, 0.9), 2.6)
