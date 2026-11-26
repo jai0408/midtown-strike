@@ -141,6 +141,10 @@ function makeMaterials() {
     normalMap: shop.normalMap, normalScale: new THREE.Vector2(1.4, 1.4),
     roughnessMap: shop.orm, metalnessMap: shop.orm, roughness: 1, metalness: 1, envMapIntensity: 1.25,
   });
+  // Fast phone-safe storefront material (shares same GPU maps, skips normal/IBL/parallax on Medium/Low)
+  M.shopLite = new THREE.MeshLambertMaterial({
+    map: shop.map, emissiveMap: shop.emissive, emissive: 0xffffff, emissiveIntensity: 0.96,
+  });
   const adsTex = T.adsTexture();
   M.ads = ledScreen(new THREE.MeshBasicMaterial({ map: adsTex }), adsTex);
   const anim = T.adsAnimTexture();

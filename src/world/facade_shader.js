@@ -123,7 +123,7 @@ export function applyFacadeParallax(mat, def, idx) {
         uniform float uFacWarm, uFacRun, uPxMaxD;
         ${SAFE_ROOM_GLSL}`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-        {
+        if (uPxMaxD > 1.0) {
           // Identify window glass panes from the ORM texture (glass has low roughness & high metalness)
           float isGlass = smoothstep(0.28, 0.14, roughnessFactor) * smoothstep(0.55, 0.78, metalnessFactor);
           // Subtle per-floor architectural tonal variation on masonry/spandrels near street level
@@ -131,7 +131,7 @@ export function applyFacadeParallax(mat, def, idx) {
           float flHash = fmHash(vec2(floorIdx, floor(vWp.x * 0.06) + floor(vWp.z * 0.06) * 31.0));
           diffuseColor.rgb *= mix(0.92 + 0.16 * flHash, 1.0, isGlass);
 
-          if (isGlass > 0.02 && uPxMaxD > 1.0) {
+          if (isGlass > 0.02) {
             vec3 viewToFrag = vWp - cameraPosition;
             float vDist = length(viewToFrag);
             // Fade interior parallax cleanly beyond uPxMaxD so distant skyline stays crisp and cheap
@@ -209,33 +209,38 @@ export function applyShopParallax(mat, lightMap, cols, rows) {
         {
           // Open shop glass panes have very low roughness (< 0.22) and high metalness (> 0.65)
           float isGlass = smoothstep(0.24, 0.12, roughnessFactor) * smoothstep(0.55, 0.78, metalnessFactor);
-          if (isGlass > 0.02 && uPxMaxD > 1.0) {
+          if (isGlass > 0.02) {
             vec3 vToF = vWp - cameraPosition;
             float vDist = length(vToF);
-            float distFade = 1.0 - smoothstep(uPxMaxD * 0.45, uPxMaxD * 0.9, vDist);
-            if (distFade > 0.01) {
-              vec3 wn = normalize(vShopN);
-              vec3 vDir = vToF / max(vDist, 1e-4);
-              vec3 tanU = cross(vec3(0.0, 1.0, 0.0), wn);
-              float tl = length(tanU);
-              tanU = tl > 1e-4 ? tanU / tl : vec3(1.0, 0.0, 0.0);
-              vec2 gUv = vMapUv * uShopGrid;
-              vec2 cellP = fract(gUv);
-              vec2 winP = clamp(vec2((cellP.x - 0.04) / 0.92, (cellP.y - 0.08) / 0.68), 0.0, 1.0);
-              vec2 shopId = floor(vWp.xz * 0.14) + floor(gUv) * 7.0;
-              vec3 rayLocal = vec3(dot(vDir, tanU), vDir.y, dot(vDir, -wn));
-              vec3 shopRoom = traceInteriorRoom(winP, rayLocal, shopId, 1.05, 0.72, 1.05);
-              float f1 = 1.0 - clamp(dot(wn, -vDir), 0.0, 1.0);
-              float f2 = f1 * f1;
-              float fres = 0.07 + 0.93 * f2 * f2;
-              vec3 neonRefl = vec3(0.16, 0.22, 0.34);
-              ${lightMap ? `{
-                vec2 clUv = (vWp.xz - uCityRect.xy) * uCityRect.zw;
-                vec2 clIn = smoothstep(vec2(0.0), vec2(0.06), clUv) * smoothstep(vec2(0.0), vec2(0.06), 1.0 - clUv);
-                neonRefl += texture2D(uCityLight, clamp(clUv, 0.002, 0.998)).rgb * 1.4 * clIn.x * clIn.y;
-              }` : ''}
-              vec3 interior = shopRoom * (0.45 + 0.85 * dot(diffuseColor.rgb, vec3(0.35, 0.45, 0.20)));
-              totalEmissiveRadiance = mix(totalEmissiveRadiance, interior * (1.0 - fres * 0.55) + neonRefl * fres * 0.65, isGlass * distFade * 0.88);
+            vec3 wn = normalize(vShopN);
+            vec3 vDir = vToF / max(vDist, 1e-4);
+            float f1 = 1.0 - clamp(dot(wn, -vDir), 0.0, 1.0);
+            float f2 = f1 * f1;
+            float fres = 0.07 + 0.93 * f2 * f2;
+            if (uPxMaxD > 1.0) {
+              float distFade = 1.0 - smoothstep(uPxMaxD * 0.45, uPxMaxD * 0.9, vDist);
+              if (distFade > 0.01) {
+                vec3 tanU = cross(vec3(0.0, 1.0, 0.0), wn);
+                float tl = length(tanU);
+                tanU = tl > 1e-4 ? tanU / tl : vec3(1.0, 0.0, 0.0);
+                vec2 gUv = vMapUv * uShopGrid;
+                vec2 cellP = fract(gUv);
+                vec2 winP = clamp(vec2((cellP.x - 0.04) / 0.92, (cellP.y - 0.08) / 0.68), 0.0, 1.0);
+                vec2 shopId = floor(vWp.xz * 0.14) + floor(gUv) * 7.0;
+                vec3 rayLocal = vec3(dot(vDir, tanU), vDir.y, dot(vDir, -wn));
+                vec3 shopRoom = traceInteriorRoom(winP, rayLocal, shopId, 1.05, 0.72, 1.05);
+                vec3 neonRefl = vec3(0.16, 0.22, 0.34);
+                ${lightMap ? `{
+                  vec2 clUv = (vWp.xz - uCityRect.xy) * uCityRect.zw;
+                  vec2 clIn = smoothstep(vec2(0.0), vec2(0.06), clUv) * smoothstep(vec2(0.0), vec2(0.06), 1.0 - clUv);
+                  neonRefl += texture2D(uCityLight, clamp(clUv, 0.002, 0.998)).rgb * 1.4 * clIn.x * clIn.y;
+                }` : ''}
+                vec3 interior = shopRoom * (0.45 + 0.85 * dot(diffuseColor.rgb, vec3(0.35, 0.45, 0.20)));
+                totalEmissiveRadiance = mix(totalEmissiveRadiance, interior * (1.0 - fres * 0.55) + neonRefl * fres * 0.65, isGlass * distFade * 0.88);
+              }
+            } else {
+              // Fast phone Medium glass sheen: subtle sky/neon reflection without raycasting
+              totalEmissiveRadiance += vec3(0.14, 0.19, 0.28) * (fres * isGlass * 0.42);
             }
           }
         }`);

@@ -1,6 +1,6 @@
 // Phone-safe lightweight post-processing for Medium quality:
-// 1/4-res bright/neon extract (2-tap bilinear) -> single-pass 1/8-res Kawase blur ->
-// 1 composite + ACES film grade + vignette pass.
+// 1/6-res RGBA8 bright/neon extract (4-tap bilinear) -> composite + 4-tap Kawase bloom gather
+// + ACES film grade + vignette (only 2 fullscreen passes total, low memory bandwidth).
 import * as THREE from 'three';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 
@@ -13,44 +13,30 @@ const extractFragment = `
   varying vec2 vUv;
 
   vec3 safeSample(vec2 uv) {
-    vec3 c = texture2D(tDiffuse, uv).rgb;
+    vec3 c = texture2D(tDiffuse, clamp(uv, 0.001, 0.999)).rgb;
     float s = c.r + c.g + c.b;
-    return (s >= 0.0 && s < 60000.0) ? clamp(c, vec3(0.0), vec3(24.0)) : vec3(0.0);
+    return (s >= 0.0 && s < 60000.0) ? clamp(c, vec3(0.0), vec3(16.0)) : vec3(0.0);
   }
 
   void main() {
-    // 2 diagonal bilinear taps over 1/4-res target (covers 4x2 full-res pixels cleanly)
-    vec3 c = (safeSample(vUv + vec2(-texel.x, -texel.y))
-            + safeSample(vUv + vec2( texel.x,  texel.y))) * 0.5;
+    // 2 diagonal bilinear taps into 1/8-res RGBA8 target
+    vec2 d = texel * 1.5;
+    vec3 c = (safeSample(vUv - d) + safeSample(vUv + d)) * 0.5;
     float peak = max(c.r, max(c.g, c.b));
     float minC = min(c.r, min(c.g, c.b));
-    float metric = peak + (peak - minC) * 0.28;
-    float knee = 0.25;
+    // Chromaticity-weighted metric lets saturated neon signs bloom cleanly even from RGBA8
+    float metric = peak + (peak - minC) * 0.32;
+    float knee = 0.24;
     float soft = clamp(metric - threshold + knee, 0.0, 2.0 * knee);
     soft = (soft * soft) / max(4.0 * knee, 1e-4);
     float contrib = max(soft, metric - threshold) / max(metric, 1e-4);
-    gl_FragColor = vec4(c * max(contrib, 0.0), 1.0);
-  }
-`;
-
-const kawaseFragment = `
-  uniform sampler2D tDiffuse;
-  uniform vec2 stepDir;
-  varying vec2 vUv;
-
-  void main() {
-    // Single-pass 5-tap Dual-Kawase bloom kernel at 1/8 resolution
-    vec3 c = texture2D(tDiffuse, vUv).rgb * 0.20;
-    c += (texture2D(tDiffuse, clamp(vUv + vec2( stepDir.x,  stepDir.y), 0.001, 0.999)).rgb
-        + texture2D(tDiffuse, clamp(vUv + vec2(-stepDir.x,  stepDir.y), 0.001, 0.999)).rgb
-        + texture2D(tDiffuse, clamp(vUv + vec2( stepDir.x, -stepDir.y), 0.001, 0.999)).rgb
-        + texture2D(tDiffuse, clamp(vUv + vec2(-stepDir.x, -stepDir.y), 0.001, 0.999)).rgb) * 0.20;
-    gl_FragColor = vec4(c, 1.0);
+    gl_FragColor = vec4(clamp(c * max(contrib, 0.0) * 0.34, 0.0, 1.0), 1.0);
   }
 `;
 
 const compositeFragment = `
   uniform sampler2D tDiffuse, tBloom;
+  uniform vec2 bloomStep;
   uniform float exposure, sat, curve, bloomStrength;
   varying vec2 vUv;
 
@@ -65,13 +51,17 @@ const compositeFragment = `
   }
 
   void main() {
+    // Soft highlight expansion recovers punch for RGBA8 sceneRT before ACES tone mapping
     vec3 c = texture2D(tDiffuse, vUv).rgb;
-    float s = c.r + c.g + c.b;
-    if (!(s >= 0.0 && s < 60000.0)) c = vec3(0.0);
-    c = clamp(c, 0.0, 48.0);
-    vec3 bloom = texture2D(tBloom, vUv).rgb;
-    float bs = bloom.r + bloom.g + bloom.b;
-    if (bs >= 0.0 && bs < 60000.0) c += bloom * bloomStrength;
+    c += c * c * c * 0.35;
+
+    // 4-tap Kawase gather from tiny 1/8-res RGBA8 bloom buffer (unpack * 4.0)
+    vec3 bloom = (texture2D(tBloom, clamp(vUv + vec2( bloomStep.x,  bloomStep.y), 0.002, 0.998)).rgb
+                + texture2D(tBloom, clamp(vUv + vec2(-bloomStep.x,  bloomStep.y), 0.002, 0.998)).rgb
+                + texture2D(tBloom, clamp(vUv + vec2( bloomStep.x, -bloomStep.y), 0.002, 0.998)).rgb
+                + texture2D(tBloom, clamp(vUv + vec2(-bloomStep.x, -bloomStep.y), 0.002, 0.998)).rgb);
+    c += bloom * bloomStrength;
+
     c = aces(c);
     float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
     c = mix(vec3(l), c, sat);
@@ -85,30 +75,26 @@ const compositeFragment = `
 
 export class MediumPostPipeline {
   constructor(renderer) {
-    const caps = renderer.capabilities;
-    const useHalf = caps.isWebGL2 || renderer.extensions.has('EXT_color_buffer_half_float');
-    const type = useHalf ? THREE.HalfFloatType : THREE.UnsignedByteType;
-    const linear = { type, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false, stencilBuffer: false };
-
+    // 32-bit RGBA8 offscreen targets cut phone memory bandwidth in half vs HalfFloat
     this.sceneRT = new THREE.WebGLRenderTarget(4, 4, {
-      type, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+      type: THREE.UnsignedByteType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
       depthBuffer: true, stencilBuffer: false, samples: 0,
     });
-    this.qRT = new THREE.WebGLRenderTarget(2, 2, linear);
-    this.bRT1 = new THREE.WebGLRenderTarget(2, 2, linear);
+    // Single 1/8-res RGBA8 bloom buffer (eliminates 2nd blur pass and stays L1-cache resident)
+    this.bRT = new THREE.WebGLRenderTarget(2, 2, {
+      type: THREE.UnsignedByteType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+      depthBuffer: false, stencilBuffer: false,
+    });
 
     this.extractMat = new THREE.ShaderMaterial({
       uniforms: { tDiffuse: { value: this.sceneRT.texture }, texel: { value: new THREE.Vector2(0.25, 0.25) }, threshold: { value: 0.62 } },
       vertexShader: VERT, fragmentShader: extractFragment, depthTest: false, depthWrite: false,
     });
-    this.blurMat = new THREE.ShaderMaterial({
-      uniforms: { tDiffuse: { value: this.qRT.texture }, stepDir: { value: new THREE.Vector2(0.5, 0.5) } },
-      vertexShader: VERT, fragmentShader: kawaseFragment, depthTest: false, depthWrite: false,
-    });
     this.compMat = new THREE.ShaderMaterial({
       uniforms: {
         tDiffuse: { value: this.sceneRT.texture },
-        tBloom: { value: this.bRT1.texture },
+        tBloom: { value: this.bRT.texture },
+        bloomStep: { value: new THREE.Vector2(0.01, 0.01) },
         exposure: { value: 1.0 }, sat: { value: 0.95 }, curve: { value: 0.08 }, bloomStrength: { value: 0.48 },
       },
       vertexShader: VERT, fragmentShader: compositeFragment, depthTest: false, depthWrite: false,
@@ -131,13 +117,11 @@ export class MediumPostPipeline {
     const ph = Math.max(4, Math.floor(h));
     if (pw === this.w && ph === this.h) return;
     this.w = pw; this.h = ph;
-    const qw = Math.max(2, pw >> 2), qh = Math.max(2, ph >> 2);
     const bw = Math.max(2, pw >> 3), bh = Math.max(2, ph >> 3);
     this.sceneRT.setSize(pw, ph);
-    this.qRT.setSize(qw, qh);
-    this.bRT1.setSize(bw, bh);
+    this.bRT.setSize(bw, bh);
     this.extractMat.uniforms.texel.value.set(1 / pw, 1 / ph);
-    this.blurMat.uniforms.stepDir.value.set(1.8 / qw, 1.8 / qh);
+    this.compMat.uniforms.bloomStep.value.set(1.45 / bw, 1.45 / bh);
   }
 
   render(renderer, scene, camera) {
@@ -147,21 +131,16 @@ export class MediumPostPipeline {
     const prevTM = renderer.toneMapping;
     renderer.toneMapping = THREE.NoToneMapping;
 
-    // 1. Render HDR scene into offscreen RT (no MSAA; autoClear handles clearing)
+    // 1. Render HDR scene into offscreen RT (no MSAA; keep autoClear=true for TBDR LoadActionClear)
     renderer.setRenderTarget(this.sceneRT);
     renderer.render(scene, camera);
 
-    // 2. Quarter-res bright/neon extract
+    // 2. 1/8-res RGBA8 bright/neon extract with 2-tap diagonal bilinear filter
     this.quad.material = this.extractMat;
-    renderer.setRenderTarget(this.qRT);
+    renderer.setRenderTarget(this.bRT);
     this.quad.render(renderer);
 
-    // 3. Single-pass 1/8-res Kawase bloom blur
-    this.quad.material = this.blurMat;
-    renderer.setRenderTarget(this.bRT1);
-    this.quad.render(renderer);
-
-    // 4. Composite bloom + ACES + film grade directly to screen
+    // 3. Composite with 4-tap Kawase gather + ACES + film grade directly to screen
     this.quad.material = this.compMat;
     renderer.setRenderTarget(null);
     this.quad.render(renderer);
@@ -171,10 +150,8 @@ export class MediumPostPipeline {
 
   dispose() {
     this.sceneRT.dispose();
-    this.qRT.dispose();
-    this.bRT1.dispose();
+    this.bRT.dispose();
     this.extractMat.dispose();
-    this.blurMat.dispose();
     this.compMat.dispose();
     this.quad.dispose();
   }

@@ -20,13 +20,13 @@ const NOISE_GLSL = /* glsl */`
       f.z
     );
   }
+  float wMicroFast(vec3 p, float isMetal) {
+    return wNoise(mix(p * 460.0, vec3(p.x * 340.0, p.y * 340.0, p.z * 78.0), isMetal));
+  }
   float wMicroHeight(vec3 p, float isMetal) {
     // Anisotropic brushed metal along barrel Z vs fine tactile polymer stipple
-    vec3 pm = vec3(p.x * 340.0, p.y * 340.0, p.z * 78.0);
-    vec3 pp = p * 460.0;
-    float hM = wNoise(pm) * 0.65 + wNoise(pm * 2.3) * 0.35;
-    float hP = wNoise(pp) * 0.60 + wNoise(pp * 2.1) * 0.40;
-    return mix(hP, hM, isMetal);
+    vec3 q = mix(p * 460.0, vec3(p.x * 340.0, p.y * 340.0, p.z * 78.0), isMetal);
+    return wNoise(q) * 0.65 + wNoise(q * 2.2) * 0.35;
   }
 `;
 
@@ -87,12 +87,13 @@ export function createWeaponMaterial() {
         metalnessFactor = clamp(metalnessFactor + wEdge * 0.15 * wIsMetal, 0.0, 1.0);`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         {
-          // Subtle object-space micro-bump transformed into view space via interpolated basis
+          // Subtle object-space micro-bump transformed into view space (1-octave fast gradient)
           float eps = 0.0009;
+          float h0 = wMicroFast(vObj, wIsMetal);
           vec3 g = vec3(
-            wMicroHeight(vObj + vec3(eps, 0.0, 0.0), wIsMetal) - wGrain,
-            wMicroHeight(vObj + vec3(0.0, eps, 0.0), wIsMetal) - wGrain,
-            wMicroHeight(vObj + vec3(0.0, 0.0, eps), wIsMetal) - wGrain
+            wMicroFast(vObj + vec3(eps, 0.0, 0.0), wIsMetal) - h0,
+            wMicroFast(vObj + vec3(0.0, eps, 0.0), wIsMetal) - h0,
+            wMicroFast(vObj + vec3(0.0, 0.0, eps), wIsMetal) - h0
           );
           vec3 gView = vMvX * g.x + vMvY * g.y + vMvZ * g.z;
           normal = normalize(normal + gView * mix(0.36, 0.20, wIsMetal));
@@ -205,12 +206,16 @@ export function attachHoloOptic(weaponMesh, points) {
   lens.renderOrder = 4;
   lens.castShadow = false;
   lens.frustumCulled = false;
+  lens.visible = false;
+  lens.userData.fpOnly = true;
 
   const ret = new THREE.Mesh(holoReticleGeo, holoReticleMat);
   ret.position.set(sx, sy - 0.003, sz - 0.035);
   ret.renderOrder = 5;
   ret.castShadow = false;
   ret.frustumCulled = false;
+  ret.visible = false;
+  ret.userData.fpOnly = true;
 
   weaponMesh.add(lens, ret);
 }

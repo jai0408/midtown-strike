@@ -56,9 +56,14 @@ export async function buildMidtown(onProgress) {
   const setQuality = (name) => {
     const all = name === 'high' || name === 'ultra';
     FACADE_PARALLAX_DIST.value = all ? 190.0 : 0.0;
-    SHOP_PARALLAX_DIST.value = all ? 160.0 : name === 'medium' ? 55.0 : 0.0;
+    SHOP_PARALLAX_DIST.value = all ? 160.0 : 0.0;
     city.group.traverse((m) => {
-      if (m.isMesh && (m.material === city.materials.flat || m.userData.shadowHigh)) m.castShadow = all;
+      if (!m.isMesh) return;
+      if (m.material === city.materials.flat || m.userData.shadowHigh) m.castShadow = all;
+      if (m.material === city.materials.shop || m.material === city.materials.shopLite) {
+        m.material = all ? city.materials.shop : city.materials.shopLite;
+        m.receiveShadow = all;
+      }
     });
   };
   return {

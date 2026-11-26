@@ -761,7 +761,14 @@ export class Soldier {
     } else if (pose === 'melee' || !def) {
       if (this.weapon) this.weapon.visible = true;
     } else if (thr < 0) {
-      if (this.weapon) this.weapon.visible = true;
+      if (this.weapon) {
+        this.weapon.visible = true;
+        const fpVis = !!this.fpCam;
+        for (let i = 0; i < this.weapon.children.length; i++) {
+          const ch = this.weapon.children[i];
+          if (ch.userData && ch.userData.fpOnly) ch.visible = fpVis;
+        }
+      }
       const Pz = POSES[pose];
       const sp = this.sprintK * this.moveK * (1 - this.adsK) * (1 - this.reloadK);
       const ads = this.adsK * (1 - this.reloadK);
