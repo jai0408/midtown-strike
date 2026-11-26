@@ -1,19 +1,20 @@
 // Wet-street reflections (High / Ultra, maps that ask for them).
 //
-// Half-resolution screen-space reflection trace + depth-aware separable blur +
-// full-resolution composite. Tracing at half resolution cuts raymarch cost ~4x,
-// replaces random per-pixel noise with a subtle 4x4 Bayer offset smoothed out
-// by the anisotropic bilateral blur, and rejects kerb/silhouette discontinuities
-// so edges and lane markings stay soft and stable without sparkles.
+// Half-resolution screen-space reflection trace driven by the shared world-space
+// wetness mask (gutter puddles, wheel ruts, dry road crowns), emitter-gated so
+// only bright neon/lamps/headlights reflect, followed by a 2-pass anisotropic
+// depth-aware blur (strong vertical stretch + horizontal typography breakup) and
+// an asphalt-grain-broken full-res composite.
 import * as THREE from 'three';
 import { Pass, FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
+import { ROAD_WETNESS_GLSL } from '../world/road_shader.js';
 
-const MARCH_STEPS = 26;        // coarse steps along the mirrored ray (at half-res)
-const REFINE_STEPS = 4;        // binary search between last miss and hit
-const MAX_DIST = 72;           // metres a reflected ray may travel
+const MARCH_STEPS = 16;        // coarse steps along the mirrored ray (at half-res)
+const REFINE_STEPS = 2;        // binary search between last miss and hit
+const MAX_DIST = 68;           // metres a reflected ray may travel
 const GROUND_MAX_Y = 0.44;     // street + sidewalk level; car bodies and roofs are higher
 const GROUND_FLATNESS = 0.93;  // reconstructed normal.y above this = flat ground
-const HDR_CAP = 20;            // cap reflected HDR so neon cannot blow out bloom
+const HDR_CAP = 18;            // cap reflected HDR so neon cannot blow out bloom
 
 const VERT = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
 
@@ -36,8 +37,6 @@ const COMMON_GLSL = `
     float s = c.r + c.g + c.b;
     return (s >= 0.0 && s < 60000.0) ? clamp(c, vec3(0.0), vec3(${HDR_CAP.toFixed(1)})) : vec3(0.0);
   }
-  // Neighbour-based ground flatness check (avoids dFdx/dFdy quad edge artifacts on kerbs).
-  // Returns x = abs(normal.y), y = min vertical step discontinuity across the pixel.
   vec2 groundCheck(vec2 uv, float d, vec3 wp, vec2 stepUv) {
     vec3 wR = worldAt(uv + vec2(stepUv.x, 0.0), texture2D(tDepth, uv + vec2(stepUv.x, 0.0)).x);
     vec3 wL = worldAt(uv - vec2(stepUv.x, 0.0), texture2D(tDepth, uv - vec2(stepUv.x, 0.0)).x);
@@ -61,6 +60,7 @@ const traceFragment = `
   uniform vec2 invSize;
   varying vec2 vUv;
   ${COMMON_GLSL}
+  ${ROAD_WETNESS_GLSL}
 
   float bayer4(vec2 p) {
     vec2 f = mod(floor(p), 4.0);
@@ -78,6 +78,11 @@ const traceFragment = `
     if (d >= 0.9999) return;
     vec3 wp = worldAt(vUv, d);
     if (wp.y > ${GROUND_MAX_Y.toFixed(2)}) return;
+
+    vec3 wet = rwEvalWetness(wp.xz, wp.y);
+    float damp = wet.x, puddle = wet.y;
+    if (puddle < 0.08 && (wp.y > 0.06 || damp < 0.24)) return;
+
     vec2 gc = groundCheck(vUv, d, wp, invSize);
     if (gc.x < ${GROUND_FLATNESS.toFixed(2)} || gc.y > 0.09) return;
 
@@ -87,11 +92,13 @@ const traceFragment = `
     vec3 vdir = diff / dist;
     if (vdir.y >= -0.005) return;
 
-    // Mirror ray about flat ground plane; deterministic step schedule + tiny 4x4 Bayer phase
-    vec3 r = vec3(vdir.x, -vdir.y, vdir.z);
+    float gr1 = rwNoise(wp.xz * 7.5) - 0.5;
+    float scatter = mix(0.036, 0.004, puddle);
+    vec3 r = normalize(vec3(vdir.x + gr1 * scatter * 0.65, max(0.015, -vdir.y + gr1 * scatter * 1.4), vdir.z - gr1 * scatter * 0.65));
+
     float bay = bayer4(gl_FragCoord.xy);
-    float stepLen = 0.28;
-    float t = 0.16 + stepLen * bay * 0.65;
+    float stepLen = 0.42;
+    float t = 0.22 + stepLen * bay * 0.65;
     float tPrev = 0.0;
     vec2 hitUv = vec2(-1.0);
     float hitT = ${MAX_DIST.toFixed(1)};
@@ -105,7 +112,7 @@ const traceFragment = `
       float sceneZ = viewZ(texture2D(tDepth, uv).x);
       float qZ = (view * vec4(q, 1.0)).z;
       float gap = sceneZ - qZ;
-      float thick = stepLen * 1.7 + 0.45;
+      float thick = stepLen * 1.8 + 0.48;
       if (gap > 0.0 && gap < thick) {
         float a = tPrev, b = t;
         for (int k = 0; k < ${REFINE_STEPS}; k++) {
@@ -125,28 +132,33 @@ const traceFragment = `
         break;
       }
       tPrev = t;
-      stepLen *= 1.24;
+      stepLen *= 1.33;
       t += stepLen;
       if (t > ${MAX_DIST.toFixed(1)}) break;
     }
 
     if (hitUv.x < 0.0 || hitUv.x > 1.0 || hitUv.y < 0.0 || hitUv.y > 1.0) return;
-    // Reject sky/background hits cleanly
     float hitD = texture2D(tDepth, hitUv).x;
     if (hitD >= 0.9999) {
-      // Allow soft upper sky gradient reflection at low strength so wet puddles catch dusk sky
       vec3 skyC = safeHdr(texture2D(tDiffuse, hitUv).rgb);
       vec2 eSky = smoothstep(vec2(0.0), vec2(0.09), hitUv) * smoothstep(vec2(0.0), vec2(0.09), 1.0 - hitUv);
-      float fSky = eSky.x * eSky.y * 0.35;
+      float fSky = eSky.x * eSky.y * mix(0.06, 0.22, puddle);
       gl_FragColor = vec4(skyC * fSky, fSky);
       return;
     }
 
-    // Light vertical pre-filter scaled by travel distance to calm crisp LED text aliasing
-    float sp = clamp(hitT * 0.00055, 0.0005, 0.0055);
-    vec3 refl = safeHdr(texture2D(tDiffuse, hitUv).rgb) * 0.5
-              + safeHdr(texture2D(tDiffuse, clamp(hitUv + vec2(0.0, sp), 0.001, 0.999)).rgb) * 0.25
-              + safeHdr(texture2D(tDiffuse, clamp(hitUv - vec2(0.0, sp), 0.001, 0.999)).rgb) * 0.25;
+    // 5-tap vertical pre-filter scaled by travel distance to smear sharp signage vertically
+    float sp = clamp(hitT * 0.00032 + 0.0024, 0.0024, 0.019);
+    vec3 refl = safeHdr(texture2D(tDiffuse, hitUv).rgb) * 0.28
+              + (safeHdr(texture2D(tDiffuse, clamp(hitUv + vec2(0.0, sp), 0.001, 0.999)).rgb)
+               + safeHdr(texture2D(tDiffuse, clamp(hitUv - vec2(0.0, sp), 0.001, 0.999)).rgb)) * 0.22
+              + (safeHdr(texture2D(tDiffuse, clamp(hitUv + vec2(0.0, sp * 2.4), 0.001, 0.999)).rgb)
+               + safeHdr(texture2D(tDiffuse, clamp(hitUv - vec2(0.0, sp * 2.4), 0.001, 0.999)).rgb)) * 0.14;
+
+    // Gate toward bright emitters (neon signs, lamps, car lights)
+    float peak = max(refl.r, max(refl.g, refl.b));
+    float emitW = mix(smoothstep(0.24, 0.92, peak), smoothstep(0.12, 0.56, peak), puddle * 0.65);
+    refl *= emitW;
 
     vec2 edge = smoothstep(vec2(0.0), vec2(0.08), hitUv) * smoothstep(vec2(0.0), vec2(0.08), 1.0 - hitUv);
     float distFade = 1.0 - smoothstep(${(MAX_DIST * 0.55).toFixed(1)}, ${MAX_DIST.toFixed(1)}, hitT);
@@ -155,7 +167,7 @@ const traceFragment = `
   }
 `;
 
-// Pass 2 & 3: Depth-aware separable blur at half resolution (anisotropic: softer vertically like wet asphalt)
+// Passes 2 & 3: 5-tap depth-aware separable blur at half resolution (H + wide V streak)
 const blurFragment = `
   uniform sampler2D tRefl, tDepth;
   uniform vec2 dir;
@@ -170,13 +182,13 @@ const blurFragment = `
 
   void main() {
     float cZ = viewZ(texture2D(tDepth, vUv).x);
-    float depthTol = max(0.35, abs(cZ) * 0.06);
+    float depthTol = max(0.40, abs(cZ) * 0.08);
     vec4 acc = texture2D(tRefl, vUv) * 0.28;
     float wSum = 0.28;
 
-    const float offs[3] = float[3](1.15, 2.35, 3.65);
-    const float wts[3]  = float[3](0.22, 0.10, 0.04);
-    for (int i = 0; i < 3; i++) {
+    const float offs[2] = float[2](1.9, 4.5);
+    const float wts[2]  = float[2](0.24, 0.12);
+    for (int i = 0; i < 2; i++) {
       vec2 duv = dir * offs[i];
       vec2 uvP = clamp(vUv + duv, 0.001, 0.999);
       vec2 uvN = clamp(vUv - duv, 0.001, 0.999);
@@ -191,7 +203,7 @@ const blurFragment = `
   }
 `;
 
-// Pass 4: Full-resolution depth-aware composite onto the HDR scene buffer
+// Pass 4: Full-resolution grain-broken composite onto the HDR scene buffer
 const compositeFragment = `
   uniform sampler2D tDiffuse, tRefl;
   uniform vec3 camPos;
@@ -199,13 +211,7 @@ const compositeFragment = `
   uniform float strength, wetBase;
   varying vec2 vUv;
   ${COMMON_GLSL}
-
-  float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-  float vnoise(vec2 p) {
-    vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
-    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
-               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);
-  }
+  ${ROAD_WETNESS_GLSL}
 
   void main() {
     vec4 base = texture2D(tDiffuse, vUv);
@@ -218,34 +224,43 @@ const compositeFragment = `
     if (wp.y > ${GROUND_MAX_Y.toFixed(2)}) return;
 
     vec2 gc = groundCheck(vUv, d, wp, invFullSize);
-    // Smooth kerb & flatness mask: completely eliminates sparkles on kerb rims and car edges
     float flatMask = smoothstep(0.90, 0.97, gc.x)
                    * (1.0 - smoothstep(0.24, ${GROUND_MAX_Y.toFixed(2)}, wp.y))
                    * (1.0 - smoothstep(0.035, 0.095, gc.y));
     if (flatMask <= 0.005) return;
 
-    // Puddle map matching the rain-damp road look, slightly softer transitions
-    float puddle = smoothstep(0.50, 0.78, vnoise(wp.xz * 0.031 + 11.0) * 0.7 + vnoise(wp.xz * 0.12) * 0.3);
-    float wet = mix(wetBase, 1.0, puddle);
+    vec3 wet = rwEvalWetness(wp.xz, wp.y);
+    float damp = wet.x, puddle = wet.y;
+    float isWalk = smoothstep(0.06, 0.13, wp.y);
+
     vec3 diff = wp - camPos;
     float dist = length(diff);
     vec3 vdir = diff / max(dist, 1e-4);
     float cosV = clamp(-vdir.y, 0.0, 1.0);
-    float fres = 0.04 + 0.96 * pow(max(0.0, 1.0 - cosV), 5.0);
+    float f1 = 1.0 - cosV;
+    float f2 = f1 * f1;
+    float fres = 0.02 + 0.98 * f2 * f2 * f1;
 
-    // Subtle micro-ripple UV perturbation on damp asphalt (very gentle, zero sparkle)
-    float rip = (vnoise(wp.xz * 1.45) - 0.5) * mix(0.0014, 0.0003, puddle);
-    vec4 refl = texture2D(tRefl, clamp(vUv + vec2(rip, rip * 1.5), 0.001, 0.999));
+    float g1 = rwNoise(wp.xz * 5.2) - 0.5;
+    vec2 jit = mix(
+      vec2(g1 * 0.0095, g1 * 0.028),
+      vec2(g1 * 0.0022, g1 * 0.0055),
+      puddle
+    );
+    vec4 r0 = texture2D(tRefl, clamp(vUv + jit, 0.001, 0.999));
+    vec4 r1 = texture2D(tRefl, clamp(vUv + jit + vec2(0.0, mix(0.018, 0.004, puddle)), 0.001, 0.999));
+    vec4 refl = r0 * 0.60 + r1 * 0.40;
     if (refl.a <= 0.002) return;
 
-    // Keep bright painted lane markings readable instead of speckled
+    float grainMask = mix(0.55 + 0.90 * abs(g1), 1.0, puddle);
     float baseLum = dot(base.rgb, vec3(0.299, 0.587, 0.114));
-    float paintMask = 1.0 - smoothstep(0.28, 0.72, baseLum) * 0.38;
+    float paintMask = 1.0 - smoothstep(0.24, 0.68, baseLum) * 0.45;
 
-    float amount = strength * wet * mix(0.26, 1.0, fres) * flatMask * paintMask;
-    float k = clamp(amount, 0.0, 0.82);
-    // refl.rgb is premultiplied by hit confidence refl.a
-    vec3 col = mix(base.rgb, base.rgb * mix(1.0, 0.58, refl.a) + refl.rgb, k);
+    float puddleAmt = puddle * mix(0.05, 0.68, fres) * mix(1.0, 0.58, isWalk);
+    float dampAmt = max(damp, wetBase) * (1.0 - puddle) * mix(0.012, 0.22, fres) * mix(1.0, 0.48, isWalk);
+    float k = clamp(strength * (puddleAmt + dampAmt) * flatMask * paintMask * grainMask, 0.0, 0.48);
+
+    vec3 col = base.rgb * (1.0 - k * 0.22 * refl.a) + refl.rgb * k;
     gl_FragColor = vec4(safeHdr(col), base.a);
   }
 `;
@@ -306,7 +321,7 @@ export class StreetReflectionPass extends Pass {
         camPos: this.traceMat.uniforms.camPos,
         invFullSize: { value: new THREE.Vector2(0.25, 0.25) },
         strength: { value: 0 },
-        wetBase: { value: 0.3 },
+        wetBase: { value: 0.04 },
       },
       vertexShader: VERT, fragmentShader: compositeFragment, depthTest: false, depthWrite: false,
     });
@@ -328,7 +343,7 @@ export class StreetReflectionPass extends Pass {
     this.compMat.uniforms.invFullSize.value.set(1 / fw, 1 / fh);
   }
 
-  /** strength 0 = off for this map; wetBase = how damp the dry parts are. */
+  /** strength 0 = off for this map; wetBase = baseline dampness on dry crown. */
   setLook(strength, wetBase) {
     this.compMat.uniforms.strength.value = strength;
     this.compMat.uniforms.wetBase.value = wetBase;
@@ -357,17 +372,17 @@ export class StreetReflectionPass extends Pass {
     renderer.setRenderTarget(this.traceRT);
     this.fsQuad.render(renderer);
 
-    // 2. Depth-aware horizontal blur (tighter horizontally)
+    // 2. Depth-aware horizontal blur (breaks up billboard typography cleanly)
     const bu = this.blurMat.uniforms;
     this.fsQuad.material = this.blurMat;
     bu.tRefl.value = this.traceRT.texture;
-    bu.dir.value.set(1.0 / this.halfW, 0.0);
+    bu.dir.value.set(2.9 / this.halfW, 0.0);
     renderer.setRenderTarget(this.blurRT);
     this.fsQuad.render(renderer);
 
-    // 3. Depth-aware vertical blur (wider vertically for wet-asphalt sheen)
+    // 3. Depth-aware wide vertical blur (anisotropic rain-streak sheen)
     bu.tRefl.value = this.blurRT.texture;
-    bu.dir.value.set(0.0, 1.75 / this.halfH);
+    bu.dir.value.set(0.0, 6.4 / this.halfH);
     renderer.setRenderTarget(this.traceRT);
     this.fsQuad.render(renderer);
 

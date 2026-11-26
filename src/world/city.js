@@ -15,6 +15,7 @@ import { waterTower } from './props.js';
 import { specialBlock, buildLandmarks, populateStreets } from './landmarks.js';
 import { buildCityLightMap, applyCityLighting } from './city_lighting.js';
 import { applyFacadeParallax, applyShopParallax } from './facade_shader.js';
+import { applyRoadSurface, applyMarkingsWear, applyMidtownHaze } from './road_shader.js';
 import { buildNav } from './nav.js';
 
 const CHUNKS = 5;
@@ -88,22 +89,22 @@ function ledScreen(mat, tex, pitch = 3) {
 function makeMaterials() {
   const M = {};
   const road = T.asphaltTexture();
-  M.ground = breakTiling(new THREE.MeshStandardMaterial({
-    map: road.map, normalMap: road.normalMap, normalScale: new THREE.Vector2(0.9, 0.9),
-    roughnessMap: road.orm, metalnessMap: road.orm, roughness: 1, metalness: 1, envMapIntensity: 0.7,
-  }), 'road');
+  M.ground = applyRoadSurface(new THREE.MeshStandardMaterial({
+    map: road.map, normalMap: road.normalMap, normalScale: new THREE.Vector2(1.55, 1.55),
+    roughnessMap: road.orm, metalnessMap: road.orm, roughness: 1, metalness: 1, envMapIntensity: 0.38,
+  }), { isWalk: false, key: 'road' });
   const pave = T.pavingTexture();
-  M.walk = breakTiling(new THREE.MeshStandardMaterial({
-    map: pave.map, normalMap: pave.normalMap, normalScale: new THREE.Vector2(0.8, 0.8),
-    roughnessMap: pave.orm, metalnessMap: pave.orm, roughness: 1, metalness: 1, vertexColors: true,
-  }), 'walk', { damp: 0.45, drift: 0.22 });
+  M.walk = applyRoadSurface(new THREE.MeshStandardMaterial({
+    map: pave.map, normalMap: pave.normalMap, normalScale: new THREE.Vector2(0.95, 0.95),
+    roughnessMap: pave.orm, metalnessMap: pave.orm, roughness: 1, metalness: 1, vertexColors: true, envMapIntensity: 0.48,
+  }), { isWalk: true, key: 'walk' });
   M.flat = pbrMaterial({ grain: 9, grainAmount: 0.14 });
   M.veh = vehicleMaterial();
   M.glow = new THREE.MeshBasicMaterial({ vertexColors: true });
-  M.marks = new THREE.MeshStandardMaterial({
-    map: T.markingsTexture(), transparent: true, depthWrite: false, roughness: 0.72, metalness: 0,
+  M.marks = applyMarkingsWear(new THREE.MeshStandardMaterial({
+    map: T.markingsTexture(), transparent: true, depthWrite: false, roughness: 0.78, metalness: 0,
     polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
-  });
+  }));
   T.FACADES.forEach((def, i) => {
     const tex = T.facadeTextures(def, 100 + i * 17);
     M['facade' + i] = new THREE.MeshStandardMaterial({
@@ -258,7 +259,7 @@ export function buildCity({ onProgress } = {}) {
     const g = new THREE.PlaneGeometry(size, size);
     g.rotateX(-Math.PI / 2);
     const uv = g.attributes.uv;
-    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (size / 7), uv.getY(i) * (size / 7));
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (size / 4.2), uv.getY(i) * (size / 4.2));
     const mesh = new THREE.Mesh(g, M.ground);
     mesh.receiveShadow = true;
     mesh.matrixAutoUpdate = false;
@@ -421,15 +422,25 @@ export function buildCity({ onProgress } = {}) {
   // Bake world-space Times Square neon spill + analytical ground/building contact AO
   const lightMap = buildCityLightMap(ctx);
   ctx.lightMap = lightMap;
-  applyCityLighting(M.ground, lightMap, { mode: 'ground', spillGain: 0.52, aoStrength: 1.0, key: 'ground' });
-  applyCityLighting(M.walk, lightMap, { mode: 'walk', spillGain: 0.48, aoStrength: 1.0, key: 'walk' });
-  applyCityLighting(M.marks, lightMap, { mode: 'marks', spillGain: 0.34, aoStrength: 0.85, key: 'marks' });
+  applyCityLighting(M.ground, lightMap, { mode: 'ground', spillGain: 0.26, aoStrength: 1.0, key: 'ground' });
+  applyCityLighting(M.walk, lightMap, { mode: 'walk', spillGain: 0.28, aoStrength: 1.0, key: 'walk' });
+  applyCityLighting(M.marks, lightMap, { mode: 'marks', spillGain: 0.28, aoStrength: 0.85, key: 'marks' });
   applyCityLighting(M.flat, lightMap, { mode: 'flat', spillGain: 0.48, aoStrength: 0.85, baseAO: 0.32, key: 'flat' });
   for (let i = 0; i < T.FACADES.length; i++) {
     applyCityLighting(M['facade' + i], lightMap, { mode: 'flat', spillGain: 0.82, aoStrength: 0.75, baseAO: 0.38, key: 'fac' + i });
     applyFacadeParallax(M['facade' + i], T.FACADES[i], i);
+    applyMidtownHaze(M['facade' + i], { strength: 1.0, neonPreserve: 0.72, key: 'fac' + i });
   }
   applyShopParallax(M.shop, lightMap, T.SHOP_COLS, T.SHOP_ROWS);
+  // Height-stratified blue-hour depth haze on Midtown buildings & props (road/walk use scene.fog directly)
+  for (const [mk, m] of [
+    ['flat', M.flat], ['veh', M.veh], ['shop', M.shop],
+  ]) {
+    applyMidtownHaze(m, { strength: 1.0, neonPreserve: 0.68, key: mk });
+  }
+  for (const [mk, m] of [['ads', M.ads], ['adsA', M.adsA], ['adsB', M.adsB], ['ticker', M.ticker]]) {
+    applyMidtownHaze(m, { strength: 0.0, baseFogScale: 0.45, key: mk });
+  }
   if (onProgress) onProgress(0.85);
   world.finalize();
 

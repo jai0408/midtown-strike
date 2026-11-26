@@ -136,57 +136,27 @@ export function asphaltTexture() {
   const S = 512;
   const mk = () => { const c = makeCanvas(S, S); return [c, c.getContext('2d')]; };
   const [A, ga] = mk(), [Hc, gh] = mk(), [O, go] = mk();
-  ga.fillStyle = '#313235'; ga.fillRect(0, 0, S, S);
+  ga.fillStyle = '#2c2e33'; ga.fillRect(0, 0, S, S);
   gh.fillStyle = gray(128); gh.fillRect(0, 0, S, S);
-  go.fillStyle = rgbRM(0.95, 0); go.fillRect(0, 0, S, S);
-  const all = (fa, fh, fo, alpha, draw) => {
-    for (const [g, f] of [[ga, fa], [gh, fh], [go, fo]]) { g.globalAlpha = alpha; g.fillStyle = f; g.strokeStyle = f; draw(g); }
-    ga.globalAlpha = gh.globalAlpha = go.globalAlpha = 1;
-  };
-  // repair patches (rotated rects, slightly different tone, raised edge)
-  for (let i = 0; i < 5; i++) {
-    const x = rng.next() * S, y = rng.next() * S, w = 50 + rng.next() * 140, h = 30 + rng.next() * 90, rot = rng.range(-0.15, 0.15);
-    const fresh = rng.chance(0.5);
-    wrapped(S, S, (ox, oy) => {
-      if (Math.abs(ox) + Math.abs(oy) > 0 && (x + ox < -w || x + ox > S + w || y + oy < -h || y + oy > S + h)) return;
-      all(fresh ? '#2c2d30' : '#4a4b4e', gray(fresh ? 134 : 124), rgbRM(fresh ? 0.78 : 0.93, 0), 0.8, (g) => {
-        g.save(); g.translate(x + ox, y + oy); g.rotate(rot); g.fillRect(0, 0, w, h);
-        g.lineWidth = 2; g.globalAlpha = 0.9;
-        if (g === gh) { g.strokeStyle = gray(90); g.strokeRect(0, 0, w, h); }
-        g.restore();
-      });
-    });
-  }
-  // oil stains and rubber (dark, low roughness)
-  for (let i = 0; i < 9; i++) {
-    const x = rng.next() * S, y = rng.next() * S, rx = 14 + rng.next() * 40, ry = 10 + rng.next() * 30, a = 0.25 + rng.next() * 0.35;
-    wrapped(S, S, (ox, oy) => {
-      for (const [g, col] of [[ga, '28,28,31'], [go, '0,70,0']]) {
-        const gr = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, Math.max(rx, ry));
-        gr.addColorStop(0, `rgba(${col},${a})`); gr.addColorStop(1, `rgba(${col},0)`);
-        g.save(); g.translate(x + ox, y + oy); g.scale(rx / Math.max(rx, ry), ry / Math.max(rx, ry)); g.translate(-(x + ox), -(y + oy));
-        g.fillStyle = gr; g.beginPath(); g.arc(x + ox, y + oy, Math.max(rx, ry), 0, 7); g.fill(); g.restore();
-      }
-    });
-  }
-  // cracks and tar-snake sealant
+  go.fillStyle = rgbRM(0.92, 0); go.fillRect(0, 0, S, S);
+  // Subtle micro-cracks (fine low-contrast hairline fissures; macro cracks & patches are world-space)
   const lines = [];
-  for (let i = 0; i < 14; i++) {
+  for (let i = 0; i < 10; i++) {
     const pts = [[rng.next() * S, rng.next() * S]];
-    const n = 5 + (rng.next() * 8 | 0), ang = rng.next() * 6.28, snake = i < 6;
+    const n = 4 + (rng.next() * 6 | 0), ang = rng.next() * 6.28;
     for (let k = 0; k < n; k++) {
-      const p = pts[k]; const a = ang + rng.range(-0.7, 0.7);
-      pts.push([p[0] + Math.cos(a) * rng.range(10, 30), p[1] + Math.sin(a) * rng.range(10, 30)]);
+      const p = pts[k]; const a = ang + rng.range(-0.75, 0.75);
+      pts.push([p[0] + Math.cos(a) * rng.range(8, 22), p[1] + Math.sin(a) * rng.range(8, 22)]);
     }
-    lines.push({ pts, snake });
+    lines.push(pts);
   }
-  for (const { pts, snake } of lines) {
+  for (const pts of lines) {
     wrapped(S, S, (ox, oy) => {
       ga.lineJoin = gh.lineJoin = go.lineJoin = 'round';
       for (const [g, col, lw, al] of [
-        [ga, snake ? '#141517' : '#121314', snake ? 3 : 1.2, snake ? 0.85 : 0.7],
-        [gh, snake ? gray(136) : gray(100), snake ? 3 : 1.4, 0.7],
-        [go, snake ? rgbRM(0.62, 0) : rgbRM(0.97, 0), snake ? 3 : 1.2, 1],
+        [ga, '#17181b', 0.95, 0.48],
+        [gh, gray(104), 1.15, 0.55],
+        [go, rgbRM(0.95, 0), 1.0, 0.85],
       ]) {
         g.globalAlpha = al; g.strokeStyle = col; g.lineWidth = lw; g.beginPath();
         pts.forEach((p, k) => (k ? g.lineTo(p[0] + ox, p[1] + oy) : g.moveTo(p[0] + ox, p[1] + oy)));
@@ -195,14 +165,14 @@ export function asphaltTexture() {
     });
   }
   ga.globalAlpha = gh.globalAlpha = go.globalAlpha = 1;
-  // coarse aggregate stones
-  for (let i = 0; i < 2600; i++) {
-    const x = rng.next() * S, y = rng.next() * S, r = 0.8 + rng.next() * 1.6;
-    const v = rng.chance(0.5) ? 'rgba(120,120,126,0.35)' : 'rgba(10,10,12,0.35)';
+  // Dense multi-scale basalt/quartz aggregate stones
+  for (let i = 0; i < 3600; i++) {
+    const x = rng.next() * S, y = rng.next() * S, r = 0.65 + rng.next() * 1.45;
+    const v = rng.chance(0.44) ? 'rgba(130,134,142,0.42)' : 'rgba(10,11,13,0.48)';
     ga.fillStyle = v; ga.beginPath(); ga.arc(x, y, r, 0, 7); ga.fill();
-    gh.fillStyle = rng.chance(0.5) ? gray(160) : gray(100); gh.globalAlpha = 0.6; gh.beginPath(); gh.arc(x, y, r, 0, 7); gh.fill(); gh.globalAlpha = 1;
+    gh.fillStyle = rng.chance(0.5) ? gray(168) : gray(90); gh.globalAlpha = 0.66; gh.beginPath(); gh.arc(x, y, r, 0, 7); gh.fill(); gh.globalAlpha = 1;
   }
-  return finishSurface(A, Hc, O, S, S, { grain: 0.8, grainH: 1.4, blotch: 0.22, nStrength: 3, seed: 21 });
+  return finishSurface(A, Hc, O, S, S, { grain: 1.08, grainH: 1.85, blotch: 0.14, nStrength: 4.4, seed: 21 });
 }
 
 /** Sidewalk: 3.2 m tile holding 2 x 2 poured slabs (1.6 m). Returns { map, normalMap, orm }. */

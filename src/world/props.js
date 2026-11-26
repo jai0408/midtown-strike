@@ -582,4 +582,40 @@ export function waterTower(ctx, x, y, z) {
   rm(G, R_DEF);
 }
 
+export function manhole(ctx, x, z) {
+  const y = groundAt(x, z);
+  const G = ctx.B('flat', x, z);
+  const tar = C('#0d0e10'), iron = C('#40454d'), rim = C('#5d636e'), dark = C('#23262c');
+  rm(G, [0.46, 0.04]);
+  G.cyl(x, z, y + 0.002, y + 0.009, 0.62, 0.58, 12, tar, true);
+  rm(G, R_CAST);
+  G.cyl(x, z, y + 0.008, y + 0.019, 0.49, 0.48, 12, iron, true, rim);
+  G.cyl(x, z, y + 0.018, y + 0.023, 0.40, 0.39, 12, dark, true, iron);
+  // Raised cast-iron pattern ribs
+  G.box(x - 0.31, y + 0.020, z - 0.032, x + 0.31, y + 0.028, z + 0.032, rim, 31);
+  G.box(x - 0.032, y + 0.020, z - 0.31, x + 0.032, y + 0.028, z + 0.31, rim, 31);
+  rm(G, R_DEF);
+}
+
+export function stormDrain(ctx, x, z, alongZ = true) {
+  const y = groundAt(x, z);
+  const G = ctx.B('flat', x, z);
+  const hx = alongZ ? 0.26 : 0.52, hz = alongZ ? 0.52 : 0.26;
+  const sump = C('#0b0c0e'), iron = C('#353940'), bar = C('#4a4f57');
+  rm(G, R_CAST);
+  G.floor(x - hx, z - hz, x + hx, z + hz, y + 0.006, sump);
+  // Perimeter frame
+  G.box(x - hx - 0.04, y + 0.004, z - hz - 0.04, x + hx + 0.04, y + 0.020, z - hz + 0.04, iron, 31);
+  G.box(x - hx - 0.04, y + 0.004, z + hz - 0.04, x + hx + 0.04, y + 0.020, z + hz + 0.04, iron, 31);
+  G.box(x - hx - 0.04, y + 0.004, z - hz + 0.04, x - hx + 0.04, y + 0.020, z + hz - 0.04, iron, 31);
+  G.box(x + hx - 0.04, y + 0.004, z - hz + 0.04, x + hx + 0.04, y + 0.020, z + hz - 0.04, iron, 31);
+  // Grate bars
+  for (let i = -2; i <= 2; i++) {
+    const off = i * 0.16;
+    if (alongZ) G.box(x - hx + 0.03, y + 0.008, z + off - 0.022, x + hx - 0.03, y + 0.022, z + off + 0.022, bar, 31);
+    else G.box(x + off - 0.022, y + 0.008, z - hz + 0.03, x + off + 0.022, y + 0.022, z + hz - 0.03, bar, 31);
+  }
+  rm(G, R_DEF);
+}
+
 export { BLACK, STEEL, CONCRETE, POLE };

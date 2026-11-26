@@ -521,6 +521,28 @@ function timesSquare(ctx) {
     else { zf = b.z0; dir = -1; }
     marquee(ctx, cx, zf, dir, Math.min(13, b.x1 - b.x0 - 3), rng);
   }
+
+  // --- flush NYC cast-iron manholes & gutter storm-drain grates (zero rng calls) ---
+  const onRoad = (x, z) => groundAt(x, z) < 0.05 && world.fits(x, 0.2, z, 0.85, 1.4);
+  for (let z = -190; z <= 210; z += 22) {
+    const mx = (Math.floor((z + 200) / 22) & 1) ? -2.2 : 2.6;
+    if (onRoad(mx, z)) P.manhole(ctx, mx, z);
+    if (!STREETS.some((s) => Math.abs(z - s.z) < s.hw + 2)) {
+      if (onRoad(-8.55, z + 6)) P.stormDrain(ctx, -8.55, z + 6, true);
+      if (onRoad(8.55, z - 6)) P.stormDrain(ctx, 8.55, z - 6, true);
+    }
+  }
+  if (onRoad(1.8, 114)) P.manhole(ctx, 1.8, 114);
+  if (onRoad(-2.6, 132)) P.manhole(ctx, -2.6, 132);
+  for (const n of [43, 44, 45, 46]) {
+    const sz = streetZ(n);
+    for (let x = -120; x <= 120; x += 28) {
+      if (Math.abs(x) < 14 || Math.abs(x - broadwayX(sz)) < 14) continue;
+      if (onRoad(x, sz - 1.4)) P.manhole(ctx, x, sz - 1.4);
+      if (onRoad(x + 9, sz + 4.55)) P.stormDrain(ctx, x + 9, sz + 4.55, false);
+      if (onRoad(x - 9, sz - 4.55)) P.stormDrain(ctx, x - 9, sz - 4.55, false);
+    }
+  }
 }
 
 /** Theatre canopy with a lit underside and a vertical blade sign. */

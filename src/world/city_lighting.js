@@ -13,6 +13,7 @@
 // markings, street props and facades on ALL quality levels (including Medium).
 import * as THREE from 'three';
 import { AVENUES, STREETS, CURB, broadwayX, PLAZA_Z0, PLAZA_Z1 } from './layout.js';
+import { MED_WET_SPEC } from './road_shader.js';
 
 // World region covered by the light-spill + contact-AO texture (metres)
 const MIN_X = -220, MAX_X = 220;
@@ -255,8 +256,10 @@ export function applyCityLighting(mat, lightMap, {
   const prevKey = mat.customProgramCacheKey ? mat.customProgramCacheKey() : '';
   mat.onBeforeCompile = (s, renderer) => {
     if (prevCompile) prevCompile(s, renderer);
+    const hasRw = s.fragmentShader.includes('float rwPuddle;');
     s.uniforms.uCityLight = { value: lightMap.texture };
     s.uniforms.uCityRect = { value: lightMap.rect };
+    if (hasRw) s.uniforms.uMedWetSpec = MED_WET_SPEC;
     const hasWp = s.vertexShader.includes('vWp');
     if (!hasWp) {
       s.vertexShader = s.vertexShader
@@ -269,6 +272,7 @@ export function applyCityLighting(mat, lightMap, {
         ${fragHasWp ? '' : 'varying vec3 vWp;'}
         uniform sampler2D uCityLight;
         uniform vec4 uCityRect;
+        ${hasRw ? 'uniform float uMedWetSpec;' : ''}
         vec4 sampleCityLight(vec2 xz) {
           vec2 uv = (xz - uCityRect.xy) * uCityRect.zw;
           vec2 inside = smoothstep(vec2(0.0), vec2(0.06), uv) * smoothstep(vec2(0.0), vec2(0.06), 1.0 - uv);
@@ -278,7 +282,6 @@ export function applyCityLighting(mat, lightMap, {
         }`);
 
     const isGround = mode === 'ground' || mode === 'walk' || mode === 'marks';
-    const hasDamp = s.fragmentShader.includes('float tbDamp;');
 
     // Compute light-spill + contact-AO sample ONCE in color_fragment and reuse in emissivemap_fragment
     const aoBlock = isGround
@@ -297,14 +300,33 @@ export function applyCityLighting(mat, lightMap, {
 
     s.fragmentShader = s.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>\n${aoBlock}`);
 
-    // Colored neon & lamp bounce spill added into emissive radiance so it lights shadowed surfaces!
+    // Colored neon & lamp bounce spill added into emissive radiance; wet roads also
+    // get grazing specular neon sheen from baked lightmap (drives Medium wet look at 0 extra passes).
     const spillBlock = isGround
-      ? `{
-          float wetBoost = ${hasDamp ? '1.0 + tbDamp * 0.65' : '1.0'};
-          // Colored light spills onto dark asphalt and catches damp sheen; masked gently by contact AO
-          vec3 spill = _clm.rgb * (diffuseColor.rgb * 0.95 + vec3(0.055) * wetBoost) * ${spillGain.toFixed(2)} * mix(0.45, 1.0, _clm.a);
-          totalEmissiveRadiance += spill;
-        }`
+      ? (hasRw && mode === 'ground'
+        ? `{
+            float _clLum = dot(_clm.rgb, vec3(0.2126, 0.7152, 0.0722));
+            vec3 _diffBounce = mix(vec3(_clLum), _clm.rgb, 0.58);
+            vec3 spill = _diffBounce * (diffuseColor.rgb * 0.85 + vec3(0.009)) * ${spillGain.toFixed(2)} * mix(0.42, 1.0, _clm.a);
+            vec3 _vdf = vWp - cameraPosition;
+            float _vdl = max(length(_vdf), 0.1);
+            vec3 _vdir = _vdf / _vdl;
+            float _hzl = length(_vdir.xz);
+            vec2 _hdir = _hzl > 1e-4 ? _vdir.xz / _hzl : vec2(0.0, -1.0);
+            float _f1 = 1.0 - clamp(-_vdir.y, 0.0, 1.0);
+            float _f2 = _f1 * _f1;
+            float _fres = 0.03 + 0.97 * _f2 * _f2 * _f1;
+            vec3 _ahead = sampleCityLight(vWp.xz + _hdir * mix(8.0, 20.0, _fres)).rgb;
+            float _gr = 0.65 + 0.35 * rwGr;
+            float _wSpec = (rwPuddle * mix(0.14, 0.92, _fres) + rwDamp * (1.0 - rwPuddle) * mix(0.02, 0.24, _fres)) * _gr;
+            totalEmissiveRadiance += spill + _ahead * _wSpec * uMedWetSpec * 0.42 * mix(0.35, 1.0, _clm.a);
+          }`
+        : `{
+            float _clLum = dot(_clm.rgb, vec3(0.2126, 0.7152, 0.0722));
+            vec3 _diffBounce = mix(vec3(_clLum), _clm.rgb, 0.65);
+            vec3 spill = _diffBounce * (diffuseColor.rgb * 0.88 + vec3(0.018)) * ${spillGain.toFixed(2)} * mix(0.45, 1.0, _clm.a);
+            totalEmissiveRadiance += spill;
+          }`)
       : `{
           float hFade = smoothstep(-0.5, 3.0, vWp.y) * (1.0 - smoothstep(32.0, 82.0, vWp.y));
           vec3 spill = _clm.rgb * (diffuseColor.rgb * 0.75 + vec3(0.025)) * ${spillGain.toFixed(2)} * (0.35 + 0.65 * hFade);
