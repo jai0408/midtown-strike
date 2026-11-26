@@ -10,3 +10,4 @@ tools/blender/glb/
 __pycache__/
 *.pyc
 *.bak
+docs/visual_audit/
