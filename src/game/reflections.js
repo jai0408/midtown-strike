@@ -79,7 +79,7 @@ const traceFragment = `
     vec3 wp = worldAt(vUv, d);
     if (wp.y > ${GROUND_MAX_Y.toFixed(2)}) return;
 
-    vec3 wet = rwEvalWetness(wp.xz, wp.y);
+    vec4 wet = rwEvalWetness(wp.xz, wp.y);
     float damp = wet.x, puddle = wet.y;
     if (puddle < 0.08 && (wp.y > 0.06 || damp < 0.24)) return;
 
@@ -229,7 +229,7 @@ const compositeFragment = `
                    * (1.0 - smoothstep(0.035, 0.095, gc.y));
     if (flatMask <= 0.005) return;
 
-    vec3 wet = rwEvalWetness(wp.xz, wp.y);
+    vec4 wet = rwEvalWetness(wp.xz, wp.y);
     float damp = wet.x, puddle = wet.y;
     float isWalk = smoothstep(0.06, 0.13, wp.y);
 

@@ -30,9 +30,9 @@ export const ROAD_WETNESS_GLSL = `
     return rwNoise(xz * 6.5);
   }
 
-  // Returns vec3(damp, puddle, rutMask) from world XZ and surface Y.
+  // Returns vec4(damp, puddle, rutMask, ax) from world XZ and surface Y.
   // Roadways sit at y ~ 0.0; sidewalks and Times Square plazas sit at y ~ 0.15.
-  vec3 rwEvalWetness(vec2 xz, float y) {
+  vec4 rwEvalWetness(vec2 xz, float y) {
     float ax = xz.x < 630.0 ? mod(xz.x + 140.0, 280.0) - 140.0 : mod(xz.x + 70.0, 140.0) - 70.0;
     float sz = mod(xz.y + 40.0, 80.0) - 40.0;
     float isWalk = smoothstep(0.06, 0.13, y);
@@ -60,48 +60,51 @@ export const ROAD_WETNESS_GLSL = `
     float wetField = lowSpot + gutter * 0.22 + rut * 0.16 - crownDry * 0.28 - isWalk * 0.20;
     float puddle = smoothstep(0.60, 0.84, wetField + (mid - 0.5) * 0.06);
     float damp = smoothstep(0.28, 0.68, wetField + 0.10 * (1.0 - isWalk));
-    return vec3(damp, puddle, rut);
+    return vec4(damp, puddle, rut, ax);
   }
 `;
 
 const ROAD_DETAIL_GLSL = `
-  // Non-repeating world-space asphalt wear (2 noises + 1 cell): utility patches,
-  // crisp matte-dark tar snakes, hairline cracks & oil grime.
-  vec4 rwAsphaltWear(vec2 xz, float rut, float coarseN) {
-    vec2 pCell = floor(xz / 12.0);
-    vec2 pLocal = fract(xz / 12.0) - 0.5;
-    float hasPatch = step(0.78, rwHash(pCell + vec2(3.1, 7.7)));
-    vec2 pOff = vec2(rwHash(pCell + vec2(11.3, 2.9)) - 0.5, rwHash(pCell + vec2(6.7, 9.1)) - 0.5) * 0.24;
-    vec2 halfSz = vec2(0.13 + 0.14 * rwHash(pCell + 1.3), 0.10 + 0.12 * rwHash(pCell + 5.9));
-    vec2 dBox = abs(pLocal - pOff) - halfSz;
+  // Non-repeating world-space asphalt wear surviving mipmapping past 10-50 m:
+  // lane-to-lane paving differences, worn wheel paths, bold utility cuts, tar snakes & cracks.
+  vec4 rwAsphaltWear(vec2 xz, float rut, float coarseN, float ax) {
+    float laneShade = 0.91 + 0.18 * rwHash(vec2(floor((ax + 1.5) / 3.0), 7.3));
+
+    vec2 pCell = floor(xz / 11.0);
+    vec2 pLocal = fract(xz / 11.0) - 0.5;
+    float hP = rwHash(pCell + vec2(3.1, 7.7));
+    float hasPatch = step(0.58, hP);
+    float hS = rwHash(pCell + vec2(11.3, 5.9));
+    vec2 dBox = abs(pLocal) - vec2(0.16 + 0.18 * hS, 0.30 - 0.14 * hS);
     float boxDist = max(dBox.x, dBox.y);
     float patchIn = hasPatch * (1.0 - smoothstep(-0.015, 0.008, boxDist));
-    float seam = hasPatch * (1.0 - smoothstep(0.0, 0.020, abs(boxDist)));
-    float fresh = step(0.50, rwHash(pCell + vec2(19.1, 4.3)));
+    float seam = hasPatch * (1.0 - smoothstep(0.0, 0.022, abs(boxDist)));
+    float fresh = step(0.79, hP);
 
-    // Matte-dark tar-snake sealant lines (never catches white sun glare)
-    vec2 wTar = xz * 0.26 + vec2(coarseN * 0.9, coarseN * 0.6);
+    // Bolder matte-dark tar-snake sealant lines (never catches white sun glare)
+    vec2 wTar = xz * 0.18 + vec2(coarseN * 0.9, coarseN * 0.6);
     float rTar = 1.0 - abs(rwNoise(wTar) * 2.0 - 1.0);
     float rTar2 = rTar * rTar;
     float rTar4 = rTar2 * rTar2;
-    float tarLine = smoothstep(0.84, 0.96, rTar4) * smoothstep(0.50, 0.72, coarseN);
+    float tarLine = smoothstep(0.78, 0.94, rTar4) * smoothstep(0.42, 0.68, coarseN);
 
     // Hairline cracks + oil lane grime
     float midN = rwNoise(xz * 0.65 + 3.7);
     float rCrk = 1.0 - abs(midN * 2.0 - 1.0);
     float rCrk4 = rCrk * rCrk * rCrk * rCrk;
-    float crack = smoothstep(0.84, 0.96, rCrk4) * smoothstep(0.42, 0.68, coarseN + rut * 0.20);
+    float crack = smoothstep(0.84, 0.96, rCrk4) * smoothstep(0.40, 0.66, coarseN + rut * 0.20);
     float oil = smoothstep(0.70, 0.88, midN + rut * 0.16);
 
-    float aMul = mix(1.0, mix(1.08, 0.78, fresh), patchIn)
-               * mix(1.0, 0.34, seam)
+    float aMul = laneShade
+               * mix(1.0, mix(1.18, 0.68, fresh), patchIn)
+               * mix(1.0, 0.30, seam)
                * mix(1.0, 0.28, tarLine)
                * mix(1.0, 0.46, crack)
                * mix(1.0, 0.74, oil * 0.7);
 
     float tRough = mix(0.88, mix(0.90, 0.76, fresh), patchIn);
-    tRough = mix(tRough, 0.56, oil * 0.55);
-    tRough = mix(tRough, 0.64, tarLine);
+    tRough = mix(tRough, 0.58, oil * 0.55);
+    tRough = mix(tRough, 0.68, tarLine);
     float wRough = clamp(patchIn * 0.60 + oil * 0.50 + tarLine * 0.80, 0.0, 1.0);
     return vec4(aMul, tRough, wRough, seam);
   }
@@ -142,36 +145,42 @@ export function applyRoadSurface(mat, { isWalk = false, key = 'road' } = {}) {
                rwDamp = smoothstep(0.28, 0.68, _wf);
                rwPuddle = smoothstep(0.63, 0.78, _wf);
                rwRut = 0.0;
-               rwGr = rwGrain(vWp.xz);
+               rwGr = _midW;
                rwWear = vec4(1.0, 0.86, 0.0, 0.0);
                diffuseColor.rgb *= 0.88 + 0.22 * _drift;
                float _wetDark = clamp(rwDamp * 0.42 + rwPuddle * 0.45, 0.0, 1.0);
                diffuseColor.rgb *= mix(1.0, 0.64, _wetDark);`
-            : `vec3 _rw = rwEvalWetness(vWp.xz, vWp.y);
+            : `vec4 _rw = rwEvalWetness(vWp.xz, vWp.y);
                rwDamp = _rw.x;
                rwPuddle = _rw.y;
                rwRut = _rw.z;
                rwGr = rwGrain(vWp.xz);
                float _drift = rwNoise(vWp.xz * 0.032);
-               rwWear = rwAsphaltWear(vWp.xz, rwRut, _drift);
-               diffuseColor.rgb *= (0.84 + 0.26 * _drift) * rwWear.x;
+               rwWear = rwAsphaltWear(vWp.xz, rwRut, _drift, _rw.w);
+               diffuseColor.rgb *= (0.76 + 0.42 * _drift) * rwWear.x;
+               diffuseColor.rgb *= 1.0 + rwRut * 0.14 * (1.0 - rwPuddle);
                float _wetDark = clamp(rwDamp * 0.56 + rwPuddle * 0.48, 0.0, 1.0);
                diffuseColor.rgb *= mix(1.0, 0.54, _wetDark);`}
         }`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
         {
           ${isWalk
-            ? `roughnessFactor = mix(roughnessFactor, 0.76 + 0.12 * rwGr, rwDamp * 0.52);
-               roughnessFactor = mix(roughnessFactor, 0.34 + 0.08 * rwGr, rwPuddle * 0.78);`
+            ? `roughnessFactor = mix(roughnessFactor, 0.78 + 0.12 * rwGr, rwDamp * 0.52);
+               roughnessFactor = mix(roughnessFactor, 0.38 + 0.08 * rwGr, rwPuddle * 0.76);`
             : `roughnessFactor = mix(roughnessFactor, rwWear.y, rwWear.z);
-               float _dampR = mix(0.88, 0.64, rwDamp) - rwRut * 0.10 + (rwGr - 0.5) * 0.09;
-               roughnessFactor = mix(roughnessFactor, clamp(_dampR, 0.46, 0.96), 0.72);
-               roughnessFactor = mix(roughnessFactor, 0.29 + 0.07 * rwGr, rwPuddle);`}
+               float _dampR = mix(0.88, 0.66, rwDamp) - rwRut * 0.08 + (rwGr - 0.5) * 0.09;
+               roughnessFactor = mix(roughnessFactor, clamp(_dampR, 0.50, 0.96), 0.72);
+               roughnessFactor = mix(roughnessFactor, 0.36 + 0.07 * rwGr, rwPuddle);`}
         }`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         {
           vec3 _upV = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
-          normal = normalize(mix(normal, _upV, rwPuddle * ${isWalk ? '0.42' : '0.46'}));
+          normal = normalize(mix(normal, _upV, rwPuddle * ${isWalk ? '0.32' : '0.34'}));
+        }`)
+      .replace('#include <lights_fragment_end>', isWalk ? '#include <lights_fragment_end>' : `#include <lights_fragment_end>
+        {
+          reflectedLight.directSpecular *= mix(0.14, 0.30, rwPuddle);
+          reflectedLight.indirectSpecular = min(reflectedLight.indirectSpecular, vec3(0.16));
         }`);
   };
   mat.customProgramCacheKey = () => `${prevKey}|rw_${key}`;
@@ -246,13 +255,13 @@ export function applyMidtownHaze(mat, { strength = 1.0, neonPreserve = 0.72, bas
         : '#include <fog_fragment>'}
         #ifdef USE_FOG
         {
-          float _hd = max(vFogDepth - 28.0, 0.0);
+          float _hd = max(vFogDepth - 95.0, 0.0);
           if (_hd > 0.5) {
             float _hAlt = clamp(1.0 - max(vWp.y, 0.0) * 0.0085, 0.28, 1.0);
-            float _hF = (_hd / (_hd + 280.0)) * _hAlt * ${strength.toFixed(2)};
+            float _hF = (_hd / (_hd + 340.0)) * _hAlt * ${strength.toFixed(2)};
             float _peak = max(gl_FragColor.r, max(gl_FragColor.g, gl_FragColor.b));
             float _keep = 1.0 - smoothstep(0.45, 1.60, _peak) * ${neonPreserve.toFixed(2)};
-            gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.105, 0.145, 0.235), clamp(_hF * _keep, 0.0, 0.72));
+            gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.055, 0.085, 0.165), clamp(_hF * _keep, 0.0, 0.72));
           }
         }
         #endif`);

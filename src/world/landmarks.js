@@ -58,10 +58,10 @@ function adPanel(ctx, rng, ax, az, bx, bz, y0, y1, forceAnim = false) {
     const len = Math.max(w, 0.1);
     const nx = (bz - az) / len, nz = -(bx - ax) / len;
     const mx = (ax + bx) / 2, mz = (az + bz) / 2;
-    const hAtten = clamp(1.15 - y0 / 56, 0.18, 1.0);
-    const rad = clamp(Math.sqrt(w * h) * 1.6 + 8, 12, 34);
-    const pushOut = clamp(8 + y0 * 0.35, 8, 22);
-    const str = clamp(Math.sqrt(w * h) * 0.028 * hAtten, 0.12, 0.62);
+    const hAtten = clamp(1.10 - y0 / 48, 0.12, 1.0);
+    const rad = clamp(Math.sqrt(w * h) * 0.95 + 4, 8, 17);
+    const pushOut = clamp(4 + y0 * 0.16, 4, 10);
+    const str = clamp(Math.sqrt(w * h) * 0.015 * hAtten, 0.06, 0.30);
     ctx.light(mx + nx * pushOut, mz + nz * pushOut, rad, col, str);
   }
 }
@@ -443,7 +443,7 @@ function timesSquare(ctx) {
           let w = Math.min(rng.range(8, 24), len - 0.8 - s);
           if (rng.chance(0.14)) { s += w + 1; continue; }
           adPanel(ctx, rng, ax + ux * s, az + uz * s, ax + ux * (s + w), az + uz * (s + w), yy, yy + rowH - 1);
-          if (yy < 9 && rng.chance(0.75)) ctx.pool(mx + nx * 9 + ux * (s + w / 2 - len / 2), mz + nz * 9 + uz * (s + w / 2 - len / 2), rng.range(10, 17), rng.pick(NEON), 0.3);
+          if (yy < 9 && rng.chance(0.75)) ctx.pool(mx + nx * 6 + ux * (s + w / 2 - len / 2), mz + nz * 6 + uz * (s + w / 2 - len / 2), rng.range(6, 10), rng.pick(NEON), 0.12);
           s += w + rng.range(0.6, 1.6);
         }
         yy += rowH + rng.range(0.4, 1.2);

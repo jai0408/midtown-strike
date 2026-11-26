@@ -135,8 +135,8 @@ export function lampPost(ctx, x, z, dirX, dirZ, color = '#ffd9a0') {
   E.box(hx - 0.34, y + 8.26, hz - 0.34, hx + 0.34, y + 8.46, hz + 0.34, C(color, 1.35), 31 | 32);
   rm(G, R_DEF);
   ctx.glow(hx, y + 8.3, hz, color, 1.35);
-  ctx.pool(hx + dirX * 1.5, hz + dirZ * 1.5, 11.5, color, 0.62);
-  if (ctx.light) ctx.light(hx + dirX * 1.6, hz + dirZ * 1.6, 11.0, '#ffc978', 0.60);
+  ctx.pool(hx + dirX * 1.5, hz + dirZ * 1.5, 8.5, color, 0.30);
+  if (ctx.light) ctx.light(hx + dirX * 1.6, hz + dirZ * 1.6, 9.5, '#ffc978', 0.42);
 }
 
 export function trafficLight(ctx, x, z, dirX, dirZ, green, labels) {
@@ -585,15 +585,17 @@ export function waterTower(ctx, x, y, z) {
 export function manhole(ctx, x, z) {
   const y = groundAt(x, z);
   const G = ctx.B('flat', x, z);
-  const tar = C('#0d0e10'), iron = C('#40454d'), rim = C('#5d636e'), dark = C('#23262c');
-  rm(G, [0.46, 0.04]);
-  G.cyl(x, z, y + 0.002, y + 0.009, 0.62, 0.58, 12, tar, true);
-  rm(G, R_CAST);
-  G.cyl(x, z, y + 0.008, y + 0.019, 0.49, 0.48, 12, iron, true, rim);
-  G.cyl(x, z, y + 0.018, y + 0.023, 0.40, 0.39, 12, dark, true, iron);
-  // Raised cast-iron pattern ribs
-  G.box(x - 0.31, y + 0.020, z - 0.032, x + 0.31, y + 0.028, z + 0.032, rim, 31);
-  G.box(x - 0.032, y + 0.020, z - 0.31, x + 0.032, y + 0.028, z + 0.31, rim, 31);
+  const damp = C('#08090b'), iron = C('#15171b'), dish = C('#0f1114'), rim = C('#5a606b'), rib = C('#262a30');
+  rm(G, [0.30, 0.05]);
+  G.cyl(x, z, y + 0.002, y + 0.007, 0.64, 0.60, 12, damp, true);
+  rm(G, [0.62, 0.72]);
+  G.cyl(x, z, y + 0.007, y + 0.017, 0.48, 0.47, 12, iron, true, rim);
+  G.cyl(x, z, y + 0.016, y + 0.021, 0.42, 0.41, 12, dish, true, iron);
+  rm(G, [0.28, 0.88]);
+  G.cyl(x, z, y + 0.017, y + 0.023, 0.46, 0.44, 12, rim, false);
+  rm(G, [0.58, 0.70]);
+  G.box(x - 0.30, y + 0.019, z - 0.030, x + 0.30, y + 0.025, z + 0.030, rib, 31);
+  G.box(x - 0.030, y + 0.019, z - 0.30, x + 0.030, y + 0.025, z + 0.30, rib, 31);
   rm(G, R_DEF);
 }
 

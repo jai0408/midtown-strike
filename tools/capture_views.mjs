@@ -34,6 +34,9 @@ export const VIEWS = [
   { name: 'lodge_high_trail', mode: 'lodge', quality: 'high', view: 'tpp', yaw: 4.0, pitch: -0.05 },
   { name: 'lodge_high_fpp', mode: 'lodge', quality: 'high', view: 'fpp', yaw: 0, pitch: -0.05 },
   { name: 'lodge_medium_yard', mode: 'lodge', quality: 'medium', view: 'tpp', yaw: 0, pitch: -0.05 },
+  { name: 'midtown_high_wedge', mode: 'tdm', quality: 'high', view: 'tpp', pos: [14, 102], yaw: 3.37, pitch: 0.24 },
+  { name: 'midtown_high_tkts', mode: 'tdm', quality: 'high', view: 'tpp', pos: [-22, -74], yaw: 0.09, pitch: 0.08 },
+  { name: 'midtown_high_soldier', mode: 'tdm', quality: 'high', view: 'tpp', pos: [4, 122], yaw: 0.35, pitch: -0.05, ads: true },
 ];
 
 function findChrome() {
@@ -107,12 +110,14 @@ const PAGE_SHOT = `async (v, settleMs) => {
   }
   const g = G.game, p = g.player;
   p.fp = v.view === 'fpp';
+  g.input.ads = !!v.ads;
   g.paused = false;
   // optional pos [x, z]: stand the player there (close-up audit views of set pieces)
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 28; i++) {
     if (v.pos) { p.body.x = v.pos[0]; p.body.z = v.pos[1]; if (p.body.vx !== undefined) { p.body.vx = 0; p.body.vz = 0; } }
     p.yaw = v.yaw; p.pitch = v.pitch; G.step(1, 1 / 60);
   }
+  g.input.ads = false;
   const r = G.view.renderer, gl = r.getContext(), px = new Uint8Array(4), times = [];
   for (let i = 0; i < 12; i++) {
     const t0 = performance.now(); G.view.render(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); times.push(performance.now() - t0);

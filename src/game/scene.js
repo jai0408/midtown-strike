@@ -26,12 +26,12 @@ export const ATMOSPHERES = {
   midtown: {
     sky: { top: 0x1d3a66, mid: 0x5f86b3, horizon: 0xd9b08c, haze: 0x56606e, sunCol: 0xffc98a, gain: 1.6, stars: 1 },
     sunDir: [-0.82, 0.44, 0.36], sunColor: 0xffdcb0, sunIntensity: 3.4,
-    hemi: { sky: 0xa9c4ee, ground: 0x4a443e, intensity: 0.9 },
-    fog: { color: 0x3b4a63, near: 48, far: 780 },
+    hemi: { sky: 0x9ab8e8, ground: 0x202026, intensity: 0.72 },
+    fog: { color: 0x24334b, near: 120, far: 960 },
     exposure: 1.0, envIntensity: 0.9, envFloor: 0x25262a, shadowR: 55, shadowRadius: 2.5, shadowNormalBias: 0.05, shadowIntensity: 0.86,
-    grade: { sat: 0.95, curve: 0.08, warm: 1.0 },
+    grade: { sat: 0.96, curve: 0.20, warm: 1.0 },
     bloom: { strength: 0.34, threshold: 0.90, medStrength: 0.48, medThreshold: 0.64 },
-    reflect: { strength: 0.68, wetBase: 0.04 },   // damp NYC asphalt with patchy puddles & stretched neon streaks
+    reflect: { strength: 0.72, wetBase: 0.03 },   // damp NYC asphalt with patchy puddles & stretched neon streaks
   },
   // clear sunny afternoon at Cedar Lodge: warm golden sun, airy neutral-sky fill &
   // warm earth bounce so shadows stay luminous and soft instead of harsh blue-black.

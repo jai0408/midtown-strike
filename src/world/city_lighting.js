@@ -62,7 +62,7 @@ export function buildCityLightMap(ctx) {
         const d = Math.sqrt(dx * dx + dz2) * invR;
         if (d >= 1.0) continue;
         const t = 1.0 - d;
-        const fall = t * t * (3.0 - 2.0 * t); // smoothstep falloff
+        const fall = t * t * t; // fast inverse-square-like falloff hugs the source
         const o = (row + ix) * 3;
         rgb[o] += cr * fall;
         rgb[o + 1] += cg * fall;
@@ -128,7 +128,7 @@ export function buildCityLightMap(ctx) {
   const shopWarm = hexLinear('#ffbe78');
   for (const b of ctx.buildings) {
     if (b.x1 + 10 < MIN_X || b.x0 - 10 > MAX_X || b.z1 + 10 < MIN_Z || b.z0 - 10 > MAX_Z) continue;
-    addBoxAO(b.x0, b.z0, b.x1, b.z1, 2.8, 0.44);
+    addBoxAO(b.x0, b.z0, b.x1, b.z1, 2.8, 0.32);
     // Gentle warm storefront spill along street-facing edges
     if (b.shops) {
       const step = 7.5;
@@ -164,7 +164,7 @@ export function buildCityLightMap(ctx) {
       }
       if (dKerb < 1.8) {
         const t = dKerb / 1.8;
-        const k = 0.72 + 0.28 * (t * t * (3.0 - 2.0 * t));
+        const k = 0.50 + 0.50 * (t * t * (3.0 - 2.0 * t));
         if (k < ao[row + ix]) ao[row + ix] = k;
       }
     }
@@ -172,10 +172,10 @@ export function buildCityLightMap(ctx) {
 
   // 3. Vehicle & street-prop contact AO
   for (const v of ctx.vehicles) {
-    addYawAO(v.x, v.z, v.yaw, v.hl + 0.1, v.hw + 0.1, 1.35, 0.30);
+    addYawAO(v.x, v.z, v.yaw, v.hl + 0.1, v.hw + 0.1, 1.35, 0.14);
   }
   for (const o of (ctx.occluders || [])) {
-    addBoxAO(o.x0, o.z0, o.x1, o.z1, o.pad || 1.3, o.minAO || 0.36);
+    addBoxAO(o.x0, o.z0, o.x1, o.z1, o.pad || 1.3, Math.min(o.minAO || 0.36, 0.26));
   }
 
   // 4. Recorded colored light sources (billboards, street lamps, plaza features, wrecks)
@@ -212,9 +212,9 @@ export function buildCityLightMap(ctx) {
       let fr = rr * tone, fg = gg * tone, fb = bb * tone;
       // Preserve chromatic punch so overlapping neon stays rich instead of milky grey
       const lum = fr * 0.2126 + fg * 0.7152 + fb * 0.0722;
-      fr = Math.max(0, lum + (fr - lum) * 1.18);
-      fg = Math.max(0, lum + (fg - lum) * 1.18);
-      fb = Math.max(0, lum + (fb - lum) * 1.18);
+      fr = Math.max(0, lum + (fr - lum) * 1.04);
+      fg = Math.max(0, lum + (fg - lum) * 1.04);
+      fb = Math.max(0, lum + (fb - lum) * 1.04);
       const o = (r1 + ix) * 4;
       data[o]     = Math.min(255, Math.max(0, Math.round(fr * 0.5 * 255)));
       data[o + 1] = Math.min(255, Math.max(0, Math.round(fg * 0.5 * 255)));
@@ -306,8 +306,8 @@ export function applyCityLighting(mat, lightMap, {
       ? (hasRw && mode === 'ground'
         ? `{
             float _clLum = dot(_clm.rgb, vec3(0.2126, 0.7152, 0.0722));
-            vec3 _diffBounce = mix(vec3(_clLum), _clm.rgb, 0.58);
-            vec3 spill = _diffBounce * (diffuseColor.rgb * 0.85 + vec3(0.009)) * ${spillGain.toFixed(2)} * mix(0.42, 1.0, _clm.a);
+            vec3 _diffBounce = mix(vec3(_clLum), _clm.rgb, 0.32);
+            vec3 spill = _diffBounce * (diffuseColor.rgb * 0.85) * ${spillGain.toFixed(2)} * mix(0.42, 1.0, _clm.a);
             vec3 _vdf = vWp - cameraPosition;
             float _vdl = max(length(_vdf), 0.1);
             vec3 _vdir = _vdf / _vdl;
@@ -316,15 +316,15 @@ export function applyCityLighting(mat, lightMap, {
             float _f1 = 1.0 - clamp(-_vdir.y, 0.0, 1.0);
             float _f2 = _f1 * _f1;
             float _fres = 0.03 + 0.97 * _f2 * _f2 * _f1;
-            vec3 _ahead = sampleCityLight(vWp.xz + _hdir * mix(8.0, 20.0, _fres)).rgb;
+            vec3 _ahead = sampleCityLight(vWp.xz + _hdir * mix(6.0, 16.0, _fres)).rgb;
             float _gr = 0.65 + 0.35 * rwGr;
-            float _wSpec = (rwPuddle * mix(0.14, 0.92, _fres) + rwDamp * (1.0 - rwPuddle) * mix(0.02, 0.24, _fres)) * _gr;
-            totalEmissiveRadiance += spill + _ahead * _wSpec * uMedWetSpec * 0.42 * mix(0.35, 1.0, _clm.a);
+            float _wSpec = (rwPuddle * mix(0.14, 0.88, _fres) + rwDamp * (1.0 - rwPuddle) * mix(0.02, 0.20, _fres)) * _gr;
+            totalEmissiveRadiance += spill + _ahead * _wSpec * uMedWetSpec * 0.44 * mix(0.35, 1.0, _clm.a);
           }`
         : `{
             float _clLum = dot(_clm.rgb, vec3(0.2126, 0.7152, 0.0722));
-            vec3 _diffBounce = mix(vec3(_clLum), _clm.rgb, 0.65);
-            vec3 spill = _diffBounce * (diffuseColor.rgb * 0.88 + vec3(0.018)) * ${spillGain.toFixed(2)} * mix(0.45, 1.0, _clm.a);
+            vec3 _diffBounce = mix(vec3(_clLum), _clm.rgb, 0.40);
+            vec3 spill = _diffBounce * (diffuseColor.rgb * 0.88) * ${spillGain.toFixed(2)} * mix(0.45, 1.0, _clm.a);
             totalEmissiveRadiance += spill;
           }`)
       : `{
